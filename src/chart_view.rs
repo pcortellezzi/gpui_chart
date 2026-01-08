@@ -8,6 +8,7 @@ use adabraka_ui::util::PixelsExt;
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::rc::Rc;
+use std::time::{Instant, Duration};
 use tracing::info;
 use d3rs::scale::{Scale, LinearScale};
 
@@ -22,6 +23,63 @@ actions!(gpui_chart, [
     ResetView
 ]);
 
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum LegendPosition {
+    #[default]
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    BottomRight,
+    TopCenter,
+    BottomCenter,
+    Custom(Point<Pixels>),
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum Orientation {
+    #[default]
+    Vertical,
+    Horizontal,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct LegendConfig {
+    pub enabled: bool,
+    pub position: LegendPosition,
+    pub orientation: Orientation,
+    pub offset: Point<Pixels>,
+}
+
+impl Default for LegendConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            position: LegendPosition::TopLeft,
+            orientation: Orientation::Vertical,
+            offset: Point::new(px(10.0), px(10.0)),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct InertiaConfig {
+    pub enabled: bool,
+    pub friction: f64,    // Factor per frame (e.g., 0.92)
+    pub sensitivity: f64, // Multiplier for captured velocity
+    pub stop_threshold: Duration, // Threshold to cancel inertia if no move detected before release
+}
+
+impl Default for InertiaConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            friction: 0.90,
+            sensitivity: 1.0,
+            stop_threshold: Duration::from_millis(150),
+        }
+    }
+}
+
 pub fn init(_cx: &mut impl AppContext) {
     // Initialization code if needed
 }
@@ -30,6 +88,7 @@ pub fn init(_cx: &mut impl AppContext) {
 pub struct ChartView {
     pub domain: AxisDomain,
     pub series: Vec<Series>,
+    pub hidden_series: HashSet<String>,
     pub bg_color: Hsla,
     pub label_color: Hsla,
     
@@ -37,10 +96,19 @@ pub struct ChartView {
     pub show_crosshair: bool,
     pub show_axis_tags: bool,
     pub show_tooltip: bool,
+    pub legend_config: LegendConfig,
+    pub inertia_config: InertiaConfig,
 
     drag_start: Option<Point<Pixels>>,
+    last_drag_time: Option<Instant>,
+    velocity: Point<f64>, // Data units per second
+    
     zoom_drag_start: Option<Point<Pixels>>,
     zoom_drag_last: Option<Point<Pixels>>,
+    
+    box_zoom_start: Option<Point<Pixels>>,
+    box_zoom_current: Option<Point<Pixels>>,
+
     pub mouse_pos: Option<Point<Pixels>>,
     is_dragging: bool,
 
@@ -64,16 +132,26 @@ impl ChartView {
         Self {
             domain,
             series: vec![],
+            hidden_series: HashSet::new(),
             bg_color: gpui::black(),
             label_color: gpui::white(),
             
             show_crosshair: true,
             show_axis_tags: true,
             show_tooltip: true,
+            legend_config: LegendConfig::default(),
+            inertia_config: InertiaConfig::default(),
 
             drag_start: None,
+            last_drag_time: None,
+            velocity: Point::default(),
+
             zoom_drag_start: None,
             zoom_drag_last: None,
+            
+            box_zoom_start: None,
+            box_zoom_current: None,
+
             mouse_pos: None,
             is_dragging: false,
 
@@ -192,6 +270,7 @@ impl ChartView {
         let mut y_max = f64::NEG_INFINITY;
 
         for series in &self.series {
+            if self.hidden_series.contains(&series.id) { continue; }
             if let Some((sx_min, sx_max, sy_min, sy_max)) = series.plot.borrow().get_min_max() {
                 x_min = x_min.min(sx_min);
                 x_max = x_max.max(sx_max);
@@ -201,18 +280,16 @@ impl ChartView {
         }
 
         if x_min == f64::INFINITY {
-            // No data, keep current domain
             self.data_changed = false;
             return;
         }
 
         let x_data_range = x_max - x_min;
         let y_data_range = y_max - y_min;
-        let padding = 0.05; // 5% margin
+        let padding = 0.05;
 
-        // Ensure non-zero range for X
         if x_data_range <= f64::EPSILON {
-            let half_range = 30.0; // Default +/- 30s
+            let half_range = 30.0;
             self.domain.x_min = x_min - half_range;
             self.domain.x_max = x_max + half_range;
         } else {
@@ -220,13 +297,12 @@ impl ChartView {
             self.domain.x_max = x_max + x_data_range * padding;
         }
 
-        // Ensure non-zero range for Y
         if y_data_range <= f64::EPSILON {
             let half_range = if y_min.abs() > f64::EPSILON {
                 y_min.abs() * 0.05
             } else {
                 5.0
-            }; // +/- 5% or 5.0
+            };
             self.domain.y_min = y_min - half_range;
             self.domain.y_max = y_max + half_range;
         } else {
@@ -237,7 +313,7 @@ impl ChartView {
         self.data_changed = false;
     }
 
-    /// Gère l'événement de zoom (molette de la souris).
+    /// Gère l'événement de zoom (molette de la souris) et le pan à deux doigts (Trackpad).
     fn handle_zoom(
         &mut self,
         event: &ScrollWheelEvent,
@@ -249,34 +325,57 @@ impl ChartView {
             return;
         }
 
+        let is_zoom = event.modifiers.control || event.modifiers.platform;
+
+        let delta_x = match event.delta {
+            ScrollDelta::Pixels(p) => p.x.as_f32() as f64,
+            ScrollDelta::Lines(p) => p.x as f64 * 20.0,
+        };
         let delta_y = match event.delta {
             ScrollDelta::Pixels(p) => p.y.as_f32() as f64,
-            ScrollDelta::Lines(p) => p.y as f64,
+            ScrollDelta::Lines(p) => p.y as f64 * 20.0,
         };
-        let zoom_factor = (1.0f64 - delta_y * 0.01).clamp(0.1, 10.0);
-        let mouse_pos = event.position;
 
-        let domain = &mut self.domain;
-        let (pixels_w, pixels_h) = (
-            bounds.size.width.as_f32() as f64,
-            bounds.size.height.as_f32() as f64,
-        );
-        let (data_w, data_h) = (domain.width(), domain.height());
-        let mouse_x_pct =
-            (mouse_pos.x.as_f32() as f64 - bounds.origin.x.as_f32() as f64) / pixels_w;
-        let mouse_y_pct =
-            (mouse_pos.y.as_f32() as f64 - bounds.origin.y.as_f32() as f64) / pixels_h;
+        if is_zoom {
+            let zoom_factor = (1.0f64 - delta_y * 0.01).clamp(0.1, 10.0);
+            let mouse_pos = event.position;
 
-        let mouse_x_data = domain.x_min + data_w * mouse_x_pct;
-        let mouse_y_data = domain.y_min + data_h * (1.0 - mouse_y_pct); // Y inversé
+            let domain = &mut self.domain;
+            let (pixels_w, pixels_h) = (
+                bounds.size.width.as_f32() as f64,
+                bounds.size.height.as_f32() as f64,
+            );
+            let (data_w, data_h) = (domain.width(), domain.height());
+            let mouse_x_pct =
+                (mouse_pos.x.as_f32() as f64 - bounds.origin.x.as_f32() as f64) / pixels_w;
+            let mouse_y_pct =
+                (mouse_pos.y.as_f32() as f64 - bounds.origin.y.as_f32() as f64) / pixels_h;
 
-        let new_data_w = data_w * zoom_factor;
-        let new_data_h = data_h * zoom_factor;
+            let mouse_x_data = domain.x_min + data_w * mouse_x_pct;
+            let mouse_y_data = domain.y_min + data_h * (1.0 - mouse_y_pct);
 
-        domain.x_min = mouse_x_data - new_data_w * mouse_x_pct;
-        domain.x_max = domain.x_min + new_data_w;
-        domain.y_min = mouse_y_data - new_data_h * (1.0 - mouse_y_pct);
-        domain.y_max = domain.y_min + new_data_h;
+            let new_data_w = data_w * zoom_factor;
+            let new_data_h = data_h * zoom_factor;
+
+            domain.x_min = mouse_x_data - new_data_w * mouse_x_pct;
+            domain.x_max = domain.x_min + new_data_w;
+            domain.y_min = mouse_y_data - new_data_h * (1.0 - mouse_y_pct);
+            domain.y_max = domain.y_min + new_data_h;
+        } else {
+            let domain = &mut self.domain;
+            let (pixels_w, pixels_h) = (
+                bounds.size.width.as_f32() as f64,
+                bounds.size.height.as_f32() as f64,
+            );
+            let (data_w, data_h) = (domain.width(), domain.height());
+            let dx = delta_x * (data_w / pixels_w);
+            let dy = delta_y * (data_h / pixels_h);
+            
+            domain.x_min -= dx;
+            domain.x_max -= dx;
+            domain.y_min += dy;
+            domain.y_max += dy;
+        }
         cx.notify();
     }
 
@@ -293,6 +392,8 @@ impl ChartView {
             return;
         }
         self.drag_start = Some(event.position);
+        self.last_drag_time = Some(Instant::now());
+        self.velocity = Point::default();
         self.is_dragging = true;
         cx.notify();
     }
@@ -308,8 +409,10 @@ impl ChartView {
 
         if let Some(start) = self.drag_start {
             self.is_dragging = true;
-            let delta = event.position - start;
+            let now = Instant::now();
+            let delta_pixels = event.position - start;
             let bounds = *self.bounds.borrow();
+            
             if !bounds.is_empty() {
                 let domain = &mut self.domain;
                 let (pixels_w, pixels_h) = (
@@ -319,22 +422,125 @@ impl ChartView {
                 let (data_w, data_h) = (domain.width(), domain.height());
                 let x_ratio = data_w / pixels_w;
                 let y_ratio = data_h / pixels_h;
-                let dx = delta.x.as_f32() as f64 * x_ratio;
-                let dy = delta.y.as_f32() as f64 * y_ratio;
+                
+                let dx = delta_pixels.x.as_f32() as f64 * x_ratio;
+                let dy = delta_pixels.y.as_f32() as f64 * y_ratio;
+                
+                if let Some(last_time) = self.last_drag_time {
+                    let dt = now.duration_since(last_time).as_secs_f64();
+                    if dt > 0.0 {
+                        self.velocity = Point::new(
+                            (dx / dt) * self.inertia_config.sensitivity, 
+                            (dy / dt) * self.inertia_config.sensitivity
+                        );
+                    }
+                }
+
                 domain.x_min -= dx;
                 domain.x_max -= dx;
                 domain.y_min += dy;
                 domain.y_max += dy;
             }
             self.drag_start = Some(event.position);
+            self.last_drag_time = Some(now);
         }
+
+        if let Some(_) = self.box_zoom_start {
+            self.box_zoom_current = Some(event.position);
+        }
+
         cx.notify();
     }
 
     /// Gère la fin du glissement.
-    fn end_drag(&mut self, _event: &MouseUpEvent, _window: &mut Window, cx: &mut Context<Self>) {
+    fn end_drag(&mut self, _event: &MouseUpEvent, window: &mut Window, cx: &mut Context<Self>) {
         self.drag_start = None;
         self.is_dragging = false;
+        
+        if let Some(last_time) = self.last_drag_time {
+            if Instant::now().duration_since(last_time) > self.inertia_config.stop_threshold {
+                self.velocity = Point::default();
+            }
+        }
+
+        if self.inertia_config.enabled && (self.velocity.x.abs() > 1.0 || self.velocity.y.abs() > 1.0) {
+            self.apply_inertia(window, cx);
+        }
+        cx.notify();
+    }
+
+    fn apply_inertia(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.is_dragging || (self.velocity.x.abs() < 0.1 && self.velocity.y.abs() < 0.1) {
+            return;
+        }
+
+        let friction = self.inertia_config.friction;
+        self.velocity.x *= friction;
+        self.velocity.y *= friction;
+
+        let dt = 1.0 / 60.0;
+        let dx = self.velocity.x * dt;
+        let dy = self.velocity.y * dt;
+
+        self.domain.x_min -= dx;
+        self.domain.x_max -= dx;
+        self.domain.y_min += dy;
+        self.domain.y_max += dy;
+
+        cx.notify();
+
+        cx.on_next_frame(window, |this, window, cx| {
+            this.apply_inertia(window, cx);
+        });
+    }
+
+    /// Gère le début du Box Zoom.
+    fn start_box_zoom(
+        &mut self,
+        event: &MouseDownEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.box_zoom_start = Some(event.position);
+        self.box_zoom_current = Some(event.position);
+        cx.notify();
+    }
+
+    /// Gère la fin du Box Zoom.
+    fn end_box_zoom(
+        &mut self,
+        event: &MouseUpEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(start) = self.box_zoom_start {
+            let end = event.position;
+            let bounds = *self.bounds.borrow();
+            
+            if !bounds.is_empty() {
+                let x_scale = crate::scales::ChartScale::new_linear(
+                    (self.domain.x_min, self.domain.x_max),
+                    (0.0, bounds.size.width.as_f32())
+                );
+                let y_scale = crate::scales::ChartScale::new_linear(
+                    (self.domain.y_min, self.domain.y_max),
+                    (bounds.size.height.as_f32(), 0.0)
+                );
+                let transform = crate::transform::PlotTransform::new(x_scale, y_scale, bounds);
+
+                let p1 = transform.screen_to_data(start);
+                let p2 = transform.screen_to_data(end);
+
+                if (end.x - start.x).abs() > px(5.0) || (end.y - start.y).abs() > px(5.0) {
+                    self.domain.x_min = p1.x.min(p2.x);
+                    self.domain.x_max = p1.x.max(p2.x);
+                    self.domain.y_min = p1.y.min(p2.y);
+                    self.domain.y_max = p1.y.max(p2.y);
+                }
+            }
+        }
+        self.box_zoom_start = None;
+        self.box_zoom_current = None;
         cx.notify();
     }
 
@@ -367,13 +573,11 @@ impl ChartView {
             let delta_x = delta.x.as_f32() as f64;
             let delta_y = delta.y.as_f32() as f64;
             
-            // Factor: +100px = 2x zoom
             let factor_x = 1.0 + delta_x.abs() / 100.0;
             let factor_y = 1.0 + delta_y.abs() / 100.0;
             
             let domain = &mut self.domain;
             
-            // Calculate pivot (mouse start position) in percentage of bounds
             let width_px = bounds.size.width.as_f32() as f64;
             let height_px = bounds.size.height.as_f32() as f64;
             
@@ -381,27 +585,26 @@ impl ChartView {
             let pivot_y_px = start.y.as_f32() as f64 - bounds.origin.y.as_f32() as f64;
             
             let pivot_x_pct = (pivot_x_px / width_px).clamp(0.0, 1.0);
-            let pivot_y_pct = (pivot_y_px / height_px).clamp(0.0, 1.0); // 0 is top
+            let pivot_y_pct = (pivot_y_px / height_px).clamp(0.0, 1.0);
             
-            // Calculate pivot in domain coordinates
             let pivot_x_domain = domain.x_min + domain.width() * pivot_x_pct;
             let pivot_y_domain = domain.y_min + domain.height() * (1.0 - pivot_y_pct);
 
-            if delta_x > 0.0 { // Zoom In X
+            if delta_x > 0.0 { 
                 let new_width = domain.width() / factor_x;
                 domain.x_min = pivot_x_domain - new_width * pivot_x_pct;
                 domain.x_max = domain.x_min + new_width;
-            } else if delta_x < 0.0 { // Zoom Out X
+            } else if delta_x < 0.0 { 
                 let new_width = domain.width() * factor_x;
                 domain.x_min = pivot_x_domain - new_width * pivot_x_pct;
                 domain.x_max = domain.x_min + new_width;
             }
             
-            if delta_y < 0.0 { // Drag Up -> Zoom In Y (Natural scrolling)
+            if delta_y < 0.0 { 
                 let new_height = domain.height() / factor_y;
                 domain.y_min = pivot_y_domain - new_height * (1.0 - pivot_y_pct);
                 domain.y_max = domain.y_min + new_height;
-            } else if delta_y > 0.0 { // Drag Down -> Zoom Out Y
+            } else if delta_y > 0.0 { 
                 let new_height = domain.height() * factor_y;
                 domain.y_min = pivot_y_domain - new_height * (1.0 - pivot_y_pct);
                 domain.y_max = domain.y_min + new_height;
@@ -440,6 +643,15 @@ impl ChartView {
             y: y_scale.ticks(10),
         }
     }
+
+    pub fn toggle_series_visibility(&mut self, series_id: &str, cx: &mut Context<Self>) {
+        if self.hidden_series.contains(series_id) {
+            self.hidden_series.remove(series_id);
+        } else {
+            self.hidden_series.insert(series_id.to_string());
+        }
+        cx.notify();
+    }
 }
 
 impl Focusable for ChartView {
@@ -450,24 +662,25 @@ impl Focusable for ChartView {
 
 // Implémentation `Render` pour la `ChartView`
 impl Render for ChartView {
-    // Signature `render` de l'API v2 [1]
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if !self.dirty_series.is_empty() {
             self.dirty_series.clear();
         }
 
-        let series_clone = self.series.clone();
+        let visible_series: Vec<Series> = self.series.iter()
+            .filter(|s| !self.hidden_series.contains(&s.id))
+            .cloned()
+            .collect();
+
         let domain_clone = self.domain.clone();
         let bounds_rc = self.bounds.clone();
         let current_bounds = *bounds_rc.borrow();
         let mouse_pos = self.mouse_pos;
 
-        // Calculate ticks for axis labels and grid
         let ticks =
             Self::calculate_ticks(domain_clone.width(), domain_clone.height(), &domain_clone);
         let ticks_clone = ticks.clone();
 
-        // Create scales for label formatting and positioning
         let x_scale = crate::scales::ChartScale::new_linear(
             (domain_clone.x_min, domain_clone.x_max),
             (0.0, current_bounds.size.width.as_f32())
@@ -479,16 +692,13 @@ impl Render for ChartView {
 
         let transform = crate::transform::PlotTransform::new(x_scale.clone(), y_scale.clone(), current_bounds);
 
-        // Create axis backgrounds and label elements
         let mut axes_elements = paint_axes(&domain_clone, &x_scale, &y_scale, &ticks, self.label_color);
 
-        // Add Crosshair Tags on Axes
         if self.show_axis_tags {
             if let Some(pos) = mouse_pos {
                 if current_bounds.contains(&pos) {
                     let data_point = transform.screen_to_data(pos);
                     
-                    // X Axis Tag
                     axes_elements.push(create_axis_tag(
                         x_scale.format_tick(data_point.x),
                         pos.x,
@@ -497,7 +707,6 @@ impl Render for ChartView {
                         self.label_color
                     ));
 
-                    // Y Axis Tag
                     axes_elements.push(create_axis_tag(
                         y_scale.format_tick(data_point.y),
                         pos.y,
@@ -509,14 +718,20 @@ impl Render for ChartView {
             }
         }
 
-        let cursor = if self.is_dragging { CursorStyle::ClosedHand } else { CursorStyle::Crosshair };
+        let cursor = if self.is_dragging { 
+            CursorStyle::ClosedHand 
+        } else if self.box_zoom_start.is_some() {
+            CursorStyle::Arrow
+        } else { 
+            CursorStyle::Crosshair 
+        };
 
         div()
             .track_focus(&self.focus_handle)
             .size_full()
             .bg(self.bg_color)
             .relative() 
-            .cursor(CursorStyle::Arrow) // Default for axis area
+            .cursor(CursorStyle::Arrow)
             .on_mouse_down(MouseButton::Left, {
                 let focus_handle = self.focus_handle.clone();
                 move |_event, window, _cx| {
@@ -536,6 +751,8 @@ impl Render for ChartView {
             .on_mouse_down(MouseButton::Middle, cx.listener(Self::start_zoom_drag))
             .on_mouse_move(cx.listener(Self::handle_zoom_drag))
             .on_mouse_up(MouseButton::Middle, cx.listener(Self::end_zoom_drag))
+            .on_mouse_down(MouseButton::Right, cx.listener(Self::start_box_zoom))
+            .on_mouse_up(MouseButton::Right, cx.listener(Self::end_box_zoom))
             .on_scroll_wheel(cx.listener(Self::handle_zoom))
             .pl(px(50.0))
             .pb(px(20.0))
@@ -543,7 +760,7 @@ impl Render for ChartView {
                 div()
                     .size_full()
                     .overflow_hidden()
-                    .cursor(cursor) // Dynamic cursor only for the plot area
+                    .cursor(cursor)
                     .child(
                         canvas(|_bounds, _window, _cx| {}, {
                             let x_scale = x_scale.clone();
@@ -553,7 +770,7 @@ impl Render for ChartView {
                             move |bounds, (), window, cx| {
                                 *bounds_rc.borrow_mut() = bounds;
                                 paint_grid(window, bounds, &domain_clone, &x_scale, &y_scale, &ticks_clone);
-                                paint_plot(window, bounds, &series_clone, &domain_clone, cx);
+                                paint_plot(window, bounds, &visible_series, &domain_clone, cx);
                                 
                                 if show_crosshair {
                                     if let Some(pos) = mouse_pos {
@@ -563,9 +780,107 @@ impl Render for ChartView {
                             }
                         })
                         .size_full(),
-                    ),
+                    )
+                    .children(if let (Some(start), Some(current)) = (self.box_zoom_start, self.box_zoom_current) {
+                        let origin = current_bounds.origin;
+                        let min_x = (start.x.min(current.x)) - origin.x;
+                        let max_x = (start.x.max(current.x)) - origin.x;
+                        let min_y = (start.y.min(current.y)) - origin.y;
+                        let max_y = (start.y.max(current.y)) - origin.y;
+                        
+                        Some(div()
+                            .absolute()
+                            .left(min_x)
+                            .top(min_y)
+                            .w(max_x - min_x)
+                            .h(max_y - min_y)
+                            .bg(gpui::blue().alpha(0.2))
+                            .border_1()
+                            .border_color(gpui::blue())
+                        )
+                    } else {
+                        None
+                    }),
             )
             .children(axes_elements)
+            .children(if self.legend_config.enabled {
+                let mut legend_items = vec![];
+                for s in &self.series {
+                    let id = s.id.clone();
+                    let is_hidden = self.hidden_series.contains(&id);
+                    legend_items.push(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .cursor_pointer()
+                            .on_mouse_down(MouseButton::Left, {
+                                let id = id.clone();
+                                cx.listener(move |this, _event, _win, cx| {
+                                    this.toggle_series_visibility(&id, cx);
+                                })
+                            })
+                            .child(
+                                div()
+                                    .w_3()
+                                    .h_3()
+                                    .bg(if is_hidden { gpui::transparent_black() } else { gpui::blue() })
+                                    .border_1()
+                                    .border_color(gpui::white())
+                            )
+                            .child(
+                                div()
+                                    .text_size(px(10.0))
+                                    .text_color(if is_hidden { self.label_color.alpha(0.4) } else { self.label_color })
+                                    .child(id)
+                            )
+                    );
+                }
+
+                let mut legend_div = div()
+                    .absolute()
+                    .bg(self.bg_color.alpha(0.8))
+                    .p_2()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(self.label_color.alpha(0.2))
+                    .flex()
+                    .gap_2();
+
+                if self.legend_config.orientation == Orientation::Vertical {
+                    legend_div = legend_div.flex_col().gap_1();
+                } else {
+                    legend_div = legend_div.flex_row().gap_3();
+                }
+
+                match self.legend_config.position {
+                    LegendPosition::TopLeft => {
+                        legend_div = legend_div.top(px(10.0) + self.legend_config.offset.y).left(px(60.0) + self.legend_config.offset.x);
+                    }
+                    LegendPosition::TopRight => {
+                        legend_div = legend_div.top(px(10.0) + self.legend_config.offset.y).right(px(10.0) + self.legend_config.offset.x);
+                    }
+                    LegendPosition::BottomLeft => {
+                        legend_div = legend_div.bottom(px(30.0) + self.legend_config.offset.y).left(px(60.0) + self.legend_config.offset.x);
+                    }
+                    LegendPosition::BottomRight => {
+                        legend_div = legend_div.bottom(px(30.0) + self.legend_config.offset.y).right(px(10.0) + self.legend_config.offset.x);
+                    }
+                    LegendPosition::TopCenter => {
+                        legend_div = legend_div.top(px(10.0) + self.legend_config.offset.y).left_1_2().ml(px(-50.0));
+                    }
+                    LegendPosition::BottomCenter => {
+                        legend_div = legend_div.bottom(px(30.0) + self.legend_config.offset.y).left_1_2().ml(px(-50.0));
+                    }
+                    LegendPosition::Custom(p) => {
+                        legend_div = legend_div.top(p.y).left(p.x);
+                    }
+                }
+
+                Some(legend_div.children(legend_items).into_any_element())
+            } else {
+                None
+            })
             .children(if self.show_tooltip {
                 mouse_pos.and_then(|pos| {
                     if current_bounds.contains(&pos) {

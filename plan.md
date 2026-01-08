@@ -42,22 +42,23 @@ C'est ici que l'écart avec `egui_plot` se réduit.
 
 - [x] **Navigation Avancée (Clavier)**
     - Support du clavier (Flèches pour pan, `+/-` pour zoom, `0` reset).
-- [ ] **Navigation Tactile & Trackpad**
-    - Support des gestuelles Trackpad (Pinch-to-zoom fluide, Pan deux doigts).
-- [ ] **Inertial Scrolling (Physique)**
-    - Ajouter une inertie ("momentum") lors du glissement pour un rendu natif et fluide (type iOS/macOS).
+- [x] **Navigation Tactile & Trackpad**
+    - Support des gestuelles Trackpad (Pan deux doigts, Pinch-to-zoom via modifiers).
+- [x] **Inertial Scrolling (Physique)**
+    - Ajouter une inertie ("momentum") lors du glissement pour un rendu natif et fluide.
 - [x] **Curseur & Inspection (Crosshair & Tooltip)**
     - Capturer la position de la souris (`Hover`).
     - **Mode "Magnétique" :** Le curseur "colle" intelligemment aux points d'intérêt (High/Low/Close) lors de l'inspection ou du dessin.
     - Projeter la position souris -> données (`screen_to_data`).
     - "Snapping" : Trouver le point de donnée le plus proche.
     - Afficher une infobulle (Tooltip) flottante via `overlay` GPUI.
-- [ ] **Zoom par Zone (Box Zoom)**
+- [x] **Zoom par Zone (Box Zoom)**
     - Gestionnaire d'état pour un outil de sélection (Drag rectangulaire).
     - Mettre à jour le domaine (`x_min`, `x_max`, etc.) basé sur le rectangle relâché.
-- [ ] **Légende Interactive**
+- [x] **Légende Interactive**
     - Overlay affichant la liste des séries.
     - Toggle de visibilité par série (clic sur la légende).
+    - Auto-fit intelligent ignorant les séries masquées.
 
 ## Backlog & Améliorations Futures
 - [ ] **Paramétrage des touches** : Permettre à l'utilisateur de définir ses propres KeyBindings pour les actions de navigation.
