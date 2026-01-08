@@ -40,12 +40,13 @@ Avant d'ajouter des fonctionnalités, il faut solidifier la gestion de l'espace 
 ## Phase 2 : Interactivité & UX (Le "Look & Feel")
 C'est ici que l'écart avec `egui_plot` se réduit.
 
-- [ ] **Navigation Avancée (Clavier & Tactile)**
-    - Support du clavier (Flèches pour pan, `+/-` pour zoom, `Ctrl+0` reset).
+- [x] **Navigation Avancée (Clavier)**
+    - Support du clavier (Flèches pour pan, `+/-` pour zoom, `0` reset).
+- [ ] **Navigation Tactile & Trackpad**
     - Support des gestuelles Trackpad (Pinch-to-zoom fluide, Pan deux doigts).
 - [ ] **Inertial Scrolling (Physique)**
     - Ajouter une inertie ("momentum") lors du glissement pour un rendu natif et fluide (type iOS/macOS).
-- [ ] **Curseur & Inspection (Crosshair & Tooltip)**
+- [x] **Curseur & Inspection (Crosshair & Tooltip)**
     - Capturer la position de la souris (`Hover`).
     - **Mode "Magnétique" :** Le curseur "colle" intelligemment aux points d'intérêt (High/Low/Close) lors de l'inspection ou du dessin.
     - Projeter la position souris -> données (`screen_to_data`).
@@ -59,6 +60,7 @@ C'est ici que l'écart avec `egui_plot` se réduit.
     - Toggle de visibilité par série (clic sur la légende).
 
 ## Backlog & Améliorations Futures
+- [ ] **Paramétrage des touches** : Permettre à l'utilisateur de définir ses propres KeyBindings pour les actions de navigation.
 - [ ] **Interactivité des Axes** : Permettre de redimensionner (stretch) un seul axe en le glissant directement.
 - [ ] **Échelles Logarithmiques** : Support complet des échelles log dans `ChartScale`.
 - [ ] **Thèmes avancés** : Export des styles vers un fichier de config externe.
@@ -105,7 +107,7 @@ Pour gérer le "Big Data".
 - [ ] **LOD (Level of Detail) / Décimation**
     - **Source de vérité :** S'inspirer directement de la logique implémentée dans `../src/` du projet parent.
     - **Stratégie Configurable :** Permettre de définir des seuils d'agrégation manuels (ex: "passer en vue 1h si plage > 1 jour") OU automatiques (basés sur la densité de pixels visuelle).
-    - **Agrégation X & Y :** Supporter non seulement le temps (X) mais aussi le prix (Y) pour les Heatmaps/DOM (ex: regrouper 4 ticks en 1 bloc si la hauteur est illisible).
+    - **Agrégation X & Y :** Supporter non seulement le temps (X) mais aussi le prix (Y) pour les Heatmaps/DOM.
     - Implémenter l'agrégation dynamique (fusion de bougies, simplification de lignes).
     - Évite de saturer le GPU et le CPU pour des détails invisibles.
 - [ ] **Occlusion Culling**
@@ -126,6 +128,6 @@ Pour gérer le "Big Data".
 |---|---|---|
 | **Coordonnées** | Calcul manuel linéaire | `gpui-d3rs` Scales (Log, Time) |
 | **Ticks/Grille** | `LinearScale` basique | `TimeScale` intelligent |
-| **Inspection** | Aucune | Tooltip, Crosshair, Snap |
-| **Zoom** | Molette simple | Box Zoom, Auto-Y on Zoom |
+| **Inspection** | Crosshair, Tags, Tooltip | Tooltip, Crosshair, Snap |
+| **Zoom** | Molette & Keyboard | Box Zoom, Auto-Y on Zoom |
 | **Performance** | Dessine tout | Culling & Downsampling |

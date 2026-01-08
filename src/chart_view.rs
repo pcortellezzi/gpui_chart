@@ -11,7 +11,16 @@ use std::rc::Rc;
 use tracing::info;
 use d3rs::scale::{Scale, LinearScale};
 
-actions!(gpui_plot_element, [Init]);
+actions!(gpui_chart, [
+    Init, 
+    PanLeft, 
+    PanRight, 
+    PanUp, 
+    PanDown, 
+    ZoomIn, 
+    ZoomOut, 
+    ResetView
+]);
 
 pub fn init(_cx: &mut impl AppContext) {
     // Initialization code if needed
@@ -38,11 +47,12 @@ pub struct ChartView {
     data_changed: bool,
     bounds: Rc<RefCell<Bounds<Pixels>>>,
     dirty_series: HashSet<String>,
+    focus_handle: FocusHandle,
 }
 
 impl ChartView {
     /// Crée une nouvelle ChartView.
-    pub fn new(_cx: &mut Context<Self>) -> Self {
+    pub fn new(cx: &mut Context<Self>) -> Self {
         info!("ChartPanel new called");
         let domain = AxisDomain {
             x_min: 0.0,
@@ -76,7 +86,51 @@ impl ChartView {
                 },
             ))),
             dirty_series: HashSet::new(),
+            focus_handle: cx.focus_handle(),
         }
+    }
+
+    fn handle_pan_left(&mut self, _: &PanLeft, _win: &mut Window, cx: &mut Context<Self>) { self.pan_x(-0.1, cx); }
+    fn handle_pan_right(&mut self, _: &PanRight, _win: &mut Window, cx: &mut Context<Self>) { self.pan_x(0.1, cx); }
+    fn handle_pan_up(&mut self, _: &PanUp, _win: &mut Window, cx: &mut Context<Self>) { self.pan_y(0.1, cx); }
+    fn handle_pan_down(&mut self, _: &PanDown, _win: &mut Window, cx: &mut Context<Self>) { self.pan_y(-0.1, cx); }
+    fn handle_zoom_in(&mut self, _: &ZoomIn, _win: &mut Window, cx: &mut Context<Self>) { self.keyboard_zoom(0.9, cx); }
+    fn handle_zoom_out(&mut self, _: &ZoomOut, _win: &mut Window, cx: &mut Context<Self>) { self.keyboard_zoom(1.1, cx); }
+    fn handle_reset_view(&mut self, _: &ResetView, _win: &mut Window, cx: &mut Context<Self>) {
+        self.auto_fit_axes();
+        cx.notify();
+    }
+
+    fn pan_x(&mut self, factor: f64, cx: &mut Context<Self>) {
+        let width = self.domain.width();
+        let dx = width * factor;
+        self.domain.x_min += dx;
+        self.domain.x_max += dx;
+        cx.notify();
+    }
+
+    fn pan_y(&mut self, factor: f64, cx: &mut Context<Self>) {
+        let height = self.domain.height();
+        let dy = height * factor;
+        self.domain.y_min += dy;
+        self.domain.y_max += dy;
+        cx.notify();
+    }
+
+    fn keyboard_zoom(&mut self, factor: f64, cx: &mut Context<Self>) {
+        let width = self.domain.width();
+        let height = self.domain.height();
+        let mid_x = self.domain.x_min + width / 2.0;
+        let mid_y = self.domain.y_min + height / 2.0;
+
+        let new_width = width * factor;
+        let new_height = height * factor;
+
+        self.domain.x_min = mid_x - new_width / 2.0;
+        self.domain.x_max = mid_x + new_width / 2.0;
+        self.domain.y_min = mid_y - new_height / 2.0;
+        self.domain.y_max = mid_y + new_height / 2.0;
+        cx.notify();
     }
 
     pub fn add_data(&mut self, series_id: &str, data: PlotData, cx: &mut Context<Self>) {
@@ -388,6 +442,12 @@ impl ChartView {
     }
 }
 
+impl Focusable for ChartView {
+    fn focus_handle(&self, _cx: &App) -> FocusHandle {
+        self.focus_handle.clone()
+    }
+}
+
 // Implémentation `Render` pour la `ChartView`
 impl Render for ChartView {
     // Signature `render` de l'API v2 [1]
@@ -452,10 +512,24 @@ impl Render for ChartView {
         let cursor = if self.is_dragging { CursorStyle::ClosedHand } else { CursorStyle::Crosshair };
 
         div()
+            .track_focus(&self.focus_handle)
             .size_full()
             .bg(self.bg_color)
             .relative() 
             .cursor(CursorStyle::Arrow) // Default for axis area
+            .on_mouse_down(MouseButton::Left, {
+                let focus_handle = self.focus_handle.clone();
+                move |_event, window, _cx| {
+                    window.focus(&focus_handle);
+                }
+            })
+            .on_action(cx.listener(Self::handle_pan_left))
+            .on_action(cx.listener(Self::handle_pan_right))
+            .on_action(cx.listener(Self::handle_pan_up))
+            .on_action(cx.listener(Self::handle_pan_down))
+            .on_action(cx.listener(Self::handle_zoom_in))
+            .on_action(cx.listener(Self::handle_zoom_out))
+            .on_action(cx.listener(Self::handle_reset_view))
             .on_mouse_down(MouseButton::Left, cx.listener(Self::start_drag))
             .on_mouse_move(cx.listener(Self::handle_mouse_move))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::end_drag))
