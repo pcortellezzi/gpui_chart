@@ -23,6 +23,24 @@ impl CandlestickPlot {
 }
 
 impl PlotRenderer for CandlestickPlot {
+    fn get_min_max(&self) -> Option<(f64, f64, f64, f64)> {
+        if self.data.is_empty() { return None; }
+        
+        let mut x_min = f64::INFINITY;
+        let mut x_max = f64::NEG_INFINITY;
+        let mut y_min = f64::INFINITY;
+        let mut y_max = f64::NEG_INFINITY;
+
+        for candle in &self.data {
+            x_min = x_min.min(candle.time);
+            x_max = x_max.max(candle.time + candle.span);
+            y_min = y_min.min(candle.low);
+            y_max = y_max.max(candle.high);
+        }
+
+        Some((x_min, x_max, y_min, y_max))
+    }
+
     fn render(
         &self,
         window: &mut Window,
@@ -35,7 +53,6 @@ impl PlotRenderer for CandlestickPlot {
         let width_px = bounds.size.width.as_f32();
         if width_px <= 0.0 { return; }
 
-        // 1. Filter visible range (approximate using transform)
         let domain_x_min = transform.x_scale.invert(0.0);
         let domain_x_max = transform.x_scale.invert(width_px);
         let margin_x = (domain_x_max - domain_x_min) * 0.01;
@@ -48,7 +65,6 @@ impl PlotRenderer for CandlestickPlot {
 
         if visible_candles.is_empty() { return; }
 
-        // 2. Prepare Builders
         let mut up_body_fill = PathBuilder::fill();
         let mut up_wick_fill = PathBuilder::fill(); 
         let mut down_body_fill = PathBuilder::fill();
@@ -57,7 +73,6 @@ impl PlotRenderer for CandlestickPlot {
         let mut has_up = false;
         let mut has_down = false;
 
-        // 3. Pixel Aggregation Loop
         let origin_x = bounds.origin.x.as_f32();
         
         let mut current_pixel_idx: i32 = -1;

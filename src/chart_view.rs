@@ -64,9 +64,9 @@ impl Default for LegendConfig {
 #[derive(Clone, Debug, PartialEq)]
 pub struct InertiaConfig {
     pub enabled: bool,
-    pub friction: f64,    // Factor per frame (e.g., 0.92)
-    pub sensitivity: f64, // Multiplier for captured velocity
-    pub stop_threshold: Duration, // Threshold to cancel inertia if no move detected before release
+    pub friction: f64,
+    pub sensitivity: f64,
+    pub stop_threshold: Duration,
 }
 
 impl Default for InertiaConfig {
@@ -86,7 +86,7 @@ pub fn init(_cx: &mut impl AppContext) {
 
 /// La `View` principale qui gère l'état et la logique du graphique.
 pub struct ChartView {
-    pub domain: AxisDomain,
+    pub domain: Entity<AxisDomain>,
     pub series: Vec<Series>,
     pub hidden_series: HashSet<String>,
     pub bg_color: Hsla,
@@ -101,7 +101,7 @@ pub struct ChartView {
 
     drag_start: Option<Point<Pixels>>,
     last_drag_time: Option<Instant>,
-    velocity: Point<f64>, // Data units per second
+    velocity: Point<f64>,
     
     zoom_drag_start: Option<Point<Pixels>>,
     zoom_drag_last: Option<Point<Pixels>>,
@@ -119,15 +119,13 @@ pub struct ChartView {
 }
 
 impl ChartView {
-    /// Crée une nouvelle ChartView.
-    pub fn new(cx: &mut Context<Self>) -> Self {
+    /// Crée une nouvelle ChartView avec un domaine partagé (Entity).
+    pub fn new(domain: Entity<AxisDomain>, cx: &mut Context<Self>) -> Self {
         info!("ChartPanel new called");
-        let domain = AxisDomain {
-            x_min: 0.0,
-            x_max: 10.0,
-            y_min: 0.0,
-            y_max: 10.0,
-        };
+        
+        cx.observe(&domain, |_, _, cx| {
+            cx.notify();
+        }).detach();
 
         Self {
             domain,
@@ -175,40 +173,48 @@ impl ChartView {
     fn handle_zoom_in(&mut self, _: &ZoomIn, _win: &mut Window, cx: &mut Context<Self>) { self.keyboard_zoom(0.9, cx); }
     fn handle_zoom_out(&mut self, _: &ZoomOut, _win: &mut Window, cx: &mut Context<Self>) { self.keyboard_zoom(1.1, cx); }
     fn handle_reset_view(&mut self, _: &ResetView, _win: &mut Window, cx: &mut Context<Self>) {
-        self.auto_fit_axes();
-        cx.notify();
+        self.auto_fit_axes(cx);
     }
 
     fn pan_x(&mut self, factor: f64, cx: &mut Context<Self>) {
-        let width = self.domain.width();
-        let dx = width * factor;
-        self.domain.x_min += dx;
-        self.domain.x_max += dx;
-        cx.notify();
+        self.domain.update(cx, |domain: &mut AxisDomain, cx: &mut Context<AxisDomain>| {
+            let width = domain.width();
+            let dx = width * factor;
+            domain.x_min += dx;
+            domain.x_max += dx;
+            domain.clamp();
+            cx.notify();
+        });
     }
 
     fn pan_y(&mut self, factor: f64, cx: &mut Context<Self>) {
-        let height = self.domain.height();
-        let dy = height * factor;
-        self.domain.y_min += dy;
-        self.domain.y_max += dy;
-        cx.notify();
+        self.domain.update(cx, |domain: &mut AxisDomain, cx: &mut Context<AxisDomain>| {
+            let height = domain.height();
+            let dy = height * factor;
+            domain.y_min += dy;
+            domain.y_max += dy;
+            domain.clamp();
+            cx.notify();
+        });
     }
 
     fn keyboard_zoom(&mut self, factor: f64, cx: &mut Context<Self>) {
-        let width = self.domain.width();
-        let height = self.domain.height();
-        let mid_x = self.domain.x_min + width / 2.0;
-        let mid_y = self.domain.y_min + height / 2.0;
+        self.domain.update(cx, |domain: &mut AxisDomain, cx: &mut Context<AxisDomain>| {
+            let width = domain.width();
+            let height = domain.height();
+            let mid_x = domain.x_min + width / 2.0;
+            let mid_y = domain.y_min + height / 2.0;
 
-        let new_width = width * factor;
-        let new_height = height * factor;
+            let new_width = width * factor;
+            let new_height = height * factor;
 
-        self.domain.x_min = mid_x - new_width / 2.0;
-        self.domain.x_max = mid_x + new_width / 2.0;
-        self.domain.y_min = mid_y - new_height / 2.0;
-        self.domain.y_max = mid_y + new_height / 2.0;
-        cx.notify();
+            domain.x_min = mid_x - new_width / 2.0;
+            domain.x_max = mid_x + new_width / 2.0;
+            domain.y_min = mid_y - new_height / 2.0;
+            domain.y_max = mid_y + new_height / 2.0;
+            domain.clamp();
+            cx.notify();
+        });
     }
 
     pub fn add_data(&mut self, series_id: &str, data: PlotData, cx: &mut Context<Self>) {
@@ -253,9 +259,13 @@ impl ChartView {
         }
     }
 
-    pub fn set_x_domain(&mut self, range: std::ops::RangeInclusive<f64>) {
-        self.domain.x_min = *range.start();
-        self.domain.x_max = *range.end();
+    pub fn set_x_domain(&mut self, range: std::ops::RangeInclusive<f64>, cx: &mut Context<Self>) {
+        self.domain.update(cx, |domain: &mut AxisDomain, cx: &mut Context<AxisDomain>| {
+            domain.x_min = *range.start();
+            domain.x_max = *range.end();
+            domain.clamp();
+            cx.notify();
+        });
     }
 
     pub fn get_pixel_width(&self) -> f32 {
@@ -263,7 +273,7 @@ impl ChartView {
     }
 
     /// Automatically adjusts the axes to fit all series data points with padding.
-    pub fn auto_fit_axes(&mut self) {
+    pub fn auto_fit_axes(&mut self, cx: &mut Context<Self>) {
         let mut x_min = f64::INFINITY;
         let mut x_max = f64::NEG_INFINITY;
         let mut y_min = f64::INFINITY;
@@ -288,27 +298,31 @@ impl ChartView {
         let y_data_range = y_max - y_min;
         let padding = 0.05;
 
-        if x_data_range <= f64::EPSILON {
-            let half_range = 30.0;
-            self.domain.x_min = x_min - half_range;
-            self.domain.x_max = x_max + half_range;
-        } else {
-            self.domain.x_min = x_min - x_data_range * padding;
-            self.domain.x_max = x_max + x_data_range * padding;
-        }
-
-        if y_data_range <= f64::EPSILON {
-            let half_range = if y_min.abs() > f64::EPSILON {
-                y_min.abs() * 0.05
+        self.domain.update(cx, |domain: &mut AxisDomain, cx: &mut Context<AxisDomain>| {
+            if x_data_range <= f64::EPSILON {
+                let half_range = 30.0;
+                domain.x_min = x_min - half_range;
+                domain.x_max = x_max + half_range;
             } else {
-                5.0
-            };
-            self.domain.y_min = y_min - half_range;
-            self.domain.y_max = y_max + half_range;
-        } else {
-            self.domain.y_min = y_min - y_data_range * padding;
-            self.domain.y_max = y_max + y_data_range * padding;
-        }
+                domain.x_min = x_min - x_data_range * padding;
+                domain.x_max = x_max + x_data_range * padding;
+            }
+
+            if y_data_range <= f64::EPSILON {
+                let half_range = if y_min.abs() > f64::EPSILON {
+                    y_min.abs() * 0.05
+                } else {
+                    5.0
+                };
+                domain.y_min = y_min - half_range;
+                domain.y_max = y_max + half_range;
+            } else {
+                domain.y_min = y_min - y_data_range * padding;
+                domain.y_max = y_max + y_data_range * padding;
+            }
+            domain.clamp();
+            cx.notify();
+        });
 
         self.data_changed = false;
     }
@@ -336,47 +350,48 @@ impl ChartView {
             ScrollDelta::Lines(p) => p.y as f64 * 20.0,
         };
 
-        if is_zoom {
-            let zoom_factor = (1.0f64 - delta_y * 0.01).clamp(0.1, 10.0);
-            let mouse_pos = event.position;
+        self.domain.update(cx, |domain: &mut AxisDomain, cx: &mut Context<AxisDomain>| {
+            if is_zoom {
+                let zoom_factor = (1.0f64 - delta_y * 0.01).clamp(0.1, 10.0);
+                let mouse_pos = event.position;
 
-            let domain = &mut self.domain;
-            let (pixels_w, pixels_h) = (
-                bounds.size.width.as_f32() as f64,
-                bounds.size.height.as_f32() as f64,
-            );
-            let (data_w, data_h) = (domain.width(), domain.height());
-            let mouse_x_pct =
-                (mouse_pos.x.as_f32() as f64 - bounds.origin.x.as_f32() as f64) / pixels_w;
-            let mouse_y_pct =
-                (mouse_pos.y.as_f32() as f64 - bounds.origin.y.as_f32() as f64) / pixels_h;
+                let (pixels_w, pixels_h) = (
+                    bounds.size.width.as_f32() as f64,
+                    bounds.size.height.as_f32() as f64,
+                );
+                let (data_w, data_h) = (domain.width(), domain.height());
+                let mouse_x_pct =
+                    (mouse_pos.x.as_f32() as f64 - bounds.origin.x.as_f32() as f64) / pixels_w;
+                let mouse_y_pct =
+                    (mouse_pos.y.as_f32() as f64 - bounds.origin.y.as_f32() as f64) / pixels_h;
 
-            let mouse_x_data = domain.x_min + data_w * mouse_x_pct;
-            let mouse_y_data = domain.y_min + data_h * (1.0 - mouse_y_pct);
+                let mouse_x_data = domain.x_min + data_w * mouse_x_pct;
+                let mouse_y_data = domain.y_min + data_h * (1.0 - mouse_y_pct);
 
-            let new_data_w = data_w * zoom_factor;
-            let new_data_h = data_h * zoom_factor;
+                let new_data_w = data_w * zoom_factor;
+                let new_data_h = data_h * zoom_factor;
 
-            domain.x_min = mouse_x_data - new_data_w * mouse_x_pct;
-            domain.x_max = domain.x_min + new_data_w;
-            domain.y_min = mouse_y_data - new_data_h * (1.0 - mouse_y_pct);
-            domain.y_max = domain.y_min + new_data_h;
-        } else {
-            let domain = &mut self.domain;
-            let (pixels_w, pixels_h) = (
-                bounds.size.width.as_f32() as f64,
-                bounds.size.height.as_f32() as f64,
-            );
-            let (data_w, data_h) = (domain.width(), domain.height());
-            let dx = delta_x * (data_w / pixels_w);
-            let dy = delta_y * (data_h / pixels_h);
-            
-            domain.x_min -= dx;
-            domain.x_max -= dx;
-            domain.y_min += dy;
-            domain.y_max += dy;
-        }
-        cx.notify();
+                domain.x_min = mouse_x_data - new_data_w * mouse_x_pct;
+                domain.x_max = domain.x_min + new_data_w;
+                domain.y_min = mouse_y_data - new_data_h * (1.0 - mouse_y_pct);
+                domain.y_max = domain.y_min + new_data_h;
+            } else {
+                let (pixels_w, pixels_h) = (
+                    bounds.size.width.as_f32() as f64,
+                    bounds.size.height.as_f32() as f64,
+                );
+                let (data_w, data_h) = (domain.width(), domain.height());
+                let dx = delta_x * (data_w / pixels_w);
+                let dy = delta_y * (data_h / pixels_h);
+                
+                domain.x_min -= dx;
+                domain.x_max -= dx;
+                domain.y_min += dy;
+                domain.y_max += dy;
+            }
+            domain.clamp();
+            cx.notify();
+        });
     }
 
     /// Gère le début du glissement.
@@ -387,8 +402,7 @@ impl ChartView {
         cx: &mut Context<Self>,
     ) {
         if event.click_count >= 2 {
-            self.auto_fit_axes();
-            cx.notify();
+            self.auto_fit_axes(cx);
             return;
         }
         self.drag_start = Some(event.position);
@@ -414,32 +428,36 @@ impl ChartView {
             let bounds = *self.bounds.borrow();
             
             if !bounds.is_empty() {
-                let domain = &mut self.domain;
                 let (pixels_w, pixels_h) = (
                     bounds.size.width.as_f32() as f64,
                     bounds.size.height.as_f32() as f64,
                 );
-                let (data_w, data_h) = (domain.width(), domain.height());
-                let x_ratio = data_w / pixels_w;
-                let y_ratio = data_h / pixels_h;
                 
-                let dx = delta_pixels.x.as_f32() as f64 * x_ratio;
-                let dy = delta_pixels.y.as_f32() as f64 * y_ratio;
-                
-                if let Some(last_time) = self.last_drag_time {
-                    let dt = now.duration_since(last_time).as_secs_f64();
-                    if dt > 0.0 {
-                        self.velocity = Point::new(
-                            (dx / dt) * self.inertia_config.sensitivity, 
-                            (dy / dt) * self.inertia_config.sensitivity
-                        );
+                self.domain.update(cx, |domain: &mut AxisDomain, cx: &mut Context<AxisDomain>| {
+                    let (data_w, data_h) = (domain.width(), domain.height());
+                    let x_ratio = data_w / pixels_w;
+                    let y_ratio = data_h / pixels_h;
+                    
+                    let dx = delta_pixels.x.as_f32() as f64 * x_ratio;
+                    let dy = delta_pixels.y.as_f32() as f64 * y_ratio;
+                    
+                    if let Some(last_time) = self.last_drag_time {
+                        let dt = now.duration_since(last_time).as_secs_f64();
+                        if dt > 0.0 {
+                            self.velocity = Point::new(
+                                (dx / dt) * self.inertia_config.sensitivity, 
+                                (dy / dt) * self.inertia_config.sensitivity
+                            );
+                        }
                     }
-                }
 
-                domain.x_min -= dx;
-                domain.x_max -= dx;
-                domain.y_min += dy;
-                domain.y_max += dy;
+                    domain.x_min -= dx;
+                    domain.x_max -= dx;
+                    domain.y_min += dy;
+                    domain.y_max += dy;
+                    domain.clamp();
+                    cx.notify();
+                });
             }
             self.drag_start = Some(event.position);
             self.last_drag_time = Some(now);
@@ -482,12 +500,14 @@ impl ChartView {
         let dx = self.velocity.x * dt;
         let dy = self.velocity.y * dt;
 
-        self.domain.x_min -= dx;
-        self.domain.x_max -= dx;
-        self.domain.y_min += dy;
-        self.domain.y_max += dy;
-
-        cx.notify();
+        self.domain.update(cx, |domain: &mut AxisDomain, cx: &mut Context<AxisDomain>| {
+            domain.x_min -= dx;
+            domain.x_max -= dx;
+            domain.y_min += dy;
+            domain.y_max += dy;
+            domain.clamp();
+            cx.notify();
+        });
 
         cx.on_next_frame(window, |this, window, cx| {
             this.apply_inertia(window, cx);
@@ -518,12 +538,13 @@ impl ChartView {
             let bounds = *self.bounds.borrow();
             
             if !bounds.is_empty() {
+                let domain_read = self.domain.read(cx);
                 let x_scale = crate::scales::ChartScale::new_linear(
-                    (self.domain.x_min, self.domain.x_max),
+                    (domain_read.x_min, domain_read.x_max),
                     (0.0, bounds.size.width.as_f32())
                 );
                 let y_scale = crate::scales::ChartScale::new_linear(
-                    (self.domain.y_min, self.domain.y_max),
+                    (domain_read.y_min, domain_read.y_max),
                     (bounds.size.height.as_f32(), 0.0)
                 );
                 let transform = crate::transform::PlotTransform::new(x_scale, y_scale, bounds);
@@ -532,10 +553,14 @@ impl ChartView {
                 let p2 = transform.screen_to_data(end);
 
                 if (end.x - start.x).abs() > px(5.0) || (end.y - start.y).abs() > px(5.0) {
-                    self.domain.x_min = p1.x.min(p2.x);
-                    self.domain.x_max = p1.x.max(p2.x);
-                    self.domain.y_min = p1.y.min(p2.y);
-                    self.domain.y_max = p1.y.max(p2.y);
+                    self.domain.update(cx, |domain: &mut AxisDomain, cx: &mut Context<AxisDomain>| {
+                        domain.x_min = p1.x.min(p2.x);
+                        domain.x_max = p1.x.max(p2.x);
+                        domain.y_min = p1.y.min(p2.y);
+                        domain.y_max = p1.y.max(p2.y);
+                        domain.clamp();
+                        cx.notify();
+                    });
                 }
             }
         }
@@ -576,8 +601,6 @@ impl ChartView {
             let factor_x = 1.0 + delta_x.abs() / 100.0;
             let factor_y = 1.0 + delta_y.abs() / 100.0;
             
-            let domain = &mut self.domain;
-            
             let width_px = bounds.size.width.as_f32() as f64;
             let height_px = bounds.size.height.as_f32() as f64;
             
@@ -587,28 +610,32 @@ impl ChartView {
             let pivot_x_pct = (pivot_x_px / width_px).clamp(0.0, 1.0);
             let pivot_y_pct = (pivot_y_px / height_px).clamp(0.0, 1.0);
             
-            let pivot_x_domain = domain.x_min + domain.width() * pivot_x_pct;
-            let pivot_y_domain = domain.y_min + domain.height() * (1.0 - pivot_y_pct);
+            self.domain.update(cx, |domain: &mut AxisDomain, cx: &mut Context<AxisDomain>| {
+                let pivot_x_domain = domain.x_min + domain.width() * pivot_x_pct;
+                let pivot_y_domain = domain.y_min + domain.height() * (1.0 - pivot_y_pct);
 
-            if delta_x > 0.0 { 
-                let new_width = domain.width() / factor_x;
-                domain.x_min = pivot_x_domain - new_width * pivot_x_pct;
-                domain.x_max = domain.x_min + new_width;
-            } else if delta_x < 0.0 { 
-                let new_width = domain.width() * factor_x;
-                domain.x_min = pivot_x_domain - new_width * pivot_x_pct;
-                domain.x_max = domain.x_min + new_width;
-            }
-            
-            if delta_y < 0.0 { 
-                let new_height = domain.height() / factor_y;
-                domain.y_min = pivot_y_domain - new_height * (1.0 - pivot_y_pct);
-                domain.y_max = domain.y_min + new_height;
-            } else if delta_y > 0.0 { 
-                let new_height = domain.height() * factor_y;
-                domain.y_min = pivot_y_domain - new_height * (1.0 - pivot_y_pct);
-                domain.y_max = domain.y_min + new_height;
-            }
+                if delta_x > 0.0 { 
+                    let new_width = domain.width() / factor_x;
+                    domain.x_min = pivot_x_domain - new_width * pivot_x_pct;
+                    domain.x_max = domain.x_min + new_width;
+                } else if delta_x < 0.0 { 
+                    let new_width = domain.width() * factor_x;
+                    domain.x_min = pivot_x_domain - new_width * pivot_x_pct;
+                    domain.x_max = domain.x_min + new_width;
+                }
+                
+                if delta_y < 0.0 { 
+                    let new_height = domain.height() / factor_y;
+                    domain.y_min = pivot_y_domain - new_height * (1.0 - pivot_y_pct);
+                    domain.y_max = domain.y_min + new_height;
+                } else if delta_y > 0.0 { 
+                    let new_height = domain.height() * factor_y;
+                    domain.y_min = pivot_y_domain - new_height * (1.0 - pivot_y_pct);
+                    domain.y_max = domain.y_min + new_height;
+                }
+                domain.clamp();
+                cx.notify();
+            });
             
             self.zoom_drag_last = Some(event.position);
             cx.notify();
@@ -672,7 +699,7 @@ impl Render for ChartView {
             .cloned()
             .collect();
 
-        let domain_clone = self.domain.clone();
+        let domain_clone = self.domain.read(cx).clone();
         let bounds_rc = self.bounds.clone();
         let current_bounds = *bounds_rc.borrow();
         let mouse_pos = self.mouse_pos;

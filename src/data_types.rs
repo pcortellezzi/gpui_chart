@@ -12,7 +12,6 @@ pub mod hex_color {
     where
         S: Serializer,
     {
-        // Simple fallback serialization
         serializer.serialize_str(&format!("{:?}", color))
     }
 
@@ -20,7 +19,6 @@ pub mod hex_color {
     where
         D: Deserializer<'de>,
     {
-        // Simple fallback
         Ok(gpui::white())
     }
 
@@ -73,13 +71,19 @@ impl Default for CandlestickConfig {
     }
 }
 
-/// Représente le domaine visible (espace de données) du graphique.
-#[derive(Clone)]
+/// Représente le domaine visible avec des limites optionnelles.
+#[derive(Clone, Debug, Default)]
 pub struct AxisDomain {
     pub x_min: f64,
     pub x_max: f64,
     pub y_min: f64,
     pub y_max: f64,
+
+    // Limites strictes (Hard Limits)
+    pub x_min_limit: Option<f64>,
+    pub x_max_limit: Option<f64>,
+    pub y_min_limit: Option<f64>,
+    pub y_max_limit: Option<f64>,
 }
 
 impl AxisDomain {
@@ -88,6 +92,38 @@ impl AxisDomain {
     }
     pub fn height(&self) -> f64 {
         self.y_max - self.y_min
+    }
+
+    /// Applique les limites configurées aux valeurs actuelles.
+    pub fn clamp(&mut self) {
+        if let Some(min) = self.x_min_limit {
+            if self.x_min < min {
+                let w = self.width();
+                self.x_min = min;
+                self.x_max = min + w;
+            }
+        }
+        if let Some(max) = self.x_max_limit {
+            if self.x_max > max {
+                let w = self.width();
+                self.x_max = max;
+                self.x_min = max - w;
+            }
+        }
+        if let Some(min) = self.y_min_limit {
+            if self.y_min < min {
+                let h = self.height();
+                self.y_min = min;
+                self.y_max = min + h;
+            }
+        }
+        if let Some(max) = self.y_max_limit {
+            if self.y_max > max {
+                let h = self.height();
+                self.y_max = max;
+                self.y_min = max - h;
+            }
+        }
     }
 }
 
@@ -129,8 +165,6 @@ pub struct Series {
     pub plot: std::rc::Rc<std::cell::RefCell<dyn crate::plot_types::PlotRenderer + Send + Sync>>,
 }
 
-
-/// Structure simple pour contenir les graduations calculées
 #[derive(Clone)]
 pub struct Ticks {
     pub x: Vec<f64>,
