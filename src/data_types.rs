@@ -47,6 +47,100 @@ impl Default for CandlestickConfig {
     }
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AreaPlotConfig {
+    pub line_color: Hsla,
+    pub fill_color: Hsla,
+    pub line_width: f32,
+}
+
+impl Default for AreaPlotConfig {
+    fn default() -> Self {
+        Self {
+            line_color: gpui::blue(),
+            fill_color: gpui::blue().alpha(0.3),
+            line_width: 2.0,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct BarPlotConfig {
+    pub color: Hsla,
+    pub bar_width_pct: f32, // 0.0 to 1.0 relative to data spacing
+}
+
+impl Default for BarPlotConfig {
+    fn default() -> Self {
+        Self {
+            color: gpui::blue(),
+            bar_width_pct: 0.8,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
+pub enum StepMode {
+    Pre,  // Step occurs before the point
+    Mid,  // Step occurs halfway between points
+    Post, // Step occurs after the point
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct StepLinePlotConfig {
+    pub color: Hsla,
+    pub line_width: f32,
+    pub mode: StepMode,
+}
+
+impl Default for StepLinePlotConfig {
+    fn default() -> Self {
+        Self {
+            color: gpui::blue(),
+            line_width: 2.0,
+            mode: StepMode::Post,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub enum Annotation {
+    VLine { x: f64, color: Hsla, width: f32, label: Option<String> },
+    HLine { y: f64, color: Hsla, width: f32, label: Option<String> },
+    Rect { x_min: f64, x_max: f64, y_min: f64, y_max: f64, color: Hsla, fill: bool },
+    Text { x: f64, y: f64, text: String, color: Hsla, font_size: f32 },
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct HeatmapCell {
+    pub x: f64,
+    pub y: f64,
+    pub width: f64,
+    pub height: f64,
+    pub color: Hsla,
+    pub text: Option<String>, 
+}
+
+// Axis management types
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct AxisId(pub usize);
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub enum AxisEdge {
+    Left,
+    Right,
+    Top,
+    Bottom,
+}
+
+#[derive(Clone)]
+pub struct ChartAxis<T> {
+    pub axis: gpui::Entity<T>,
+    pub edge: AxisEdge,
+    // Size in pixels (width for vertical axes, height for horizontal)
+    pub size: gpui::Pixels,
+}
+
 /// État pour un axe unique (X ou Y).
 #[derive(Clone, Debug, Default, PartialEq, PartialOrd)]
 pub struct AxisRange {
@@ -175,11 +269,6 @@ pub enum PlotData {
 pub struct Series {
     pub id: String,
     pub plot: std::rc::Rc<std::cell::RefCell<dyn crate::plot_types::PlotRenderer + Send + Sync>>,
-    pub y_axis_index: usize,
-}
-
-#[derive(Clone)]
-pub struct Ticks {
-    pub x: Vec<f64>,
-    pub y: Vec<f64>,
+    pub y_axis_id: AxisId,
+    pub x_axis_id: AxisId,
 }

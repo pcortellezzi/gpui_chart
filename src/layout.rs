@@ -1,6 +1,6 @@
 use gpui::prelude::*;
 use gpui::*;
-use crate::ChartView;
+use crate::ChartPane;
 use adabraka_ui::util::PixelsExt;
 use std::rc::Rc;
 use std::cell::RefCell;
@@ -12,7 +12,7 @@ pub enum PaneSize {
 }
 
 pub struct Pane {
-    pub chart: Entity<ChartView>,
+    pub chart: Entity<ChartPane>,
     pub size: PaneSize,
 }
 
@@ -33,7 +33,7 @@ impl ChartLayout {
         }
     }
 
-    pub fn add_pane(&mut self, chart: Entity<ChartView>, size: PaneSize, cx: &mut Context<Self>) {
+    pub fn add_pane(&mut self, chart: Entity<ChartPane>, size: PaneSize, cx: &mut Context<Self>) {
         self.panes.push(Pane { chart, size });
         cx.notify();
     }

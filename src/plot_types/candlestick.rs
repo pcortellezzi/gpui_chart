@@ -41,6 +41,22 @@ impl PlotRenderer for CandlestickPlot {
         Some((x_min, x_max, y_min, y_max))
     }
 
+    fn get_y_range(&self, x_min: f64, x_max: f64) -> Option<(f64, f64)> {
+        let mut y_min = f64::INFINITY;
+        let mut y_max = f64::NEG_INFINITY;
+        let mut found = false;
+
+        for candle in &self.data {
+            if candle.time + candle.span >= x_min && candle.time <= x_max {
+                y_min = y_min.min(candle.low);
+                y_max = y_max.max(candle.high);
+                found = true;
+            }
+        }
+
+        if found { Some((y_min, y_max)) } else { None }
+    }
+
     fn render(
         &self,
         window: &mut Window,

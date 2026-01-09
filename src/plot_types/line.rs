@@ -64,10 +64,6 @@ impl PlotRenderer for LinePlot {
             .collect();
     }
 
-    fn clear_before(&mut self, before: f64) {
-        self.data.retain(|p| p.x >= before);
-    }
-
     fn get_min_max(&self) -> Option<(f64, f64, f64, f64)> {
         if self.data.is_empty() {
             return None;
@@ -84,5 +80,21 @@ impl PlotRenderer for LinePlot {
             y_max = y_max.max(p.y);
         }
         Some((x_min, x_max, y_min, y_max))
+    }
+
+    fn get_y_range(&self, x_min: f64, x_max: f64) -> Option<(f64, f64)> {
+        let mut y_min = f64::INFINITY;
+        let mut y_max = f64::NEG_INFINITY;
+        let mut found = false;
+
+        for p in &self.data {
+            if p.x >= x_min && p.x <= x_max {
+                y_min = y_min.min(p.y);
+                y_max = y_max.max(p.y);
+                found = true;
+            }
+        }
+
+        if found { Some((y_min, y_max)) } else { None }
     }
 }

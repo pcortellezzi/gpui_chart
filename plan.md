@@ -1,10 +1,10 @@
 # Plan de Développement : gpui_chart (High-Performance Plotting)
 
-L'objectif est de transformer `gpui_chart` en une librairie de graphiques de niveau industriel (type `egui_plot` ou `ScottPlot`), optimisée pour GPUI et prête à être intégrée dans `adabraka-ui`.
+L'objectif est de transformer `gpui_chart` en une librairie de graphiques de niveau industriel (type `egui_plot` ou `TradingView`), optimisée pour GPUI et prête à être intégrée dans `adabraka-ui`.
 
 ## Objectifs Clés
 1.  **Performance** : Rendu fluide avec des centaines de milliers de points (Culling, LOD).
-2.  **Interactivité** : Tooltips, Crosshairs, Zoom par zone, Sélection.
+2.  **Interactivité** : Tooltips, Crosshairs, Zoom par zone, Sélection, Drag & Drop.
 3.  **Richesse** : Support complet de `gpui-d3rs` (Scales, Shapes), Axes multiples, Légendes.
 4.  **Intégration** : API idiomatique pour `adabraka-ui`.
 
@@ -99,6 +99,25 @@ Pour permettre des dispositions complexes (Indicateurs en bas, DOM à droite).
 - [x] **Séparateurs Redimensionnables (Splitters)**
     - Implémenter des zones de saisie ("grip") entre les graphiques pour ajuster leur hauteur relative par drag.
 
+## Phase 2.7 : Refonte TradingView (Architecture Découplée)
+Objectif : Séparer strictement le dessin (Panes) du layout et des axes (Container).
+
+- [x] **Découplage Pane/Container**
+    - `ChartPane` : Zone de dessin passive (Canvas) sans gestion de marges d'axes.
+    - `ChartContainer` : Orchestrateur gérant les gouttières globales et le layout des Panes.
+- [x] **Gestion des Gouttières Globale (Gutters)**
+    - Calculer les marges à Gauche/Droite/Haut/Bas basées sur la somme des axes Y stackés de toutes les Panes.
+    - Dessiner tous les axes (X et Y) dans ces gouttières, en dehors des zones de dessin des Panes.
+- [x] **Axes X Multiples & Synchronisés**
+    *   Permettre d'empiler plusieurs axes X dans les gouttières (Haut/Bas).
+    *   Idéal pour afficher plusieurs fuseaux horaires simultanément (ex: UTC, New York, Heure Locale).
+    *   Tous les axes X d'un conteneur partagent le même domaine temporel mais utilisent des transformations de labels différentes.
+- [x] **Axes Y Stackés (Option B)**
+    - Permettre d'empiler plusieurs axes Y dans la même gouttière (ex: Axe Prix | Axe RSI).
+    - Rendu de l'axe Y restreint verticalement à la hauteur de sa Pane parente.
+- [x] **API Fluide (Builder Pattern)**
+    - Syntaxe type `Chart::new().with_pane(Pane::new().series(...))` inspirée de GPUI.
+
 ## Phase 3 : Richesse Visuelle & Primitives
 Exploiter `gpui-d3rs` pour le dessin.
 
@@ -106,17 +125,18 @@ Exploiter `gpui-d3rs` pour le dessin.
     - Porter et adapter l'implémentation existante.
     - Gestion correcte des couleurs (Hausse/Baisse) et largeur dynamique des bougies.
 - [ ] **Nouveaux Types de Tracés**
-    - **Area Chart** : Remplissage sous courbe.
-    - **Heatmap / Grid** : Grille de rectangles colorés avec support de texte (valeurs numériques). Idéal pour afficher des carnets d'ordres (DOM) historiques ou de la densité de volume. Doit supporter l'agrégation (LOD) spatiale.
-    - **Bar Chart** : Histogrammes.
-    - **Step Line** : Lignes en escalier.
-- [ ] **Annotations & Primitives Géométriques**
+    - **Area Chart** : Remplissage sous courbe. (Implémenté localement dans `AreaPlot`)
+    - **Heatmap / Grid** : Grille de rectangles colorés avec support de texte.
+    - **Bar Chart** : Histogrammes. (Implémenté localement dans `BarPlot`)
+    - **Step Line** : Lignes en escalier. (Implémenté localement dans `StepLinePlot`)
+- [x] **Annotations & Primitives Géométriques**
     - Remplacent `TimeMarker` et `Goldbach`.
-    - Primitives : `VLine` (Ligne Verticale infinie), `HLine` (Ligne Horizontale infinie), `Rect` (Zones), `Text`.
+    - Primitives : `VLine`, `HLine`, `Rect`, `Text`.
     - Permet à l'utilisateur de composer ses propres indicateurs métier.
-- [ ] **Système Multi-Axes & Layers (Flexible)**
-    - Architecture : `Chart` possède une collection d'`Axes` (X1, X2... Y1, Y2...) et de `Series`.
-    - Chaque `Series` est liée à une paire d'ID d'axes (ex: `xaxis: "x1", yaxis: "y2"`).
+- [x] **Système Multi-Axes & Layout Flexible (Refonte)**
+    - **Architecture :** Abandonné la logique implicite au profit du `ChartContainer`.
+    - **Structure :** Chaque axe possède une config explicite : `Edge` (Top/Bottom/Left/Right), `Width/Height`.
+    - **Interaction :** Drag/Zoom 1:1 sur les axes et double-clic pour reset.
 
 ## Phase 4 : Optimisation (Performance)
 Pour gérer le "Big Data".
@@ -138,15 +158,18 @@ Pour gérer le "Big Data".
 - [ ] **Style System**
     - Utiliser les tokens de couleur de `adabraka-ui` (thèmes).
 - [ ] **Composant Reutilisable**
-    - Packager `ChartView` pour qu'il soit instantiable facilement avec une API fluide type Builder pattern.
+    - Packager `ChartContainer` pour qu'il soit instantiable facilement avec une API fluide type Builder pattern.
 
 ---
 
 ## État actuel vs Cible
-| Fonctionnalité | Actuel (`gpui_chart`) | Cible (`egui_plot` like) |
+| Fonctionnalité | Actuel (`gpui_chart`) | Cible (`TradingView` like) |
 |---|---|---|
-| **Coordonnées** | Calcul manuel linéaire | `gpui-d3rs` Scales (Log, Time) |
-| **Ticks/Grille** | `LinearScale` basique | `TimeScale` intelligent |
-| **Inspection** | Crosshair, Tags, Tooltip | Tooltip, Crosshair, Snap |
-| **Zoom** | Molette & Keyboard | Box Zoom, Auto-Y on Zoom |
-| **Performance** | Dessine tout | Culling & Downsampling |
+| **Architecture** | Conteneur Global + Panes passives | Environnement de travail complet |
+| **Coordonnées** | Scales (Log, Time) via `d3rs` | LOD & Shaders pour haute performance |
+| **Ticks/Grille** | `TimeScale` intelligent | Formateurs multi-fuseaux horaires |
+| **Inspection** | Tags, Crosshair, Tooltip | Snap magnétique avancé |
+| **Zoom** | Molette, Keyboard, Box, Axes | Zoom 1:1 ultra-précis |
+| **Axes Y** | N axes stackés par Pane | Indépendance totale et interaction 1:1 |
+| **Axe X** | Axes X synchronisés (multi-TZ) | Synchro native via domaine partagé |
+| **Performance** | Dessine tout | Culling, LOD & WGPU backend |

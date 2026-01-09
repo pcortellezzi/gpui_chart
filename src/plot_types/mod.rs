@@ -1,10 +1,20 @@
 // Plot types module
 
+pub mod area;
+pub mod bar;
 pub mod candlestick;
 pub mod line;
+pub mod step_line;
+pub mod annotation;
+pub mod heatmap;
 
+pub use area::AreaPlot;
+pub use bar::BarPlot;
 pub use candlestick::CandlestickPlot;
 pub use line::LinePlot;
+pub use step_line::StepLinePlot;
+pub use annotation::AnnotationPlot;
+pub use heatmap::HeatmapPlot;
 
 use crate::data_types::PlotData;
 use crate::transform::PlotTransform;
@@ -25,17 +35,13 @@ pub trait PlotRenderer: Send + Sync {
     /// Set all data
     fn set_data(&mut self, _data: Vec<PlotData>) {}
 
-    /// Clear data before a certain time
-    fn clear_before(&mut self, _before: f64) {}
-
     /// Get min/max bounds for auto-fitting (x_min, x_max, y_min, y_max)
     fn get_min_max(&self) -> Option<(f64, f64, f64, f64)> {
         None
     }
 
-    /// Update configuration from JSON value.
-    /// Returns true if successful.
-    fn update_config(&mut self, _config: serde_json::Value) -> bool {
-        false
+    /// Get Y min/max range within a specific X range.
+    fn get_y_range(&self, _x_min: f64, _x_max: f64) -> Option<(f64, f64)> {
+        None
     }
 }

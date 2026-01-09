@@ -154,7 +154,7 @@ impl Render for NavigatorView {
             .child(
                 canvas(|_bounds, _window, _cx| {}, move |bounds, (), window, cx| {
                     *bounds_rc.borrow_mut() = bounds;
-                    paint_plot(window, bounds, &series, (full_domain.x_min, full_domain.x_max), &[(full_domain.y_min, full_domain.y_max)], cx);
+                    paint_plot(window, bounds, &series, &[(full_domain.x_min, full_domain.x_max)], &[(full_domain.y_min, full_domain.y_max)], cx);
 
                     let (w, h) = (bounds.size.width.as_f32() as f64, bounds.size.height.as_f32() as f64);
                     
