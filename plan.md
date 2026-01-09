@@ -91,12 +91,12 @@ Pour permettre des dispositions complexes (Indicateurs en bas, DOM à droite).
     - Système pour fixer/synchroniser la largeur des marges entre plusieurs graphiques superposés via `margin_left`.
 
 ## Phase 2.6 : Layout Dynamique & Multi-Pane
-- [ ] **Système de Panneaux (Panes)**
+- [x] **Système de Panneaux (Panes)**
     - Gérer l'agencement automatique : Top, Bottom, Left, Right.
     - Ajouter des boutons d'action (UI) pour déplacer une vue (Monter/Descendre/Déplacer).
-- [ ] **Superposition (Overlays)**
+- [x] **Superposition (Overlays)**
     - Permettre de fusionner deux vues (ex: Volume par-dessus le Prix) avec des axes Y indépendants (Y1 à gauche, Y2 à droite).
-- [ ] **Séparateurs Redimensionnables (Splitters)**
+- [x] **Séparateurs Redimensionnables (Splitters)**
     - Implémenter des zones de saisie ("grip") entre les graphiques pour ajuster leur hauteur relative par drag.
 
 ## Phase 3 : Richesse Visuelle & Primitives

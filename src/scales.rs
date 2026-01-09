@@ -30,6 +30,13 @@ impl ChartScale {
         }
     }
 
+    pub fn range(&self) -> (f32, f32) {
+        match self {
+            Self::Linear(s) => (s.range().0 as f32, s.range().1 as f32),
+            Self::Log(s) => (s.range().0 as f32, s.range().1 as f32),
+        }
+    }
+
     pub fn ticks(&self, count: usize) -> Vec<f64> {
         match self {
             Self::Linear(s) => s.ticks(count),

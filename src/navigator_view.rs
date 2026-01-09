@@ -62,18 +62,18 @@ impl NavigatorView {
         let mut y_max = f64::NEG_INFINITY;
 
         for series in &self.series {
-            if let Some((sx_min, sx_max, sy_min, sy_max)) = series.plot.borrow().get_min_max() {
-                x_min = x_min.min(sx_min);
-                x_max = x_max.max(sx_max);
-                y_min = y_min.min(sy_min);
-                y_max = y_max.max(sy_max);
-            }
-        }
-
-        if x_min != f64::INFINITY {
-            self.full_domain = AxisDomain { x_min, x_max, y_min, y_max, ..Default::default() };
-        }
-    }
+                        if let Some((sx_min, sx_max, sy_min, sy_max)) = series.plot.borrow().get_min_max() {
+                            x_min = x_min.min(sx_min);
+                            x_max = x_max.max(sx_max);
+                            y_min = y_min.min(sy_min);
+                            y_max = y_max.max(sy_max);
+                        }
+                    }
+            
+                    if x_min != f64::INFINITY {
+                        self.full_domain = AxisDomain { x_min, x_max, y_min, y_max, ..Default::default() };
+                    }
+                }
 
     fn handle_click(&mut self, event: &MouseDownEvent, _window: &mut Window, cx: &mut Context<Self>) {
         self.is_dragging = true;
@@ -154,7 +154,7 @@ impl Render for NavigatorView {
             .child(
                 canvas(|_bounds, _window, _cx| {}, move |bounds, (), window, cx| {
                     *bounds_rc.borrow_mut() = bounds;
-                    paint_plot(window, bounds, &series, &full_domain, cx);
+                    paint_plot(window, bounds, &series, (full_domain.x_min, full_domain.x_max), &[(full_domain.y_min, full_domain.y_max)], cx);
 
                     let (w, h) = (bounds.size.width.as_f32() as f64, bounds.size.height.as_f32() as f64);
                     

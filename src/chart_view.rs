@@ -1,7 +1,7 @@
 // ChartView implementation
 
-use crate::data_types::{AxisDomain, AxisRange, Series, SharedPlotState, Ticks};
-use crate::rendering::{create_axis_tag, paint_axes, paint_grid, paint_plot};
+use crate::data_types::{AxisDomain, AxisRange, Series, SharedPlotState};
+use crate::rendering::create_axis_tag;
 use adabraka_ui::util::PixelsExt;
 use d3rs::scale::{LinearScale, Scale};
 use gpui::prelude::*;
@@ -78,10 +78,18 @@ pub fn init(_cx: &mut impl AppContext) {
     // Initialization code if needed
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum DragMode {
+    None,
+    Plot,
+    AxisY(usize),
+    AxisX,
+}
+
 /// La `View` principale qui gère l'état et la logique du graphique.
 pub struct ChartView {
     pub x_axis: Entity<AxisRange>,
-    pub y_axis: Entity<AxisRange>,
+    pub y_axes: Vec<Entity<AxisRange>>,
     pub shared_state: Entity<SharedPlotState>,
 
     pub series: Vec<Series>,
@@ -100,14 +108,17 @@ pub struct ChartView {
 
     // Layout Options
     pub margin_left: Pixels,
+    pub margin_right: Pixels,
     pub margin_bottom: Pixels,
 
     drag_start: Option<Point<Pixels>>,
+    drag_mode: DragMode,
     last_drag_time: Option<Instant>,
     velocity: Point<f64>,
 
     zoom_drag_start: Option<Point<Pixels>>,
     zoom_drag_last: Option<Point<Pixels>>,
+    zoom_drag_mode: DragMode,
 
     box_zoom_start: Option<Point<Pixels>>,
     box_zoom_current: Option<Point<Pixels>>,
@@ -136,7 +147,7 @@ impl ChartView {
 
         Self {
             x_axis,
-            y_axis,
+            y_axes: vec![y_axis],
             shared_state,
             series: vec![],
             hidden_series: HashSet::new(),
@@ -152,14 +163,17 @@ impl ChartView {
             inertia_config: InertiaConfig::default(),
 
             margin_left: px(50.0),
+            margin_right: px(50.0),
             margin_bottom: px(20.0),
 
             drag_start: None,
+            drag_mode: DragMode::None,
             last_drag_time: None,
             velocity: Point::default(),
 
             zoom_drag_start: None,
             zoom_drag_last: None,
+            zoom_drag_mode: DragMode::None,
 
             box_zoom_start: None,
             box_zoom_current: None,
@@ -176,6 +190,12 @@ impl ChartView {
             ))),
             focus_handle: cx.focus_handle(),
         }
+    }
+
+    pub fn add_y_axis(&mut self, y_axis: Entity<AxisRange>, cx: &mut Context<Self>) -> usize {
+        cx.observe(&y_axis, |_, _, cx| cx.notify()).detach();
+        self.y_axes.push(y_axis);
+        self.y_axes.len() - 1
     }
 
     // --- Action Handlers ---
@@ -210,11 +230,13 @@ impl ChartView {
     }
 
     fn pan_y(&mut self, factor: f64, cx: &mut Context<Self>) {
-        self.y_axis.update(cx, |y, cx| {
-            y.pan(y.span() * factor);
-            y.clamp();
-            cx.notify();
-        });
+        for y_axis in &self.y_axes {
+            y_axis.update(cx, |y, cx| {
+                y.pan(y.span() * factor);
+                y.clamp();
+                cx.notify();
+            });
+        }
     }
 
     fn keyboard_zoom(&mut self, factor: f64, cx: &mut Context<Self>) {
@@ -223,28 +245,26 @@ impl ChartView {
             x.zoom_at(pivot_data, 0.5, factor);
             cx.notify();
         });
-        self.y_axis.update(cx, |y, cx| {
-            let pivot_data = y.min + y.span() / 2.0;
-            y.zoom_at(pivot_data, 0.5, factor);
-            cx.notify();
-        });
+        for y_axis in &self.y_axes {
+            y_axis.update(cx, |y, cx| {
+                let pivot_data = y.min + y.span() / 2.0;
+                y.zoom_at(pivot_data, 0.5, factor);
+                cx.notify();
+            });
+        }
     }
 
     pub fn auto_fit_axes(&mut self, cx: &mut Context<Self>) {
         let mut x_min = f64::INFINITY;
         let mut x_max = f64::NEG_INFINITY;
-        let mut y_min = f64::INFINITY;
-        let mut y_max = f64::NEG_INFINITY;
 
         for series in &self.series {
             if self.hidden_series.contains(&series.id) {
                 continue;
             }
-            if let Some((sx_min, sx_max, sy_min, sy_max)) = series.plot.borrow().get_min_max() {
+            if let Some((sx_min, sx_max, _, _)) = series.plot.borrow().get_min_max() {
                 x_min = x_min.min(sx_min);
                 x_max = x_max.max(sx_max);
-                y_min = y_min.min(sy_min);
-                y_max = y_max.max(sy_max);
             }
         }
 
@@ -266,23 +286,41 @@ impl ChartView {
             cx.notify();
         });
 
-        self.y_axis.update(cx, |y: &mut AxisRange, cx| {
-            let span = y_max - y_min;
-            if span <= f64::EPSILON {
-                let h = if y_min.abs() > 0.0 {
-                    y_min.abs() * 0.05
-                } else {
-                    5.0
-                };
-                y.min = y_min - h;
-                y.max = y_max + h;
-            } else {
-                y.min = y_min - span * padding;
-                y.max = y_max + span * padding;
+        // Fit each Y axis independently
+        for (idx, y_axis) in self.y_axes.iter().enumerate() {
+            let mut sy_min = f64::INFINITY;
+            let mut sy_max = f64::NEG_INFINITY;
+
+            for series in &self.series {
+                if self.hidden_series.contains(&series.id) || series.y_axis_index != idx {
+                    continue;
+                }
+                if let Some((_, _, s_min, s_max)) = series.plot.borrow().get_min_max() {
+                    sy_min = sy_min.min(s_min);
+                    sy_max = sy_max.max(s_max);
+                }
             }
-            y.clamp();
-            cx.notify();
-        });
+
+            if sy_min != f64::INFINITY {
+                y_axis.update(cx, |y: &mut AxisRange, cx| {
+                    let span = sy_max - sy_min;
+                    if span <= f64::EPSILON {
+                        let h = if sy_min.abs() > 0.0 {
+                            sy_min.abs() * 0.05
+                        } else {
+                            5.0
+                        };
+                        y.min = sy_min - h;
+                        y.max = sy_max + h;
+                    } else {
+                        y.min = sy_min - span * padding;
+                        y.max = sy_max + span * padding;
+                    }
+                    y.clamp();
+                    cx.notify();
+                });
+            }
+        }
     }
 
     fn handle_zoom(
@@ -306,40 +344,70 @@ impl ChartView {
             ScrollDelta::Lines(p) => p.y as f64 * 20.0,
         };
 
+        let local_x = event.position.x - (bounds.origin.x - self.margin_left);
+        let over_left = local_x < self.margin_left;
+        let over_right = local_x > bounds.size.width + self.margin_left;
+        let over_bottom = event.position.y > bounds.origin.y + bounds.size.height;
+
+        let (pw, ph) = (
+            bounds.size.width.as_f32() as f64,
+            bounds.size.height.as_f32() as f64,
+        );
+
         if is_zoom {
             let factor = (1.0f64 - delta_y * 0.01).clamp(0.1, 10.0);
-            let (pw, ph) = (
-                bounds.size.width.as_f32() as f64,
-                bounds.size.height.as_f32() as f64,
-            );
-            let mx_pct = (event.position.x - bounds.origin.x).as_f32() as f64 / pw;
-            let my_pct = (event.position.y - bounds.origin.y).as_f32() as f64 / ph;
+            
+            // Zoom X if NOT over Y margins
+            if !over_left && !over_right {
+                let mx_pct = (event.position.x - bounds.origin.x).as_f32() as f64 / pw;
+                self.x_axis.update(cx, |x, cx| {
+                    let m_data = x.min + x.span() * mx_pct;
+                    x.zoom_at(m_data, mx_pct, factor);
+                    cx.notify();
+                });
+            }
 
-            self.x_axis.update(cx, |x, cx| {
-                let m_data = x.min + x.span() * mx_pct;
-                x.zoom_at(m_data, mx_pct, factor);
-                cx.notify();
-            });
-            self.y_axis.update(cx, |y, cx| {
-                let m_data = y.min + y.span() * (1.0 - my_pct);
-                y.zoom_at(m_data, 1.0 - my_pct, factor);
-                cx.notify();
-            });
+            // Zoom Y axes independently
+            let my_pct = (event.position.y - bounds.origin.y).as_f32() as f64 / ph;
+            for (idx, y_axis) in self.y_axes.iter().enumerate() {
+                let target = if over_left { idx == 0 } 
+                            else if over_right { idx == 1 } 
+                            else if over_bottom { false }
+                            else { true };
+                
+                if target {
+                    y_axis.update(cx, |y, cx| {
+                        let m_data = y.min + y.span() * (1.0 - my_pct);
+                        y.zoom_at(m_data, 1.0 - my_pct, factor);
+                        cx.notify();
+                    });
+                }
+            }
         } else {
-            let (pw, ph) = (
-                bounds.size.width.as_f32() as f64,
-                bounds.size.height.as_f32() as f64,
-            );
-            self.x_axis.update(cx, |x, cx| {
-                x.pan(-delta_x * (x.span() / pw));
-                x.clamp();
-                cx.notify();
-            });
-            self.y_axis.update(cx, |y, cx| {
-                y.pan(delta_y * (y.span() / ph));
-                y.clamp();
-                cx.notify();
-            });
+            // Panning: apply to X if not over Y margins
+            if !over_left && !over_right {
+                self.x_axis.update(cx, |x, cx| {
+                    x.pan(-delta_x * (x.span() / pw));
+                    x.clamp();
+                    cx.notify();
+                });
+            }
+
+            // Panning: apply to Y if not over bottom margin
+            for (idx, y_axis) in self.y_axes.iter().enumerate() {
+                let target = if over_left { idx == 0 } 
+                            else if over_right { idx == 1 } 
+                            else if over_bottom { false }
+                            else { true };
+                
+                if target {
+                    y_axis.update(cx, |y, cx| {
+                        y.pan(delta_y * (y.span() / ph));
+                        y.clamp();
+                        cx.notify();
+                    });
+                }
+            }
         }
     }
 
@@ -355,7 +423,7 @@ impl ChartView {
         // Interaction zone includes margins for Y-axis tag
         let interaction_bounds = Bounds {
             origin: Point::new(canvas_bounds.origin.x - self.margin_left, canvas_bounds.origin.y),
-            size: Size::new(canvas_bounds.size.width + self.margin_left, canvas_bounds.size.height + self.margin_bottom),
+            size: Size::new(canvas_bounds.size.width + self.margin_left + self.margin_right, canvas_bounds.size.height + self.margin_bottom),
         };
 
         if interaction_bounds.contains(&event.position) {
@@ -380,16 +448,41 @@ impl ChartView {
                 canvas_bounds.size.width.as_f32() as f64,
                 canvas_bounds.size.height.as_f32() as f64,
             );
-            self.x_axis.update(cx, |x, cx| {
-                x.pan(-delta.x.as_f32() as f64 * (x.span() / pw));
-                x.clamp();
-                cx.notify();
-            });
-            self.y_axis.update(cx, |y, cx| {
-                y.pan(delta.y.as_f32() as f64 * (y.span() / ph));
-                y.clamp();
-                cx.notify();
-            });
+
+            match self.drag_mode {
+                DragMode::Plot => {
+                    self.x_axis.update(cx, |x, cx| {
+                        x.pan(-delta.x.as_f32() as f64 * (x.span() / pw));
+                        x.clamp();
+                        cx.notify();
+                    });
+                    for y_axis in &self.y_axes {
+                        y_axis.update(cx, |y, cx| {
+                            y.pan(delta.y.as_f32() as f64 * (y.span() / ph));
+                            y.clamp();
+                            cx.notify();
+                        });
+                    }
+                }
+                DragMode::AxisY(idx) => {
+                    if let Some(y_axis) = self.y_axes.get(idx) {
+                        y_axis.update(cx, |y, cx| {
+                            y.pan(delta.y.as_f32() as f64 * (y.span() / ph));
+                            y.clamp();
+                            cx.notify();
+                        });
+                    }
+                }
+                DragMode::AxisX => {
+                    self.x_axis.update(cx, |x, cx| {
+                        x.pan(-delta.x.as_f32() as f64 * (x.span() / pw));
+                        x.clamp();
+                        cx.notify();
+                    });
+                }
+                _ => {}
+            }
+
             if let Some(last_time) = self.last_drag_time {
                 let dt = now.duration_since(last_time).as_secs_f64();
                 if dt > 0.0 {
@@ -425,11 +518,13 @@ impl ChartView {
                 x.clamp();
                 cx.notify();
             });
-            self.y_axis.update(cx, |y, cx| {
-                y.pan(self.velocity.y * dt * (y.span() / ph));
-                y.clamp();
-                cx.notify();
-            });
+            for y_axis in &self.y_axes {
+                y_axis.update(cx, |y, cx| {
+                    y.pan(self.velocity.y * dt * (y.span() / ph));
+                    y.clamp();
+                    cx.notify();
+                });
+            }
         }
         cx.on_next_frame(window, |this, window, cx| {
             this.apply_inertia(window, cx);
@@ -441,6 +536,21 @@ impl ChartView {
             self.auto_fit_axes(cx);
             return;
         }
+
+        let bounds = *self.bounds.borrow();
+        let local_x = event.position.x - (bounds.origin.x - self.margin_left);
+        let local_y = event.position.y - bounds.origin.y;
+        
+        if local_x < self.margin_left {
+            self.drag_mode = DragMode::AxisY(0);
+        } else if local_x > bounds.size.width + self.margin_left {
+            self.drag_mode = DragMode::AxisY(1);
+        } else if local_y > bounds.size.height {
+            self.drag_mode = DragMode::AxisX;
+        } else {
+            self.drag_mode = DragMode::Plot;
+        }
+
         self.drag_start = Some(event.position);
         self.last_drag_time = Some(Instant::now());
         self.velocity = Point::default();
@@ -450,6 +560,7 @@ impl ChartView {
 
     fn end_drag(&mut self, _event: &MouseUpEvent, window: &mut Window, cx: &mut Context<Self>) {
         self.drag_start = None;
+        self.drag_mode = DragMode::None;
         self.is_dragging = false;
         if let Some(lt) = self.last_drag_time {
             if Instant::now().duration_since(lt) > self.inertia_config.stop_threshold {
@@ -481,28 +592,33 @@ impl ChartView {
             let bounds = *self.bounds.borrow();
             if !bounds.is_empty() {
                 let x_range = self.x_axis.read(cx);
-                let y_range = self.y_axis.read(cx);
                 let x_scale = crate::scales::ChartScale::new_linear(
                     (x_range.min, x_range.max),
                     (0.0, bounds.size.width.as_f32()),
                 );
-                let y_scale = crate::scales::ChartScale::new_linear(
-                    (y_range.min, y_range.max),
-                    (bounds.size.height.as_f32(), 0.0),
-                );
-                let transform = crate::transform::PlotTransform::new(x_scale, y_scale, bounds);
-                let p1 = transform.screen_to_data(start);
-                let p2 = transform.screen_to_data(end);
-                if (end.x - start.x).abs() > px(5.0) || (end.y - start.y).abs() > px(5.0) {
-                    self.x_axis.update(cx, |x: &mut AxisRange, cx| {
-                        x.min = p1.x.min(p2.x);
-                        x.max = p1.x.max(p2.x);
-                        x.clamp();
-                        cx.notify();
-                    });
-                    self.y_axis.update(cx, |y: &mut AxisRange, cx| {
-                        y.min = p1.y.min(p2.y);
-                        y.max = p1.y.max(p2.y);
+                
+                // Box zoom on X is unified
+                let px1 = x_scale.invert((start.x - bounds.origin.x).as_f32());
+                let px2 = x_scale.invert((end.x - bounds.origin.x).as_f32());
+                
+                self.x_axis.update(cx, |x, cx| {
+                    x.min = px1.min(px2);
+                    x.max = px1.max(px2);
+                    x.clamp();
+                    cx.notify();
+                });
+
+                // Box zoom on Y affects ALL axes for now
+                for y_axis_entity in &self.y_axes {
+                    y_axis_entity.update(cx, |y, cx| {
+                        let y_scale = crate::scales::ChartScale::new_linear(
+                            (y.min, y.max),
+                            (bounds.size.height.as_f32(), 0.0),
+                        );
+                        let py1 = y_scale.invert((start.y - bounds.origin.y).as_f32());
+                        let py2 = y_scale.invert((end.y - bounds.origin.y).as_f32());
+                        y.min = py1.min(py2);
+                        y.max = py1.max(py2);
                         y.clamp();
                         cx.notify();
                     });
@@ -520,6 +636,20 @@ impl ChartView {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let bounds = *self.bounds.borrow();
+        let local_x = event.position.x - (bounds.origin.x - self.margin_left);
+        let local_y = event.position.y - bounds.origin.y;
+        
+        if local_x < self.margin_left {
+            self.zoom_drag_mode = DragMode::AxisY(0);
+        } else if local_x > bounds.size.width + self.margin_left {
+            self.zoom_drag_mode = DragMode::AxisY(1);
+        } else if local_y > bounds.size.height {
+            self.zoom_drag_mode = DragMode::AxisX;
+        } else {
+            self.zoom_drag_mode = DragMode::Plot;
+        }
+
         self.zoom_drag_start = Some(event.position);
         self.zoom_drag_last = Some(event.position);
         self.is_dragging = true;
@@ -545,20 +675,38 @@ impl ChartView {
                 bounds.size.width.as_f32() as f64,
                 bounds.size.height.as_f32() as f64,
             );
+            
             let pivot_x_pct = (start.x.as_f32() as f64 - bounds.origin.x.as_f32() as f64) / pw;
             let pivot_y_pct = (start.y.as_f32() as f64 - bounds.origin.y.as_f32() as f64) / ph;
-            self.x_axis.update(cx, |x, cx| {
-                let pivot_x_data = x.min + x.span() * pivot_x_pct;
-                let factor = if delta.x.as_f32() > 0.0 { 1.0 / factor_x } else { factor_x };
-                x.zoom_at(pivot_x_data, pivot_x_pct, factor);
-                cx.notify();
-            });
-            self.y_axis.update(cx, |y, cx| {
-                let pivot_y_data = y.min + y.span() * (1.0 - pivot_y_pct);
-                let factor = if delta.y.as_f32() < 0.0 { 1.0 / factor_y } else { factor_y };
-                y.zoom_at(pivot_y_data, 1.0 - pivot_y_pct, factor);
-                cx.notify();
-            });
+            
+            let mode = self.zoom_drag_mode;
+
+            if mode == DragMode::Plot || mode == DragMode::AxisX {
+                self.x_axis.update(cx, |x, cx| {
+                    let pivot_x_data = x.min + x.span() * pivot_x_pct;
+                    let factor = if delta.x.as_f32() > 0.0 { 1.0 / factor_x } else { factor_x };
+                    x.zoom_at(pivot_x_data, pivot_x_pct, factor);
+                    cx.notify();
+                });
+            }
+            
+            for (idx, y_axis) in self.y_axes.iter().enumerate() {
+                let target = match mode {
+                    DragMode::Plot => true,
+                    DragMode::AxisY(i) => idx == i,
+                    _ => false,
+                };
+                
+                if target {
+                    y_axis.update(cx, |y, cx| {
+                        let pivot_y_data = y.min + y.span() * (1.0 - pivot_y_pct);
+                        let factor = if delta.y.as_f32() < 0.0 { 1.0 / factor_y } else { factor_y };
+                        y.zoom_at(pivot_y_data, 1.0 - pivot_y_pct, factor);
+                        cx.notify();
+                    });
+                }
+            }
+            
             self.zoom_drag_last = Some(event.position);
             cx.notify();
         }
@@ -572,26 +720,9 @@ impl ChartView {
     ) {
         self.zoom_drag_start = None;
         self.zoom_drag_last = None;
+        self.zoom_drag_mode = DragMode::None;
         self.is_dragging = false;
         cx.notify();
-    }
-
-    fn calculate_ticks(
-        x_axis: &AxisRange,
-        y_axis: &AxisRange,
-        domain_w: f64,
-        domain_h: f64,
-    ) -> Ticks {
-        let x_scale = LinearScale::new()
-            .domain(x_axis.min, x_axis.max)
-            .range(0.0, domain_w);
-        let y_scale = LinearScale::new()
-            .domain(y_axis.min, y_axis.max)
-            .range(domain_h, 0.0);
-        Ticks {
-            x: x_scale.ticks(10),
-            y: y_scale.ticks(10),
-        }
     }
 
     pub fn add_series(&mut self, series: Series) {
@@ -626,95 +757,123 @@ impl Render for ChartView {
         let shared_state = self.shared_state.read(cx);
 
         let x_axis_model = self.x_axis.read(cx);
-        let y_axis_model = self.y_axis.read(cx);
-
-        // For Visual Clamping: use clamped_bounds() for the scales
         let (x_min, x_max) = x_axis_model.clamped_bounds();
-        let (y_min, y_max) = y_axis_model.clamped_bounds();
 
-        let domain_full = AxisDomain {
-            x_min, x_max, y_min, y_max,
+        let x_domain_full = AxisDomain {
+            x_min,
+            x_max,
+            y_min: 0.0,
+            y_max: 0.0,
             x_min_limit: x_axis_model.min_limit,
             x_max_limit: x_axis_model.max_limit,
-            y_min_limit: y_axis_model.min_limit,
-            y_max_limit: y_axis_model.max_limit,
+            y_min_limit: None,
+            y_max_limit: None,
         };
 
         let x_scale = crate::scales::ChartScale::new_linear(
             (x_min, x_max),
             (0.0, current_bounds.size.width.as_f32()),
         );
-        let y_scale = crate::scales::ChartScale::new_linear(
-            (y_min, y_max),
-            (current_bounds.size.height.as_f32(), 0.0),
-        );
-        let transform =
-            crate::transform::PlotTransform::new(x_scale.clone(), y_scale.clone(), current_bounds);
-        let ticks = Self::calculate_ticks(
-            &AxisRange::new(x_min, x_max),
-            &AxisRange::new(y_min, y_max),
-            domain_full.width(),
-            domain_full.height(),
-        );
 
-        let mut axes_elements = paint_axes(
-            &domain_full,
+        let x_ticks = LinearScale::new()
+            .domain(x_min, x_max)
+            .range(0.0, current_bounds.size.width.as_f32() as f64)
+            .ticks(10);
+
+        let mut y_renders = Vec::new();
+        let mut y_domains_raw = Vec::new();
+
+        for y_axis_entity in &self.y_axes {
+            let y_axis_model = y_axis_entity.read(cx);
+            let (y_min, y_max) = y_axis_model.clamped_bounds();
+            y_domains_raw.push((y_min, y_max));
+
+            let y_scale = crate::scales::ChartScale::new_linear(
+                (y_min, y_max),
+                (current_bounds.size.height.as_f32(), 0.0),
+            );
+
+            let y_ticks = LinearScale::new()
+                .domain(y_min, y_max)
+                .range(current_bounds.size.height.as_f32() as f64, 0.0)
+                .ticks(10);
+
+            y_renders.push(crate::rendering::YAxisRenderInfo {
+                domain: (y_min, y_max),
+                scale: y_scale,
+                ticks: y_ticks,
+                limits: (y_axis_model.min_limit, y_axis_model.max_limit),
+            });
+        }
+
+        let axes_elements = crate::rendering::paint_axes(
+            &x_domain_full,
             &x_scale,
-            &y_scale,
-            &ticks,
+            &x_ticks,
+            &y_renders,
             self.label_color,
             self.show_x_axis,
             self.show_y_axis,
             self.margin_left,
             self.margin_bottom,
+            self.margin_right,
         );
 
-        // Root div origin for local coordinate calculation (relative to window)
         let root_origin = Point::new(current_bounds.origin.x - self.margin_left, current_bounds.origin.y);
-
-        // Mouse state handling
         let mouse_pos_global = shared_state.mouse_pos;
         let is_mouse_here = mouse_pos_global.map_or(false, |pos| {
-            // Check if mouse is within this chart's total area (including margins for tags)
-            pos.x >= root_origin.x && pos.x <= root_origin.x + current_bounds.size.width + self.margin_left &&
+            pos.x >= root_origin.x && pos.x <= root_origin.x + current_bounds.size.width + self.margin_left + self.margin_right &&
             pos.y >= root_origin.y && pos.y <= root_origin.y + current_bounds.size.height + self.margin_bottom
         });
 
+        let mut overlay_elements = Vec::new();
+
         if self.show_axis_tags {
-            // X Axis Tag (Synced across all charts, but only shown on the main X axis)
             if let Some(hx) = shared_state.hover_x {
+                let transform = crate::transform::PlotTransform::new(x_scale.clone(), y_renders[0].scale.clone(), current_bounds);
                 let sx = transform.x_data_to_screen(hx);
                 if self.show_x_axis {
                     let in_limits = x_axis_model.min_limit.map_or(true, |l| hx >= l) &&
                                    x_axis_model.max_limit.map_or(true, |l| hx <= l);
                     if in_limits {
-                        axes_elements.push(create_axis_tag(
+                        overlay_elements.push(create_axis_tag(
                             x_scale.format_tick(hx),
                             sx - root_origin.x,
                             true,
                             self.label_color,
                             self.bg_color,
                             self.margin_left,
+                            self.margin_right,
+                            true,
                         ));
                     }
                 }
             }
-            // Y Axis Tag (Shown only if mouse is over THIS chart)
+
             if is_mouse_here {
                 if let Some(pos) = mouse_pos_global {
-                    let data_point = transform.screen_to_data(pos);
                     if self.show_y_axis {
-                        let in_limits = y_axis_model.min_limit.map_or(true, |l| data_point.y >= l) &&
-                                       y_axis_model.max_limit.map_or(true, |l| data_point.y <= l);
-                        if in_limits {
-                            axes_elements.push(create_axis_tag(
-                                y_scale.format_tick(data_point.y),
-                                pos.y - root_origin.y,
-                                false,
-                                self.label_color,
-                                self.bg_color,
-                                self.margin_left,
-                            ));
+                        for (idx, y_info) in y_renders.iter().enumerate() {
+                            let transform = crate::transform::PlotTransform::new(x_scale.clone(), y_info.scale.clone(), current_bounds);
+                            let data_point = transform.screen_to_data(pos);
+                            let in_limits = y_info.limits.0.map_or(true, |l| data_point.y >= l) &&
+                                           y_info.limits.1.map_or(true, |l| data_point.y <= l);
+                            
+                            if in_limits {
+                                // For now, we only show primary tag on left, secondary on right
+                                if idx == 0 || idx == 1 {
+                                    overlay_elements.push(create_axis_tag(
+                                        y_info.scale.format_tick(data_point.y),
+                                        pos.y - root_origin.y,
+                                        false,
+                                        self.label_color,
+                                        self.bg_color,
+                                        self.margin_left,
+                                        self.margin_right,
+                                        idx == 0,
+                                    ));
+                                }
+                            }
                         }
                     }
                 }
@@ -722,9 +881,27 @@ impl Render for ChartView {
         }
 
         let cursor = if self.is_dragging {
-            CursorStyle::ClosedHand
+            match (self.drag_mode, self.zoom_drag_mode) {
+                (DragMode::AxisY(_), _) | (_, DragMode::AxisY(_)) => CursorStyle::ResizeUpDown,
+                (DragMode::AxisX, _) | (_, DragMode::AxisX) => CursorStyle::ResizeLeftRight,
+                (_, DragMode::Plot) | (DragMode::Plot, _) => CursorStyle::Crosshair,
+                _ => CursorStyle::ClosedHand,
+            }
         } else if self.box_zoom_start.is_some() {
             CursorStyle::Arrow
+        } else if let Some(pos) = shared_state.mouse_pos {
+            let local_x = pos.x - (current_bounds.origin.x - self.margin_left);
+            let over_left = local_x < self.margin_left;
+            let over_right = local_x > current_bounds.size.width + self.margin_left;
+            let over_bottom = pos.y > current_bounds.origin.y + current_bounds.size.height;
+
+            if over_left || over_right {
+                CursorStyle::ResizeUpDown
+            } else if over_bottom {
+                CursorStyle::ResizeLeftRight
+            } else {
+                CursorStyle::Crosshair
+            }
         } else {
             CursorStyle::Crosshair
         };
@@ -734,7 +911,7 @@ impl Render for ChartView {
             .size_full()
             .bg(self.bg_color)
             .relative()
-            .cursor(CursorStyle::Arrow)
+            .cursor(cursor)
             .on_mouse_down(MouseButton::Left, {
                 let fh = self.focus_handle.clone();
                 move |_, window, _| {
@@ -758,6 +935,7 @@ impl Render for ChartView {
             .on_mouse_up(MouseButton::Right, cx.listener(Self::end_box_zoom))
             .on_scroll_wheel(cx.listener(Self::handle_zoom))
             .pl(self.margin_left)
+            .pr(self.margin_right)
             .pb(if self.show_x_axis {
                 self.margin_bottom
             } else {
@@ -770,30 +948,31 @@ impl Render for ChartView {
                     .cursor(cursor)
                     .child(
                         canvas(|_, _, _| {}, {
-                            let (xs, ys) = (x_scale.clone(), y_scale.clone());
-                            let (lc, sc) = (self.label_color, self.show_crosshair);
+                            let xs = x_scale.clone();
+                            let lc = self.label_color;
+                            let sc = self.show_crosshair;
                             let hx = shared_state.hover_x;
                             let vs = visible_series.clone();
-                            let df = domain_full.clone();
-                            let tk = ticks.clone();
-                            let tr = transform.clone();
+                            let x_df = x_domain_full.clone();
+                            let y_ds = y_domains_raw.clone();
+                            let y_renders = y_renders.clone();
                             let mouse_pos = shared_state.mouse_pos;
-                            let (xmin_l, xmax_l) = (x_axis_model.min_limit, x_axis_model.max_limit);
-                            let (ymin_l, ymax_l) = (y_axis_model.min_limit, y_axis_model.max_limit);
+                            
                             move |bounds, (), window, cx| {
                                 *bounds_rc.borrow_mut() = bounds;
-                                paint_grid(window, bounds, &df, &xs, &ys, &tk);
-                                paint_plot(window, bounds, &vs, &df, cx);
+                                // Primary grid uses index 0
+                                crate::rendering::paint_grid(window, bounds, &x_df, &xs, &x_ticks, &y_renders[0]);
+                                crate::rendering::paint_plot(window, bounds, &vs, (x_df.x_min, x_df.x_max), &y_ds, cx);
+                                
                                 if sc {
-                                    // 1. Vertical Sync Line (Always from Shared State)
                                     if let Some(hx_val) = hx {
-                                        let in_limits = xmin_l.map_or(true, |l| hx_val >= l) &&
-                                                       xmax_l.map_or(true, |l| hx_val <= l);
+                                        let in_limits = x_df.x_min_limit.map_or(true, |l| hx_val >= l) &&
+                                                       x_df.x_max_limit.map_or(true, |l| hx_val <= l);
                                         if in_limits {
-                                            let sx = tr.x_data_to_screen(hx_val);
+                                            let transform = crate::transform::PlotTransform::new(xs.clone(), y_renders[0].scale.clone(), bounds);
+                                            let sx = transform.x_data_to_screen(hx_val);
                                             let p1 = Point::new(sx, bounds.origin.y);
-                                            let p2 =
-                                                Point::new(sx, bounds.origin.y + bounds.size.height);
+                                            let p2 = Point::new(sx, bounds.origin.y + bounds.size.height);
                                             let mut builder = PathBuilder::stroke(px(1.0));
                                             builder.move_to(p1);
                                             builder.line_to(p2);
@@ -803,12 +982,14 @@ impl Render for ChartView {
                                         }
                                     }
 
-                                    // 2. Horizontal Local Line (Only if mouse is over THIS chart)
                                     if let Some(pos) = mouse_pos {
                                         if bounds.contains(&pos) {
-                                            let data_pt = tr.screen_to_data(pos);
-                                            let in_limits = ymin_l.map_or(true, |l| data_pt.y >= l) &&
-                                                           ymax_l.map_or(true, |l| data_pt.y <= l);
+                                            // Show horizontal line based on primary Y axis
+                                            let transform = crate::transform::PlotTransform::new(xs.clone(), y_renders[0].scale.clone(), bounds);
+                                            let data_pt = transform.screen_to_data(pos);
+                                            let y0 = &y_renders[0];
+                                            let in_limits = y0.limits.0.map_or(true, |l| data_pt.y >= l) &&
+                                                           y0.limits.1.map_or(true, |l| data_pt.y <= l);
                                             if in_limits {
                                                 let mut builder = PathBuilder::stroke(px(1.0));
                                                 builder.move_to(Point::new(bounds.origin.x, pos.y));
@@ -848,6 +1029,7 @@ impl Render for ChartView {
                     ),
             )
             .children(axes_elements)
+            .children(overlay_elements)
             .children(if self.legend_config.enabled {
                 let mut items = vec![];
                 for s in &self.series {
@@ -946,11 +1128,14 @@ impl Render for ChartView {
             })
             .children(if self.show_tooltip && is_mouse_here {
                 if let Some(pos) = mouse_pos_global {
+                    let transform = crate::transform::PlotTransform::new(x_scale.clone(), y_renders[0].scale.clone(), current_bounds);
                     let data_point = transform.screen_to_data(pos);
                     let x_in = x_axis_model.min_limit.map_or(true, |l| data_point.x >= l) &&
                               x_axis_model.max_limit.map_or(true, |l| data_point.x <= l);
-                    let y_in = y_axis_model.min_limit.map_or(true, |l| data_point.y >= l) &&
-                              y_axis_model.max_limit.map_or(true, |l| data_point.y <= l);
+                    
+                    let y0 = &y_renders[0];
+                    let y_in = y0.limits.0.map_or(true, |l| data_point.y >= l) &&
+                              y0.limits.1.map_or(true, |l| data_point.y <= l);
 
                     if x_in && y_in {
                         let local_x = pos.x - root_origin.x;
@@ -970,7 +1155,7 @@ impl Render for ChartView {
                                 .child(format!(
                                     "X: {}\nY: {}",
                                     x_scale.format_tick(data_point.x),
-                                    y_scale.format_tick(data_point.y)
+                                    y0.scale.format_tick(data_point.y)
                                 ))
                                 .into_any_element(),
                         )

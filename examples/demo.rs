@@ -3,7 +3,8 @@ use gpui::*;
 use gpui_chart::{
     ChartView, Series, LinePlot, Ohlcv, CandlestickPlot,
     navigator_view::NavigatorView,
-    data_types::{AxisRange, SharedPlotState}
+    data_types::{AxisRange, SharedPlotState},
+    ChartLayout, PaneSize
 };
 use gpui_chart::data_types::{PlotPoint, ColorOp};
 use std::rc::Rc;
@@ -13,8 +14,7 @@ use rand::Rng;
 use gpui_chart::chart_view::{PanLeft, PanRight, PanUp, PanDown, ZoomIn, ZoomOut, ResetView};
 
 struct DemoApp {
-    price_chart: Entity<ChartView>,
-    indicator_chart: Entity<ChartView>,
+    layout: Entity<ChartLayout>,
     navigator: Entity<NavigatorView>,
     shared_plot_state: Entity<SharedPlotState>,
 }
@@ -66,6 +66,7 @@ impl DemoApp {
             Series {
                 id: "Price".to_string(),
                 plot: Rc::new(RefCell::new(CandlestickPlot::new(candles))),
+                y_axis_index: 0,
             }
         ];
         let price_series_clone = price_series.clone();
@@ -74,6 +75,7 @@ impl DemoApp {
             Series {
                 id: "Oscillator".to_string(),
                 plot: Rc::new(RefCell::new(LinePlot::new(line_data))),
+                y_axis_index: 0,
             }
         ];
 
@@ -83,7 +85,30 @@ impl DemoApp {
         let price_chart = cx.new(|cx| {
             let mut view = ChartView::new(shared_x.clone(), price_y.clone(), shared_plot_state.clone(), cx);
             view.margin_left = margin_left;
+            view.margin_right = margin_left;
             view.show_x_axis = false;
+            
+            // Add a second Y axis for an overlay indicator
+            let overlay_y = cx.new(|_cx| {
+                let mut r = AxisRange::new(0.0, 1000.0);
+                r.min_limit = Some(0.0);
+                r
+            });
+            let _idx = view.add_y_axis(overlay_y, cx);
+            
+            // Add a series on the second Y axis
+            let mut volume_data = Vec::new();
+            for i in 0..100 {
+                let x = now - (100 - i) as f64 * (hour_ms / 4.0);
+                let y = (i as f64 * 0.5).cos().abs() * 800.0;
+                volume_data.push(PlotPoint { x, y, color_op: ColorOp::None });
+            }
+            view.add_series(Series {
+                id: "Overlay Vol".to_string(),
+                plot: Rc::new(RefCell::new(LinePlot::new(volume_data))),
+                y_axis_index: 1,
+            });
+
             for s in price_series { view.add_series(s); }
             view.auto_fit_axes(cx);
             view
@@ -97,13 +122,20 @@ impl DemoApp {
             view
         });
 
+        let layout = cx.new(|cx| {
+            let mut l = ChartLayout::new(cx);
+            l.add_pane(price_chart, PaneSize::Weight(3.0), cx);
+            l.add_pane(indicator_chart, PaneSize::Weight(1.0), cx);
+            l
+        });
+
         let navigator = cx.new(|cx| {
             let mut nav = NavigatorView::new(shared_x.clone(), price_y.clone(), price_series_clone, cx);
             nav.config.lock_y = false;
             nav
         });
 
-        Self { price_chart, indicator_chart, navigator, shared_plot_state }
+        Self { layout, navigator, shared_plot_state }
     }
 }
 
@@ -117,15 +149,7 @@ impl Render for DemoApp {
             .child(
                 div()
                     .flex_1()
-                    .child(self.price_chart.clone())
-            )
-            .child(
-                div()
-                    .h(px(150.0))
-                    .w_full()
-                    .border_t_1()
-                    .border_color(gpui::white().alpha(0.1))
-                    .child(self.indicator_chart.clone())
+                    .child(self.layout.clone())
             )
             .child(
                 div()

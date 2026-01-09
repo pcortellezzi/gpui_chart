@@ -175,6 +175,7 @@ pub enum PlotData {
 pub struct Series {
     pub id: String,
     pub plot: std::rc::Rc<std::cell::RefCell<dyn crate::plot_types::PlotRenderer + Send + Sync>>,
+    pub y_axis_index: usize,
 }
 
 #[derive(Clone)]
