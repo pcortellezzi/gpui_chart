@@ -93,14 +93,14 @@ impl DemoApp {
             
             // Axes X multi-fuseaux
             container.add_x_axis(shared_x.clone(), AxisEdge::Bottom, px(25.0), "UTC".to_string(), cx);
-            container.add_x_axis(shared_x.clone(), AxisEdge::Bottom, px(25.0), "New York".to_string(), cx);
+            container.add_x_axis(shared_x.clone(), AxisEdge::Top, px(25.0), "New York".to_string(), cx);
 
             // Zones
             container.add_pane(price_pane, 3.0, cx);
             container.add_y_axis(0, price_y_clone, AxisEdge::Right, px(60.0), "Price".to_string(), cx);
             
             container.add_pane(indicator_pane, 1.0, cx);
-            container.add_y_axis(1, indicator_y, AxisEdge::Right, px(60.0), "RSI".to_string(), cx);
+            container.add_y_axis(1, indicator_y, AxisEdge::Left, px(60.0), "RSI".to_string(), cx);
             container
         });
 
