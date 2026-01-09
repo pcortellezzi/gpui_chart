@@ -1,31 +1,7 @@
 // Data structures for the charting library
 
 use gpui::Hsla;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use eyre::Result;
-
-// Custom serialization module for Hsla <-> Hex String
-pub mod hex_color {
-    use super::*;
-
-    pub fn serialize<S>(color: &Hsla, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(&format!("{:?}", color))
-    }
-
-    pub fn deserialize<'de, D>(_deserializer: D) -> Result<Hsla, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        Ok(gpui::white())
-    }
-
-    pub fn parse_hex_str(_hex: &str) -> Result<Hsla> {
-        Ok(gpui::white())
-    }
-}
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct LinePlotConfig {
@@ -71,15 +47,78 @@ impl Default for CandlestickConfig {
     }
 }
 
-/// Représente le domaine visible avec des limites optionnelles.
+/// État pour un axe unique (X ou Y).
+#[derive(Clone, Debug, Default, PartialEq, PartialOrd)]
+pub struct AxisRange {
+    pub min: f64,
+    pub max: f64,
+    pub min_limit: Option<f64>,
+    pub max_limit: Option<f64>,
+}
+
+impl AxisRange {
+    pub fn new(min: f64, max: f64) -> Self {
+        Self { min, max, ..Default::default() }
+    }
+
+    pub fn span(&self) -> f64 {
+        self.max - self.min
+    }
+
+    /// Retourne les bornes clampées pour le rendu.
+    pub fn clamped_bounds(&self) -> (f64, f64) {
+        let mut c_min = self.min;
+        let mut c_max = self.max;
+        if let Some(l) = self.min_limit {
+            if c_min < l { c_min = l; }
+            if c_max < l { c_max = l; }
+        }
+        if let Some(l) = self.max_limit {
+            if c_max > l { c_max = l; }
+            if c_min > l { c_min = l; }
+        }
+        (c_min, c_max)
+    }
+
+    /// Zoom pur sans contraintes pour préserver le point pivot.
+    pub fn zoom_at(&mut self, pivot_data: f64, pivot_pct: f64, factor: f64) {
+        let new_span = self.span() * factor;
+        self.min = pivot_data - new_span * pivot_pct;
+        self.max = self.min + new_span;
+    }
+
+    /// Panoramique avec clamping optionnel (géré manuellement si besoin).
+    pub fn pan(&mut self, delta_data: f64) {
+        self.min += delta_data;
+        self.max += delta_data;
+    }
+
+    /// Applique les limites de manière stricte (utile pour le panoramique).
+    pub fn clamp(&mut self) {
+        if let Some(l) = self.min_limit {
+            if self.min < l {
+                let s = self.span();
+                self.min = l;
+                self.max = l + s;
+            }
+        }
+        if let Some(l) = self.max_limit {
+            if self.max > l {
+                let s = self.span();
+                self.max = l;
+                self.min = l - s;
+            }
+        }
+    }
+}
+
+/// État consolidé pour une vue de graphique.
 #[derive(Clone, Debug, Default)]
 pub struct AxisDomain {
     pub x_min: f64,
     pub x_max: f64,
     pub y_min: f64,
     pub y_max: f64,
-
-    // Limites strictes (Hard Limits)
     pub x_min_limit: Option<f64>,
     pub x_max_limit: Option<f64>,
     pub y_min_limit: Option<f64>,
@@ -87,44 +126,17 @@ pub struct AxisDomain {
 }
 
 impl AxisDomain {
-    pub fn width(&self) -> f64 {
-        self.x_max - self.x_min
-    }
-    pub fn height(&self) -> f64 {
-        self.y_max - self.y_min
-    }
+    pub fn width(&self) -> f64 { self.x_max - self.x_min }
+    pub fn height(&self) -> f64 { self.y_max - self.y_min }
+}
 
-    /// Applique les limites configurées aux valeurs actuelles.
-    pub fn clamp(&mut self) {
-        if let Some(min) = self.x_min_limit {
-            if self.x_min < min {
-                let w = self.width();
-                self.x_min = min;
-                self.x_max = min + w;
-            }
-        }
-        if let Some(max) = self.x_max_limit {
-            if self.x_max > max {
-                let w = self.width();
-                self.x_max = max;
-                self.x_min = max - w;
-            }
-        }
-        if let Some(min) = self.y_min_limit {
-            if self.y_min < min {
-                let h = self.height();
-                self.y_min = min;
-                self.y_max = min + h;
-            }
-        }
-        if let Some(max) = self.y_max_limit {
-            if self.y_max > max {
-                let h = self.height();
-                self.y_max = max;
-                self.y_min = max - h;
-            }
-        }
-    }
+/// État partagé entre plusieurs graphiques (Crosshair, etc.).
+#[derive(Clone, Debug, Default)]
+pub struct SharedPlotState {
+    pub hover_x: Option<f64>, // Coordonnée X en unités de données
+    pub mouse_pos: Option<gpui::Point<gpui::Pixels>>, // Position écran globale
+    pub active_chart_id: Option<gpui::EntityId>, // ID du graphique actuellement survolé
+    pub is_dragging: bool,
 }
 
 #[derive(Clone)]

@@ -1,6 +1,6 @@
 // NavigatorView implementation
 
-use crate::data_types::{AxisDomain, Series};
+use crate::data_types::{AxisRange, Series, AxisDomain};
 use crate::rendering::paint_plot;
 use gpui::prelude::*;
 use gpui::*;
@@ -12,14 +12,14 @@ use std::rc::Rc;
 pub struct NavigatorConfig {
     pub lock_x: bool,
     pub lock_y: bool,
-    pub clamp_to_minimap: bool, // Prevent rectangle from leaving the minimap bounds
+    pub clamp_to_minimap: bool,
 }
 
 impl Default for NavigatorConfig {
     fn default() -> Self {
         Self {
             lock_x: false,
-            lock_y: true, // Default to historical behavior
+            lock_y: true,
             clamp_to_minimap: true,
         }
     }
@@ -27,7 +27,8 @@ impl Default for NavigatorConfig {
 
 /// Une vue miniature pour naviguer dans les données.
 pub struct NavigatorView {
-    pub domain: Entity<AxisDomain>,
+    pub x_axis: Entity<AxisRange>,
+    pub y_axis: Entity<AxisRange>,
     pub series: Vec<Series>,
     pub config: NavigatorConfig,
     full_domain: AxisDomain,
@@ -37,13 +38,13 @@ pub struct NavigatorView {
 }
 
 impl NavigatorView {
-    pub fn new(domain: Entity<AxisDomain>, series: Vec<Series>, cx: &mut Context<Self>) -> Self {
-        cx.observe(&domain, |_, _, cx| {
-            cx.notify();
-        }).detach();
+    pub fn new(x_axis: Entity<AxisRange>, y_axis: Entity<AxisRange>, series: Vec<Series>, cx: &mut Context<Self>) -> Self {
+        cx.observe(&x_axis, |_, _, cx| cx.notify()).detach();
+        cx.observe(&y_axis, |_, _, cx| cx.notify()).detach();
 
         let mut view = Self {
-            domain,
+            x_axis,
+            y_axis,
             series,
             config: NavigatorConfig::default(),
             full_domain: AxisDomain::default(),
@@ -70,10 +71,7 @@ impl NavigatorView {
         }
 
         if x_min != f64::INFINITY {
-            self.full_domain = AxisDomain { 
-                x_min, x_max, y_min, y_max,
-                ..Default::default()
-            };
+            self.full_domain = AxisDomain { x_min, x_max, y_min, y_max, ..Default::default() };
         }
     }
 
@@ -98,65 +96,49 @@ impl NavigatorView {
         if bounds.is_empty() { return; }
 
         let relative_x = (pos.x - bounds.origin.x).as_f32() as f64;
-        let relative_y = (pos.y - bounds.origin.y).as_f32() as f64;
-        
         let pct_x = (relative_x / bounds.size.width.as_f32() as f64).clamp(0.0, 1.0);
-        let pct_y = (relative_y / bounds.size.height.as_f32() as f64).clamp(0.0, 1.0);
-        
         let center_x = self.full_domain.x_min + self.full_domain.width() * pct_x;
-        let center_y = self.full_domain.y_max - self.full_domain.height() * pct_y; // Y inversé (0 is top)
+
+        let relative_y = (pos.y - bounds.origin.y).as_f32() as f64;
+        let pct_y = (relative_y / bounds.size.height.as_f32() as f64).clamp(0.0, 1.0);
+        let center_y = self.full_domain.y_max - self.full_domain.height() * pct_y;
 
         let lock_x = self.config.lock_x;
         let lock_y = self.config.lock_y;
         let clamp_to_map = self.config.clamp_to_minimap;
         let full = self.full_domain.clone();
 
-        self.domain.update(cx, |domain: &mut AxisDomain, cx: &mut Context<AxisDomain>| {
-            if !lock_x {
-                let half_w = domain.width() / 2.0;
-                domain.x_min = center_x - half_w;
-                domain.x_max = center_x + half_w;
-                
+        if !lock_x {
+            self.x_axis.update(cx, |x, cx| {
+                let half_w = x.span() / 2.0;
+                x.min = center_x - half_w; x.max = center_x + half_w;
                 if clamp_to_map {
-                    if domain.x_min < full.x_min {
-                        domain.x_min = full.x_min;
-                        domain.x_max = full.x_min + half_w * 2.0;
-                    }
-                    if domain.x_max > full.x_max {
-                        domain.x_max = full.x_max;
-                        domain.x_min = full.x_max - half_w * 2.0;
-                    }
+                    if x.min < full.x_min { x.min = full.x_min; x.max = full.x_min + half_w * 2.0; }
+                    if x.max > full.x_max { x.max = full.x_max; x.min = full.x_max - half_w * 2.0; }
                 }
-            }
+                x.clamp(); cx.notify();
+            });
+        }
 
-            if !lock_y {
-                let half_h = domain.height() / 2.0;
-                domain.y_min = center_y - half_h;
-                domain.y_max = center_y + half_h;
-
+        if !lock_y {
+            self.y_axis.update(cx, |y, cx| {
+                let half_h = y.span() / 2.0;
+                y.min = center_y - half_h; y.max = center_y + half_h;
                 if clamp_to_map {
-                    if domain.y_min < full.y_min {
-                        domain.y_min = full.y_min;
-                        domain.y_max = full.y_min + half_h * 2.0;
-                    }
-                    if domain.y_max > full.y_max {
-                        domain.y_max = full.y_max;
-                        domain.y_min = full.y_max - half_h * 2.0;
-                    }
+                    if y.min < full.y_min { y.min = full.y_min; y.max = full.y_min + half_h * 2.0; }
+                    if y.max > full.y_max { y.max = full.y_max; y.min = full.y_max - half_h * 2.0; }
                 }
-            }
-            
-            // Apply hard limits from domain
-            domain.clamp();
-            cx.notify();
-        });
+                y.clamp(); cx.notify();
+            });
+        }
     }
 }
 
 impl Render for NavigatorView {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let full_domain = self.full_domain.clone();
-        let visible_domain = self.domain.read(cx).clone();
+        let x_axis_val = self.x_axis.read(cx).clone();
+        let y_axis_val = self.y_axis.read(cx).clone();
         let series = self.series.clone();
         let bounds_rc = self.bounds.clone();
         let lock_y = self.config.lock_y;
@@ -172,23 +154,20 @@ impl Render for NavigatorView {
             .child(
                 canvas(|_bounds, _window, _cx| {}, move |bounds, (), window, cx| {
                     *bounds_rc.borrow_mut() = bounds;
-                    
                     paint_plot(window, bounds, &series, &full_domain, cx);
 
                     let (w, h) = (bounds.size.width.as_f32() as f64, bounds.size.height.as_f32() as f64);
                     
-                    // X Coordinates
-                    let left_pct = (visible_domain.x_min - full_domain.x_min) / full_domain.width();
-                    let right_pct = (visible_domain.x_max - full_domain.x_min) / full_domain.width();
+                    let left_pct = (x_axis_val.min - full_domain.x_min) / full_domain.width();
+                    let right_pct = (x_axis_val.max - full_domain.x_min) / full_domain.width();
                     let rect_left = (w * left_pct).clamp(0.0, w) as f32;
                     let rect_right = (w * right_pct).clamp(0.0, w) as f32;
 
-                    // Y Coordinates (0 is top in screen, high values are top in data)
                     let (rect_top, rect_bot) = if lock_y {
                         (0.0, h as f32)
                     } else {
-                        let top_pct = (full_domain.y_max - visible_domain.y_max) / full_domain.height();
-                        let bot_pct = (full_domain.y_max - visible_domain.y_min) / full_domain.height();
+                        let top_pct = (full_domain.y_max - y_axis_val.max) / full_domain.height();
+                        let bot_pct = (full_domain.y_max - y_axis_val.min) / full_domain.height();
                         ((h * top_pct).clamp(0.0, h) as f32, (h * bot_pct).clamp(0.0, h) as f32)
                     };
                     

@@ -24,6 +24,7 @@ L'objectif est de transformer `gpui_chart` en une librairie de graphiques de niv
 9.  **Qualité Statique :** Le code doit viser à satisfaire `cargo clippy` (Rust idiomatique).
 10. **Auto-Correction Raisonnée :** En cas d'erreur (compilation/test), analyser l'erreur explicitement avant de proposer une correction. Pas de "fix" à l'aveugle.
 11. **Propreté des Commentaires :** Pas de commentaires "réflexifs" (pensées de l'IA). Les commentaires doivent être techniques. Nettoyer tout commentaire temporaire avant la compilation finale.
+12. **Interdiction des Placeholders :** Ne jamais utiliser `// ...` dans les outils. Toujours fournir le code complet.
 
 ## Phase 1 : Refonte Architecturale & Coordonnées (Fondations)
 Avant d'ajouter des fonctionnalités, il faut solidifier la gestion de l'espace et **nettoyer la logique métier**.
@@ -70,23 +71,40 @@ C'est ici que l'écart avec `egui_plot` se réduit.
 ## Phase 2.5 : Composition & Synchronisation (Dashboarding)
 Pour permettre des dispositions complexes (Indicateurs en bas, DOM à droite).
 
-- [ ] **Mini-Map / Navigator**
+- [x] **Mini-Map / Navigator**
     - Un petit graphique simplifié en bas montrant l'historique complet avec une fenêtre glissante pour naviguer rapidement.
-- [ ] **Synchronisation des Axes (Linked Axes)**
-    - Permettre à plusieurs instances de `ChartView` de partager le même objet d'état `AxisDomain` (via `Rc<RefCell>` ou `Model<T>`).
-    - *Cas d'usage :* Zoomer sur le graphique des Prix zoome instantanément le RSI situé en dessous.
-- [ ] **Exposition du Transform (Pour Vues Externes)**
-    - Rendre le système de conversion `Scale` public et observable.
-    - *Cas d'usage (DOM) :* Une vue "Tableau" (qui n'est pas un Chart) peut observer l'échelle Y du graphique principal pour ajuster la hauteur de ses lignes ou filtrer les prix visibles.
-- [ ] **Gestion des Marges (Layout Alignment)**
-    - Système pour fixer/synchroniser la largeur des marges entre plusieurs graphiques superposés.
+    - Support de la navigation 2D (X/Y) et verrouillage d'axe.
+    - Clamping aux limites des données ou limites paramétrables (ex: Y min = 0).
+- [x] **Synchronisation des Axes (Linked Axes)**
+    - **FIXÉ :** Synchronisation bidirectionnelle stable via `zoom_at` (pivot préservé).
+    - Partage d'état `AxisRange` via `Entity<T>`.
+    - **Calcul vs Rendu :** Séparation des bornes "idéales" pour le calcul et "clampées" pour le rendu visuel.
+- [x] **Crosshair Globalisé & Synchronisé (Multi-View)**
+    - **FIXÉ :** Crosshair vertical partagé sur tous les panneaux synchronisés.
+    - **FIXÉ :** Crosshair horizontal et Tag Y locaux au graphique survolé (évite les doublons).
+    - **FIXÉ :** Style des étiquettes harmonisé (Fond Blanc / Texte Noir, 12px) et coordonnées locales corrigées.
+- [x] **Gestion de la Visibilité des Axes**
+    - Système pour masquer sélectivement l'axe X ou Y (Tags X affichés uniquement sur l'axe visible).
+- [x] **Exposition du Transform (Pour Vues Externes)**
+    - Système de conversion `Scale` public et observable.
+- [x] **Gestion des Marges (Layout Alignment)**
+    - Système pour fixer/synchroniser la largeur des marges entre plusieurs graphiques superposés via `margin_left`.
+
+## Phase 2.6 : Layout Dynamique & Multi-Pane
+- [ ] **Système de Panneaux (Panes)**
+    - Gérer l'agencement automatique : Top, Bottom, Left, Right.
+    - Ajouter des boutons d'action (UI) pour déplacer une vue (Monter/Descendre/Déplacer).
+- [ ] **Superposition (Overlays)**
+    - Permettre de fusionner deux vues (ex: Volume par-dessus le Prix) avec des axes Y indépendants (Y1 à gauche, Y2 à droite).
+- [ ] **Séparateurs Redimensionnables (Splitters)**
+    - Implémenter des zones de saisie ("grip") entre les graphiques pour ajuster leur hauteur relative par drag.
 
 ## Phase 3 : Richesse Visuelle & Primitives
 Exploiter `gpui-d3rs` pour le dessin.
 
-- [ ] **Candlestick (Bougies Japonaises)**
-    - Porter et adapter l'implémentation existante située dans `../src/ui/`.
-    - S'assurer de la gestion correcte des couleurs (Hausse/Baisse) et de la largeur dynamique des bougies selon le zoom.
+- [x] **Candlestick (Bougies Japonaises)**
+    - Porter et adapter l'implémentation existante.
+    - Gestion correcte des couleurs (Hausse/Baisse) et largeur dynamique des bougies.
 - [ ] **Nouveaux Types de Tracés**
     - **Area Chart** : Remplissage sous courbe.
     - **Heatmap / Grid** : Grille de rectangles colorés avec support de texte (valeurs numériques). Idéal pour afficher des carnets d'ordres (DOM) historiques ou de la densité de volume. Doit supporter l'agrégation (LOD) spatiale.

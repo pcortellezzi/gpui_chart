@@ -1,8 +1,9 @@
 use gpui::prelude::*;
 use gpui::*;
 use gpui_chart::{
-    ChartView, Series, LinePlot, Ohlcv, AxisDomain, CandlestickPlot,
-    navigator_view::NavigatorView
+    ChartView, Series, LinePlot, Ohlcv, CandlestickPlot,
+    navigator_view::NavigatorView,
+    data_types::{AxisRange, SharedPlotState}
 };
 use gpui_chart::data_types::{PlotPoint, ColorOp};
 use std::rc::Rc;
@@ -12,26 +13,36 @@ use rand::Rng;
 use gpui_chart::chart_view::{PanLeft, PanRight, PanUp, PanDown, ZoomIn, ZoomOut, ResetView};
 
 struct DemoApp {
-    chart: Entity<ChartView>,
+    price_chart: Entity<ChartView>,
+    indicator_chart: Entity<ChartView>,
     navigator: Entity<NavigatorView>,
+    shared_plot_state: Entity<SharedPlotState>,
 }
 
 impl DemoApp {
     pub fn new(cx: &mut Context<Self>) -> Self {
-        // 1. Create the shared Domain Entity with Y limit
-        let domain = cx.new(|_cx| AxisDomain {
-            x_min: 0.0,
-            x_max: 10.0,
-            y_min: 0.0,
-            y_max: 10.0,
-            y_min_limit: Some(0.0), // Prevent going into negative prices
-            ..Default::default()
-        });
-
-        // 2. Prepare Data
-        let mut line_data = Vec::new();
         let now = chrono::Utc::now().timestamp_millis() as f64;
         let hour_ms = 3600_000.0;
+
+        // 1. Shared State for synchronization
+        let shared_x = cx.new(|_cx| AxisRange::new(now - 50.0 * hour_ms, now));
+        let shared_plot_state = cx.new(|_cx| SharedPlotState::default());
+
+        // 2. Specific Y-axis ranges
+        let price_y = cx.new(|_cx| {
+            let mut r = AxisRange::new(0.0, 200.0);
+            r.min_limit = Some(0.0);
+            r
+        });
+        let indicator_y = cx.new(|_cx| {
+            let mut r = AxisRange::new(0.0, 100.0);
+            r.min_limit = Some(0.0);
+            r.max_limit = Some(100.0);
+            r
+        });
+
+        // 3. Prepare Data
+        let mut line_data = Vec::new();
         for i in 0..100 {
             let x = now - (100 - i) as f64 * (hour_ms / 4.0);
             let y = (i as f64 * 0.2).sin() * 50.0 + 100.0;
@@ -51,34 +62,48 @@ impl DemoApp {
             price = close;
         }
 
-        let series = vec![
+        let price_series = vec![
             Series {
-                id: "sine_wave".to_string(),
-                plot: Rc::new(RefCell::new(LinePlot::new(line_data))),
-            },
-            Series {
-                id: "candles".to_string(),
+                id: "Price".to_string(),
                 plot: Rc::new(RefCell::new(CandlestickPlot::new(candles))),
             }
         ];
+        let price_series_clone = price_series.clone();
 
-        // 3. Create Views
-        let series_clone = series.clone();
-        let chart = cx.new(|cx| {
-            let mut view = ChartView::new(domain.clone(), cx);
-            for s in series { view.add_series(s); }
+        let indicator_series = vec![
+            Series {
+                id: "Oscillator".to_string(),
+                plot: Rc::new(RefCell::new(LinePlot::new(line_data))),
+            }
+        ];
+
+        // 4. Create Views
+        let margin_left = px(60.0);
+
+        let price_chart = cx.new(|cx| {
+            let mut view = ChartView::new(shared_x.clone(), price_y.clone(), shared_plot_state.clone(), cx);
+            view.margin_left = margin_left;
+            view.show_x_axis = false;
+            for s in price_series { view.add_series(s); }
+            view.auto_fit_axes(cx);
+            view
+        });
+
+        let indicator_chart = cx.new(|cx| {
+            let mut view = ChartView::new(shared_x.clone(), indicator_y.clone(), shared_plot_state.clone(), cx);
+            view.margin_left = margin_left;
+            for s in indicator_series { view.add_series(s); }
             view.auto_fit_axes(cx);
             view
         });
 
         let navigator = cx.new(|cx| {
-            let mut nav = NavigatorView::new(domain.clone(), series_clone, cx);
-            // Configure Navigator for 2D navigation (unlock Y)
+            let mut nav = NavigatorView::new(shared_x.clone(), price_y.clone(), price_series_clone, cx);
             nav.config.lock_y = false;
             nav
         });
 
-        Self { chart, navigator }
+        Self { price_chart, indicator_chart, navigator, shared_plot_state }
     }
 }
 
@@ -86,13 +111,21 @@ impl Render for DemoApp {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
         div()
             .size_full()
-            .bg(gpui::white())
+            .bg(gpui::black())
             .flex()
             .flex_col()
             .child(
                 div()
                     .flex_1()
-                    .child(self.chart.clone())
+                    .child(self.price_chart.clone())
+            )
+            .child(
+                div()
+                    .h(px(150.0))
+                    .w_full()
+                    .border_t_1()
+                    .border_color(gpui::white().alpha(0.1))
+                    .child(self.indicator_chart.clone())
             )
             .child(
                 div()
