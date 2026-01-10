@@ -187,20 +187,32 @@ impl AxisRange {
         self.max += delta_data;
     }
 
-    /// Applique les limites de manière stricte (utile pour le panoramique).
+    /// Applique les limites de manière intelligente pour préserver le pivot.
     pub fn clamp(&mut self) {
-        if let Some(l) = self.min_limit {
-            if self.min < l {
-                let s = self.span();
-                self.min = l;
-                self.max = l + s;
-            }
-        }
-        if let Some(l) = self.max_limit {
-            if self.max > l {
-                let s = self.span();
-                self.max = l;
-                self.min = l - s;
+        if let (Some(min_l), Some(max_l)) = (self.min_limit, self.max_limit) {
+            let limit_span = max_l - min_l;
+            let current_span = self.span();
+
+            if current_span <= limit_span {
+                // Cas 1 : On tient dans les limites. On décale si on sort.
+                if self.min < min_l {
+                    self.min = min_l;
+                    self.max = min_l + current_span;
+                } else if self.max > max_l {
+                    self.max = max_l;
+                    self.min = max_l - current_span;
+                }
+            } else {
+                // Cas 2 : On est plus large que les limites (Over-zoom out).
+                // On autorise le dépassement des deux côtés (pour le pivot),
+                // mais on empêche de décaler la zone "utile" hors des limites.
+                if self.min > min_l {
+                    self.min = min_l;
+                    self.max = min_l + current_span;
+                } else if self.max < max_l {
+                    self.max = max_l;
+                    self.min = max_l - current_span;
+                }
             }
         }
     }
@@ -419,9 +431,9 @@ impl PlotDataSource for StreamingDataSource {
 
         if self.data.len() >= self.capacity {
             self.data.pop_front();
-            // If we pop, the bounds cache might need a full rebuild or careful management.
-            // For now, let's rebuild cache every CHUNK_SIZE pops to keep it simple.
-            if self.data.len() % CHUNK_SIZE == 0 { self.rebuild_cache(); }
+            // Full rebuild to ensure accuracy after eviction.
+            // Optimization: could be done incrementally or every CHUNK_SIZE pops.
+            self.rebuild_cache();
         }
 
         self.data.push_back(data.clone());

@@ -62,8 +62,13 @@ C'est ici que l'écart avec `egui_plot` se réduit.
     - Auto-fit intelligent ignorant les séries masquées.
 
 ## Backlog & Améliorations Futures
+- [ ] **Drag & Drop de Séries** : Permettre de glisser une série directement d'une Pane à une autre à la souris (alternative au bouton ▲/▼).
+- [ ] **ContextMenu des Séries** : Clic droit sur une série ou son étiquette pour changer la couleur, le type de tracé (ex: Ligne -> Step) ou les paramètres LOD.
+- [ ] **Pinning & Mesure** : Clic simple pour épingler une valeur ou mesurer la distance (prix/temps) entre deux points.
 - [ ] **Paramétrage des touches** : Permettre à l'utilisateur de définir ses propres KeyBindings pour les actions de navigation.
-- [ ] **Interactivité des Axes** : Permettre de redimensionner (stretch) un seul axe en le glissant directement.
+- [ ] **Robustesse & Tests d'Interactions** :
+    *   Extraire la logique de manipulation des axes dans un `ViewController` découplé de l'UI pour permettre des tests 100% automatisés sans macros GPUI complexes.
+    *   Couvrir les cas limites de redimensionnement de panneaux (splitters).
 - [ ] **Échelles Logarithmiques** : Support complet des échelles log dans `ChartScale`.
 - [ ] **Thèmes avancés** : Export des styles vers un fichier de config externe.
 - [ ] **WebGL / WGPU backend** : Pour des performances encore plus extrêmes sur des millions de points.
@@ -124,7 +129,7 @@ Exploiter `gpui-d3rs` pour le dessin.
 - [x] **Candlestick (Bougies Japonaises)**
     - Porter et adapter l'implémentation existante.
     - Gestion correcte des couleurs (Hausse/Baisse) et largeur dynamique des bougies.
-- [ ] **Nouveaux Types de Tracés**
+- [X] **Nouveaux Types de Tracés**
     - **Area Chart** : Remplissage sous courbe. (Implémenté localement dans `AreaPlot`)
     - **Heatmap / Grid** : Grille de rectangles colorés avec support de texte.
     - **Bar Chart** : Histogrammes. (Implémenté localement dans `BarPlot`)
@@ -141,7 +146,7 @@ Exploiter `gpui-d3rs` pour le dessin.
 ## Phase 4 : Optimisation (Performance)
 Pour gérer le "Big Data".
 
-- [ ] **Streaming Optimisé (Ring Buffer)**
+- [X] **Streaming Optimisé (Ring Buffer)**
     - Utiliser des structures de données circulaires ou par blocs (Chunks) pour éviter les réallocations coûteuses (`Vec::push`) lors de l'arrivée de données temps réel haute fréquence.
 - [ ] **LOD (Level of Detail) / Décimation**
     - **Source de vérité :** S'inspirer directement de la logique implémentée dans `../src/` du projet parent.
@@ -158,7 +163,7 @@ Pour gérer le "Big Data".
 - [ ] **Style System**
     - Utiliser les tokens de couleur de `adabraka-ui` (thèmes).
 - [ ] **Composant Reutilisable**
-    - Packager `ChartContainer` pour qu'il soit instantiable facilement avec une API fluide type Builder pattern.
+    - Packager `ChartContainer` pour qu'il soit instantiable facilement avec une API fluide type Builder pattern: .chart(...).panes(...).axe_x(...).axe_y(...).axe_x(...).minimap(...)
 
 ---
 

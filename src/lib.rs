@@ -1,3 +1,4 @@
+#![recursion_limit = "512"]
 pub mod plot_types;
 pub mod data_types;
 pub mod chart_pane;

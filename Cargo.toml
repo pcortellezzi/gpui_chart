@@ -21,4 +21,5 @@ chrono = "0.4"
 chrono-tz = "0.10.4"
 
 [dev-dependencies]
+gpui = { version = "0.2.2", features = ["test-support"] }
 rand = "0.9.2"
