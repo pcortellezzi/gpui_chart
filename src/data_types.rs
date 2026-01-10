@@ -279,6 +279,7 @@ pub struct SharedPlotState {
     pub mouse_pos: Option<gpui::Point<gpui::Pixels>>, // Position écran globale
     pub active_chart_id: Option<gpui::EntityId>, // ID du graphique actuellement survolé
     pub is_dragging: bool,
+    pub debug_mode: bool,
     pub render_version: u64,
 }
 
@@ -332,6 +333,13 @@ pub trait PlotDataSource: Send + Sync {
     /// Iterate over data within an X-window (for rendering with culling)
     /// Includes one point before and after the range for line continuity.
     fn iter_range(&self, x_min: f64, x_max: f64) -> Box<dyn Iterator<Item = PlotData> + '_>;
+
+    /// Iterate over aggregated data for LOD rendering.
+    /// max_points: The target maximum number of points to return.
+    fn iter_aggregated(&self, x_min: f64, x_max: f64, _max_points: usize) -> Box<dyn Iterator<Item = PlotData> + '_> {
+        // Default implementation falls back to iter_range if max_points is huge or not implemented
+        self.iter_range(x_min, x_max)
+    }
 
     /// Add a single data point
     fn add_data(&mut self, data: PlotData);
@@ -524,10 +532,46 @@ impl PlotDataSource for StreamingDataSource {
 
         if self.data.len() >= self.capacity {
             self.data.pop_front();
-            self.current_chunk_count = self.current_chunk_count.saturating_sub(1);
-            if self.current_chunk_count == 0 && !self.bounds_cache.is_empty() {
-                self.bounds_cache.pop_front();
-                self.current_chunk_count = CHUNK_SIZE;
+            
+            // Handle eviction from cache
+            if self.current_chunk_count > 0 {
+                self.current_chunk_count -= 1;
+                if self.current_chunk_count == 0 {
+                    // The first chunk is empty, remove it
+                    self.bounds_cache.pop_front();
+                    // The next chunk (if any) becomes the current first chunk
+                    if !self.bounds_cache.is_empty() {
+                         self.current_chunk_count = CHUNK_SIZE; // It was a full chunk
+                    }
+                } else {
+                    // The first chunk has changed, we must recompute its bounds
+                    // It corresponds to data[0..self.current_chunk_count]
+                    if let Some(first_chunk_bounds) = self.bounds_cache.front_mut() {
+                        *first_chunk_bounds = AxisDomain {
+                            x_min: f64::INFINITY, x_max: f64::NEG_INFINITY,
+                            y_min: f64::INFINITY, y_max: f64::NEG_INFINITY,
+                            ..Default::default()
+                        };
+                        // Recompute bounds for the remaining points in this chunk
+                        for i in 0..self.current_chunk_count {
+                            let p = &self.data[i];
+                             match p {
+                                PlotData::Point(pt) => {
+                                    first_chunk_bounds.x_min = first_chunk_bounds.x_min.min(pt.x);
+                                    first_chunk_bounds.x_max = first_chunk_bounds.x_max.max(pt.x);
+                                    first_chunk_bounds.y_min = first_chunk_bounds.y_min.min(pt.y);
+                                    first_chunk_bounds.y_max = first_chunk_bounds.y_max.max(pt.y);
+                                }
+                                PlotData::Ohlcv(o) => {
+                                    first_chunk_bounds.x_min = first_chunk_bounds.x_min.min(o.time);
+                                    first_chunk_bounds.x_max = first_chunk_bounds.x_max.max(o.time + o.span);
+                                    first_chunk_bounds.y_min = first_chunk_bounds.y_min.min(o.low);
+                                    first_chunk_bounds.y_max = first_chunk_bounds.y_max.max(o.high);
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -556,6 +600,7 @@ impl PlotDataSource for StreamingDataSource {
                 }
             }
             self.points_in_last_chunk += 1;
+            if self.bounds_cache.len() == 1 { self.current_chunk_count += 1; }
         }
     }
 
@@ -572,15 +617,102 @@ impl PlotDataSource for StreamingDataSource {
 /// Default implementation using a simple Vec with chunked bounds cache.
 pub struct VecDataSource {
     data: Vec<PlotData>,
+    lod_levels: Vec<Vec<PlotData>>, // Pre-computed LOD levels: [0] = /2, [1] = /4, etc.
     bounds_cache: Vec<AxisDomain>, // Reusing AxisDomain for chunk bounds
     suggested_spacing: f64,
 }
 
 impl VecDataSource {
     pub fn new(data: Vec<PlotData>) -> Self {
-        let mut inst = Self { data, bounds_cache: Vec::new(), suggested_spacing: 1.0 };
+        let mut inst = Self { 
+            data, 
+            lod_levels: Vec::new(), 
+            bounds_cache: Vec::new(), 
+            suggested_spacing: 1.0 
+        };
         inst.rebuild_cache();
+        inst.build_lod_pyramid();
         inst
+    }
+
+    fn aggregate_chunk(chunk: &[PlotData]) -> Option<PlotData> {
+        if chunk.is_empty() { return None; }
+        
+        if let PlotData::Point(_) = chunk[0] {
+            let mut sum_y = 0.0;
+            let mut sum_x = 0.0;
+            let len = chunk.len() as f64;
+            
+            for p in chunk {
+                if let PlotData::Point(pt) = p {
+                    sum_x += pt.x;
+                    sum_y += pt.y;
+                }
+            }
+            
+            Some(PlotData::Point(PlotPoint {
+                x: sum_x / len,
+                y: sum_y / len,
+                color_op: ColorOp::None,
+            }))
+        } else if let PlotData::Ohlcv(_) = chunk[0] {
+            let mut open = 0.0;
+            let mut close = 0.0;
+            let mut high = f64::NEG_INFINITY;
+            let mut low = f64::INFINITY;
+            let mut volume = 0.0;
+            let mut first_time = 0.0;
+            let mut last_time_end = 0.0;
+
+            for (i, p) in chunk.iter().enumerate() {
+                if let PlotData::Ohlcv(o) = p {
+                    if i == 0 { 
+                        open = o.open; 
+                        first_time = o.time;
+                    }
+                    if i == chunk.len() - 1 { 
+                        close = o.close;
+                        last_time_end = o.time + o.span;
+                    }
+                    high = high.max(o.high);
+                    low = low.min(o.low);
+                    volume += o.volume;
+                }
+            }
+
+            Some(PlotData::Ohlcv(Ohlcv {
+                time: first_time,
+                span: last_time_end - first_time,
+                open,
+                high,
+                low,
+                close,
+                volume,
+            }))
+        } else {
+            None
+        }
+    }
+
+    fn build_lod_pyramid(&mut self) {
+        self.lod_levels.clear();
+        if self.data.len() < 2000 { return; }
+
+        let mut next_level_capacity = self.data.len() / 2;
+        // Build levels until we reach a small enough size (e.g. 100 points)
+        while next_level_capacity >= 100 {
+            let mut level = Vec::with_capacity(next_level_capacity);
+            let source_to_read = if self.lod_levels.is_empty() { &self.data } else { self.lod_levels.last().unwrap() };
+            
+            for chunk in source_to_read.chunks(2) {
+                if let Some(agg) = Self::aggregate_chunk(chunk) {
+                    level.push(agg);
+                }
+            }
+            
+            next_level_capacity = level.len() / 2;
+            self.lod_levels.push(level);
+        }
     }
 
     fn rebuild_cache(&mut self) {
@@ -682,14 +814,73 @@ impl PlotDataSource for VecDataSource {
         Box::new(self.data[start..end].iter().cloned())
     }
 
+    fn iter_aggregated(&self, x_min: f64, x_max: f64, max_points: usize) -> Box<dyn Iterator<Item = PlotData> + '_> {
+        // 1. Identify raw range
+        let start_idx = self.data.partition_point(|p| self.get_x(p) < x_min);
+        let end_idx = self.data.partition_point(|p| self.get_x(p) <= x_max);
+        let count = end_idx - start_idx;
+
+        if count <= max_points {
+             let start = start_idx.saturating_sub(1);
+             let end = (end_idx + 1).min(self.data.len());
+             return Box::new(self.data[start..end].iter().cloned());
+        }
+
+        // 2. Select LOD level
+        let ratio = count as f64 / max_points as f64;
+        
+        // lod_levels[0] is ratio 2. lod_levels[1] is ratio 4.
+        // We want 2^(level+1) >= ratio.
+        // log2(ratio) <= level + 1  => level >= log2(ratio) - 1.
+        let level_idx = (ratio.log2().ceil() as isize - 1).max(0) as usize;
+
+        if level_idx < self.lod_levels.len() {
+            let level_data = &self.lod_levels[level_idx];
+            
+            // Binary search on the aggregated level for precision
+            let l_start = level_data.partition_point(|p| self.get_x(p) < x_min);
+            let l_end = level_data.partition_point(|p| self.get_x(p) <= x_max);
+            
+            // Add padding for continuity
+            let start = l_start.saturating_sub(1);
+            let end = (l_end + 1).min(level_data.len());
+            
+            return Box::new(level_data[start..end].iter().cloned());
+        } else if !self.lod_levels.is_empty() {
+             // Fallback to highest compression
+             let level_data = self.lod_levels.last().unwrap();
+             let l_start = level_data.partition_point(|p| self.get_x(p) < x_min);
+             let l_end = level_data.partition_point(|p| self.get_x(p) <= x_max);
+             let start = l_start.saturating_sub(1);
+             let end = (l_end + 1).min(level_data.len());
+             return Box::new(level_data[start..end].iter().cloned());
+        }
+
+        // 3. Fallback to dynamic binning if no pyramid (or ratio too high but pyramid empty/small)
+        // (This part is the previous implementation logic, kept as fallback)
+        let bin_size = (count as f64 / max_points as f64).ceil() as usize;
+        let mut aggregated = Vec::with_capacity(max_points);
+
+        for chunk in self.data[start_idx..end_idx].chunks(bin_size) {
+            if let Some(agg) = Self::aggregate_chunk(chunk) {
+                aggregated.push(agg);
+            }
+        }
+        
+        Box::new(aggregated.into_iter())
+    }
+
     fn add_data(&mut self, data: PlotData) {
         self.data.push(data);
-        if self.data.len() % CHUNK_SIZE == 1 { self.rebuild_cache(); } // Simple re-trigger for now
+        if self.data.len() % CHUNK_SIZE == 1 { self.rebuild_cache(); } 
+        // Note: We don't rebuild pyramid on every add for perf reasons.
+        // Ideally should append to levels incrementally, but for VecDataSource (static) it's rare.
     }
 
     fn set_data(&mut self, data: Vec<PlotData>) {
         self.data = data;
         self.rebuild_cache();
+        self.build_lod_pyramid();
     }
 }
 

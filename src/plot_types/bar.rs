@@ -37,45 +37,67 @@ impl PlotRenderer for BarPlot {
         transform: &PlotTransform,
         _series_id: &str,
     ) {
-        let min_spacing = self.source.suggested_x_spacing();
-        let bar_width_data = min_spacing * self.config.bar_width_pct as f64;
-        let half_width = bar_width_data / 2.0;
-
         let (x_min, x_max) = transform.x_scale.domain();
-        let visible_iter = self.source.iter_range(x_min - half_width, x_max + half_width);
+        
+        // Calculate max points based on screen width
+        // A bar needs at least 1px (plus spacing), so screen_width is a hard upper bound for useful bars.
+        let screen_width = transform.bounds.size.width.as_f32() as usize;
+        let max_points = screen_width.max(1).min(2000); // Cap at 2000 for safety
 
-        let mut last_px_x = f64::MIN;
+        let visible_iter = self.source.iter_aggregated(x_min, x_max, max_points);
 
+        // We need to estimate the width of the bars based on the density of data returned.
+        // If we are aggregated, the spacing is larger than source.suggested_x_spacing().
+        // Let's rely on the effective spacing of the returned data? 
+        // Hard to do with a single pass iterator.
+        // Heuristic: If we requested aggregation, assume we got roughly max_points or less.
+        // Ideally the data source would tell us the "bin width".
+        // Fallback: use the original spacing, but this might result in thin bars.
+        // Better: Calculate local spacing.
+
+        let mut points: Vec<PlotPoint> = Vec::with_capacity(max_points);
         for data in visible_iter {
             if let PlotData::Point(point) = data {
-                let p_center = transform.data_to_screen(Point::new(point.x, point.y));
-                let px_x = p_center.x.as_f64();
-
-                // Only render if we moved at least 1 pixel
-                if (px_x - last_px_x).abs() < 1.0 {
-                    continue;
-                }
-
-                let x_left = point.x - half_width;
-                let x_right = point.x + half_width;
-
-                let p_top_left = transform.data_to_screen(Point::new(x_left, point.y));
-                let p_bottom_right = transform.data_to_screen(Point::new(x_right, self.baseline));
-                
-                let rect_x = p_top_left.x;
-                let rect_w = (p_bottom_right.x - p_top_left.x).max(px(1.0));
-                
-                let rect_y = p_top_left.y.min(p_bottom_right.y);
-                let rect_h = (p_bottom_right.y - p_top_left.y).abs().max(px(1.0));
-
-                let rect = Bounds::new(
-                    Point::new(rect_x, rect_y),
-                    Size::new(rect_w, rect_h),
-                );
-
-                window.paint_quad(fill(rect, self.config.color));
-                last_px_x = px_x;
+                points.push(point);
             }
+        }
+
+        if points.is_empty() { return; }
+
+        // Calculate dynamic spacing if we have enough points
+        let effective_spacing = if points.len() > 1 {
+            (points.last().unwrap().x - points.first().unwrap().x) / (points.len() - 1) as f64
+        } else {
+            self.source.suggested_x_spacing()
+        };
+        
+        // Ensure we don't make bars WIDER than the original data would allow if zoomed in
+        let spacing = effective_spacing.max(self.source.suggested_x_spacing());
+        let bar_width_data = spacing * self.config.bar_width_pct as f64;
+        let half_width = bar_width_data / 2.0;
+
+        for point in points {
+            let x_left = point.x - half_width;
+            let x_right = point.x + half_width;
+            
+            // Optimization: Clip strictly outside
+            if x_right < x_min || x_left > x_max { continue; }
+
+            let p_top_left = transform.data_to_screen(Point::new(x_left, point.y));
+            let p_bottom_right = transform.data_to_screen(Point::new(x_right, self.baseline));
+            
+            let rect_x = p_top_left.x;
+            let rect_w = (p_bottom_right.x - p_top_left.x).max(px(1.0));
+            
+            let rect_y = p_top_left.y.min(p_bottom_right.y);
+            let rect_h = (p_bottom_right.y - p_top_left.y).abs().max(px(1.0));
+
+            let rect = Bounds::new(
+                Point::new(rect_x, rect_y),
+                Size::new(rect_w, rect_h),
+            );
+
+            window.paint_quad(fill(rect, self.config.color));
         }
     }
 

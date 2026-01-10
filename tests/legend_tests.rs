@@ -6,7 +6,7 @@ use gpui::prelude::*;
 fn test_legend_visibility_toggle(cx: &mut gpui::TestAppContext) {
     let shared_state = cx.update(|cx| cx.new(|_| SharedPlotState::default()));
     
-    let mut pane_entity = cx.update(|cx| {
+    let pane_entity = cx.update(|cx| {
         cx.new(|cx| ChartPane::new(shared_state, cx))
     });
 

@@ -109,9 +109,8 @@ pub struct ChartPane {
     box_zoom_start: Option<Point<Pixels>>,
     box_zoom_current: Option<Point<Pixels>>,
 
-    is_dragging: bool,
+    pub is_dragging: bool,
 
-    pub debug_mode: bool,
     pub last_paint_stats: Rc<RefCell<crate::rendering::PaintStats>>,
     pub notify_count: u32,
     pub last_stats_reset: Instant,
@@ -139,7 +138,6 @@ impl ChartPane {
             box_zoom_start: None,
             box_zoom_current: None,
             is_dragging: false,
-            debug_mode: false,
             last_paint_stats: Rc::new(RefCell::new(crate::rendering::PaintStats::default())),
             notify_count: 0,
             last_stats_reset: Instant::now(),
@@ -181,8 +179,8 @@ impl ChartPane {
 
     /// Convenience method to add a plot and get back a thread-safe handle to update its data.
     pub fn add_plot<P: crate::plot_types::PlotRenderer + 'static>(
-        &mut self, 
-        id: impl Into<String>, 
+        &mut self,
+        id: impl Into<String>,
         plot: P
     ) -> std::sync::Arc<parking_lot::RwLock<P>> {
         let id = id.into();
@@ -235,7 +233,7 @@ impl ChartPane {
             if let Some(target_idx) = axis_index {
                 if idx != target_idx { continue; }
             }
-            
+
             let mut sy_min = f64::INFINITY; let mut sy_max = f64::NEG_INFINITY;
             for series in &self.series {
                 if self.hidden_series.contains(&series.id) || series.y_axis_id.0 != idx { continue; }
@@ -264,16 +262,16 @@ impl ChartPane {
     fn handle_pan_down(&mut self, _: &PanDown, _win: &mut Window, cx: &mut Context<Self>) { self.pan_y(-0.1, cx); }
     fn handle_zoom_in(&mut self, _: &ZoomIn, _win: &mut Window, cx: &mut Context<Self>) { self.keyboard_zoom(0.9, cx); }
     fn handle_zoom_out(&mut self, _: &ZoomOut, _win: &mut Window, cx: &mut Context<Self>) { self.keyboard_zoom(1.1, cx); }
-    fn handle_reset_view(&mut self, _: &ResetView, _win: &mut Window, cx: &mut Context<Self>) { 
-        self.auto_fit_x(cx); 
-        self.auto_fit_y(None, cx); 
+    fn handle_reset_view(&mut self, _: &ResetView, _win: &mut Window, cx: &mut Context<Self>) {
+        self.auto_fit_x(cx);
+        self.auto_fit_y(None, cx);
         self.shared_state.update(cx, |s, _| s.request_render());
     }
 
     fn pan_x(&mut self, factor: f64, cx: &mut Context<Self>) {
         for x_axis in &self.x_axes {
-            x_axis.axis.update(cx, |x, _cx| { 
-                ViewController::pan_axis(x, (factor * 200.0) as f32, 200.0, false); 
+            x_axis.axis.update(cx, |x, _cx| {
+                ViewController::pan_axis(x, (factor * 200.0) as f32, 200.0, false);
                 x.update_ticks_if_needed(10);
             });
         }
@@ -282,8 +280,8 @@ impl ChartPane {
 
     fn pan_y(&mut self, factor: f64, cx: &mut Context<Self>) {
         for y_axis in &self.y_axes {
-            y_axis.axis.update(cx, |y, _cx| { 
-                ViewController::pan_axis(y, (factor * 200.0) as f32, 200.0, true); 
+            y_axis.axis.update(cx, |y, _cx| {
+                ViewController::pan_axis(y, (factor * 200.0) as f32, 200.0, true);
                 y.update_ticks_if_needed(10);
             });
         }
@@ -292,14 +290,14 @@ impl ChartPane {
 
     fn keyboard_zoom(&mut self, factor: f64, cx: &mut Context<Self>) {
         for x_axis in &self.x_axes {
-            x_axis.axis.update(cx, |x, _cx| { 
-                ViewController::zoom_axis_at(x, 0.5, factor); 
+            x_axis.axis.update(cx, |x, _cx| {
+                ViewController::zoom_axis_at(x, 0.5, factor);
                 x.update_ticks_if_needed(10);
             });
         }
         for y_axis in &self.y_axes {
-            y_axis.axis.update(cx, |y, _cx| { 
-                ViewController::zoom_axis_at(y, 0.5, factor); 
+            y_axis.axis.update(cx, |y, _cx| {
+                ViewController::zoom_axis_at(y, 0.5, factor);
                 y.update_ticks_if_needed(10);
             });
         }
@@ -308,7 +306,7 @@ impl ChartPane {
 
     fn apply_inertia(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.is_dragging || (self.velocity.x.abs() < 0.1 && self.velocity.y.abs() < 0.1) { return; }
-        
+
         let dt = 1.0 / 60.0;
         ViewController::apply_friction(&mut self.velocity.x, self.inertia_config.friction, dt);
         ViewController::apply_friction(&mut self.velocity.y, self.inertia_config.friction, dt);
@@ -317,16 +315,16 @@ impl ChartPane {
         if !bounds.is_empty() {
             let (pw, ph) = (bounds.size.width.as_f32() as f64, bounds.size.height.as_f32() as f64);
             for x_axis in &self.x_axes {
-                x_axis.axis.update(cx, |x, _cx| { 
-                    x.pan(self.velocity.x * dt * (x.span() / pw)); 
-                    x.clamp(); 
+                x_axis.axis.update(cx, |x, _cx| {
+                    x.pan(self.velocity.x * dt * (x.span() / pw));
+                    x.clamp();
                     x.update_ticks_if_needed(10);
                 });
             }
             for y_axis in &self.y_axes {
-                y_axis.axis.update(cx, |y, _cx| { 
-                    y.pan(self.velocity.y * dt * (y.span() / ph)); 
-                    y.clamp(); 
+                y_axis.axis.update(cx, |y, _cx| {
+                    y.pan(self.velocity.y * dt * (y.span() / ph));
+                    y.clamp();
                     y.update_ticks_if_needed(10);
                 });
             }
@@ -390,7 +388,7 @@ impl ChartPane {
                         let x_scale = crate::scales::ChartScale::new_linear((x_range.min, x_range.max), (0.0, bounds.size.width.as_f32()));
                         let px1 = x_scale.invert((start.x - bounds.origin.x).as_f32());
                         let px2 = x_scale.invert((end.x - bounds.origin.x).as_f32());
-                        
+
                         x0.axis.update(cx, |x, _cx| {
                             ViewController::auto_fit_axis(x, px1.min(px2), px1.max(px2), 0.0);
                             x.update_ticks_if_needed(10);
@@ -400,7 +398,7 @@ impl ChartPane {
                         let y_scale = crate::scales::ChartScale::new_linear((y_range.min, y_range.max), (bounds.size.height.as_f32(), 0.0));
                         let py1 = y_scale.invert((start.y - bounds.origin.y).as_f32());
                         let py2 = y_scale.invert((end.y - bounds.origin.y).as_f32());
-                        
+
                         y0.axis.update(cx, |y, _cx| {
                             ViewController::auto_fit_axis(y, py1.min(py2), py1.max(py2), 0.0);
                             y.update_ticks_if_needed(10);
@@ -479,7 +477,7 @@ impl ChartPane {
             let ph = canvas_bounds.size.height.as_f32() as f64;
             let pivot_x_pct = (start.x.as_f32() as f64 - canvas_bounds.origin.x.as_f32() as f64) / pw;
             let pivot_y_pct = (start.y.as_f32() as f64 - canvas_bounds.origin.y.as_f32() as f64) / ph;
-            
+
             for x_axis in &self.x_axes {
                 x_axis.axis.update(cx, |x, _cx| {
                     ViewController::zoom_axis_at(x, pivot_x_pct, factor_x);
@@ -496,8 +494,8 @@ impl ChartPane {
             self.zoom_drag_last = Some(event.position);
         }
 
-        if self.box_zoom_start.is_some() { 
-            self.box_zoom_current = Some(event.position); 
+        if self.box_zoom_start.is_some() {
+            self.box_zoom_current = Some(event.position);
             mouse_changed = true;
         }
 
@@ -524,29 +522,29 @@ impl ChartPane {
             let factor = (1.0f64 - delta_y as f64 * 0.01).clamp(0.1, 10.0);
             let mx_pct = (event.position.x - bounds.origin.x).as_f32() as f64 / bounds.size.width.as_f32() as f64;
             for x_axis in &self.x_axes {
-                x_axis.axis.update(cx, |x, _cx| { 
-                    ViewController::zoom_axis_at(x, mx_pct, factor); 
+                x_axis.axis.update(cx, |x, _cx| {
+                    ViewController::zoom_axis_at(x, mx_pct, factor);
                     x.update_ticks_if_needed(10);
                 });
             }
             let my_pct = (event.position.y - bounds.origin.y).as_f32() as f64 / bounds.size.height.as_f32() as f64;
             for y_axis in &self.y_axes {
-                y_axis.axis.update(cx, |y, _cx| { 
-                    ViewController::zoom_axis_at(y, 1.0 - my_pct, factor); 
+                y_axis.axis.update(cx, |y, _cx| {
+                    ViewController::zoom_axis_at(y, 1.0 - my_pct, factor);
                     y.update_ticks_if_needed(10);
                 });
             }
         } else {
             let delta_x = match event.delta { ScrollDelta::Pixels(p) => p.x.as_f32(), ScrollDelta::Lines(p) => p.x as f32 * 20.0 };
             for x_axis in &self.x_axes {
-                x_axis.axis.update(cx, |x, _cx| { 
-                    ViewController::pan_axis(x, delta_x, bounds.size.width.as_f32(), false); 
+                x_axis.axis.update(cx, |x, _cx| {
+                    ViewController::pan_axis(x, delta_x, bounds.size.width.as_f32(), false);
                     x.update_ticks_if_needed(10);
                 });
             }
             for y_axis in &self.y_axes {
-                y_axis.axis.update(cx, |y, _cx| { 
-                    ViewController::pan_axis(y, delta_y, bounds.size.height.as_f32(), true); 
+                y_axis.axis.update(cx, |y, _cx| {
+                    ViewController::pan_axis(y, delta_y, bounds.size.height.as_f32(), true);
                     y.update_ticks_if_needed(10);
                 });
             }
@@ -595,7 +593,7 @@ impl Render for ChartPane {
 
         let cursor = if self.is_dragging { CursorStyle::Crosshair } else if self.box_zoom_start.is_some() { CursorStyle::Arrow } else { CursorStyle::Crosshair };
         let this_paint_stats = self.last_paint_stats.clone();
-        let debug_mode = self.debug_mode;
+        let debug_mode = shared_state.debug_mode;
 
         div().track_focus(&self.focus_handle).size_full().relative().bg(gpui::transparent_black()).cursor(cursor)
             .on_mouse_down(MouseButton::Left, cx.listener(Self::handle_mouse_down))
@@ -614,8 +612,10 @@ impl Render for ChartPane {
             .on_action(cx.listener(Self::handle_zoom_out))
             .on_action(cx.listener(Self::handle_reset_view))
             .on_action(cx.listener(|this, _: &ToggleDebug, _win, cx| {
-                this.debug_mode = !this.debug_mode;
-                this.shared_state.update(cx, |s, _| s.request_render());
+                this.shared_state.update(cx, |s, _| {
+                    s.debug_mode = !s.debug_mode;
+                    s.request_render();
+                });
             }))
             .child(canvas(|_, _, _| {}, {
                 let vs = vs.clone();
@@ -623,17 +623,17 @@ impl Render for ChartPane {
                 move |bounds, (), window, cx| {
                     *bounds_rc.borrow_mut() = bounds;
                     if x_axes.is_empty() || y_axes.is_empty() { return; }
-                    
+
                     let x_domains: Vec<(f64, f64)> = x_axes.iter().map(|a| a.axis.read(cx).clamped_bounds()).collect();
                     let y_domains: Vec<(f64, f64)> = y_axes.iter().map(|a| a.axis.read(cx).clamped_bounds()).collect();
-                    
+
                     window.with_content_mask(Some(ContentMask { bounds }), |window| {
                         // 1. Grille (Utilisant le premier axe X et le premier axe Y)
                         let x0 = x_axes[0].axis.read(cx);
                         let y0 = y_axes[0].axis.read(cx);
                         let x_scale = crate::scales::ChartScale::new_linear(x_domains[0], (0.0, bounds.size.width.as_f32()));
                         let x_ticks = d3rs::scale::LinearScale::new().domain(x_domains[0].0, x_domains[0].1).range(0.0, bounds.size.width.as_f32() as f64).ticks(10);
-                        
+
                         let y_render_info = crate::rendering::YAxisRenderInfo {
                             domain: y_domains[0],
                             scale: crate::scales::ChartScale::new_linear(y_domains[0], (bounds.size.height.as_f32(), 0.0)),
@@ -659,7 +659,7 @@ impl Render for ChartPane {
                         if let Ok(mut s) = this_paint_stats.try_borrow_mut() {
                             *s = stats;
                         }
-                        
+
                         if sc {
                             if let Some(hx_val) = hx {
                                 let transform = crate::transform::PlotTransform::new(
@@ -689,8 +689,8 @@ impl Render for ChartPane {
                 if let Ok(stats) = self.last_paint_stats.try_borrow() {
                     parent.child(
                         div().absolute().bottom_2().left_2().bg(gpui::black().alpha(0.6)).p_1().rounded_sm().text_size(px(10.0)).text_color(gpui::green())
-                            .child(format!("Paint: {:.2}ms | Series: {} | Notify: {:.2}/ms", 
-                                stats.duration.as_secs_f64() * 1000.0, 
+                            .child(format!("Paint: {:.2}ms | Series: {} | Notify: {:.2}/ms",
+                                stats.duration.as_secs_f64() * 1000.0,
                                 stats.series_count,
                                 self.last_notify_rate))
                     )
@@ -699,31 +699,44 @@ impl Render for ChartPane {
                 }
             })
             .children(if self.legend_config.enabled {
-                let mut items = vec![];
+                let is_vertical = self.legend_config.orientation == Orientation::Vertical;
+                let mut name_col_children = vec![];
+                let mut btn_col_children = vec![];
+                let mut horiz_items = vec![];
+
                 for s in &self.series {
                     let id = s.id.clone();
                     let hidden = self.hidden_series.contains(&id);
-                    
+
                     let other_on_same_axis = self.series.iter()
                         .filter(|other| other.id != id && other.y_axis_id.0 == s.y_axis_id.0)
                         .count() > 0;
-                    
+
                     let is_isolated = s.y_axis_id.0 != 0;
                     let s_enabled = is_isolated || other_on_same_axis;
 
-                    items.push(div().flex().items_center().gap_2().group("legend_item")
-                        .child(div().flex().items_center().gap_1().cursor_pointer()
-                            .on_mouse_down(MouseButton::Left, { let id = id.clone(); cx.listener(move |this, _, _, cx| this.toggle_series_visibility(&id, cx)) })
-                            .child(div().w_3().h_3().bg(if hidden { gpui::transparent_black() } else { gpui::blue() }).border_1().border_color(gpui::white()))
-                            .child(div().text_size(px(10.0)).text_color(if hidden { self.label_color.alpha(0.4) } else { self.label_color }).child(id.clone())))
-                        .child(div().flex().gap_1()
-                            .child(self.render_legend_button("▲", true, cx, { let id = id.clone(); move |this, _, win, cx| if let Some(f) = &this.on_move_series { f(&id, true, win, cx); } }))
-                            .child(self.render_legend_button("▼", true, cx, { let id = id.clone(); move |this, _, win, cx| if let Some(f) = &this.on_move_series { f(&id, false, win, cx); } }))
-                            .child(self.render_legend_button("S", s_enabled, cx, { let id = id.clone(); move |this, _, win, cx| if s_enabled { if let Some(f) = &this.on_isolate_series { f(&id, win, cx); } } }))
-                        ).into_any_element());
+                    // Name Element (Height fixed to h_5/20px to match buttons)
+                    let name_el = div().h_5().flex().items_center().gap_1().cursor_pointer()
+                        .on_mouse_down(MouseButton::Left, { let id = id.clone(); cx.listener(move |this, _, _, cx| this.toggle_series_visibility(&id, cx)) })
+                        .child(div().w_3().h_3().bg(if hidden { gpui::transparent_black() } else { gpui::blue() }).border_1().border_color(gpui::white()))
+                        .child(div().text_size(px(10.0)).text_color(if hidden { self.label_color.alpha(0.4) } else { self.label_color }).child(id.clone()));
+
+                    // Buttons Element (Height fixed to h_5/20px)
+                    let btn_el = div().h_5().flex().items_center().gap_1()
+                        .child(self.render_legend_button("▲", true, cx, { let id = id.clone(); move |this, _, win, cx| if let Some(f) = &this.on_move_series { f(&id, true, win, cx); } }))
+                        .child(self.render_legend_button("▼", true, cx, { let id = id.clone(); move |this, _, win, cx| if let Some(f) = &this.on_move_series { f(&id, false, win, cx); } }))
+                        .child(self.render_legend_button("S", s_enabled, cx, { let id = id.clone(); move |this, _, win, cx| if s_enabled { if let Some(f) = &this.on_isolate_series { f(&id, win, cx); } } }));
+
+                    if is_vertical {
+                        name_col_children.push(name_el.into_any_element());
+                        btn_col_children.push(btn_el.into_any_element());
+                    } else {
+                        horiz_items.push(div().flex().items_center().gap_2().child(name_el).child(btn_el).into_any_element());
+                    }
                 }
-                let mut leg = div().absolute().bg(self.bg_color.alpha(0.8)).p_2().rounded_md().border_1().border_color(self.label_color.alpha(0.2)).flex().gap_2();
-                if self.legend_config.orientation == Orientation::Vertical { leg = leg.flex_col().gap_1(); } else { leg = leg.flex_row().gap_3(); }
+
+                let mut leg = div().absolute().bg(self.bg_color.alpha(0.8)).p_2().rounded_md().border_1().border_color(self.label_color.alpha(0.2));
+                
                 match self.legend_config.position {
                     LegendPosition::TopLeft => leg = leg.top(px(10.0)).left(px(10.0)),
                     LegendPosition::TopRight => leg = leg.top(px(10.0)).right(px(10.0)),
@@ -731,7 +744,17 @@ impl Render for ChartPane {
                     LegendPosition::BottomRight => leg = leg.bottom(px(10.0)).right(px(10.0)),
                     _ => leg = leg.top(px(10.0)).left(px(10.0)),
                 }
-                Some(leg.children(items).into_any_element())
+
+                if is_vertical {
+                    // Two columns layout
+                    Some(leg.flex().gap_3()
+                        .child(div().flex_col().gap_1().children(name_col_children))
+                        .child(div().flex_col().gap_1().children(btn_col_children))
+                        .into_any_element())
+                } else {
+                    // Row layout
+                    Some(leg.flex_row().gap_3().children(horiz_items).into_any_element())
+                }
             } else { None })
     }
 }

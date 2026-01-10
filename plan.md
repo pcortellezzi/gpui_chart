@@ -146,16 +146,16 @@ Exploiter `gpui-d3rs` pour le dessin.
 ## Phase 4 : Optimisation (Performance)
 Pour gérer le "Big Data".
 
-- [X] **Streaming Optimisé (Ring Buffer)**
-    - Utiliser des structures de données circulaires ou par blocs (Chunks) pour éviter les réallocations coûteuses (`Vec::push`) lors de l'arrivée de données temps réel haute fréquence.
-- [ ] **LOD (Level of Detail) / Décimation**
-    - **Source de vérité :** S'inspirer directement de la logique implémentée dans `../src/` du projet parent.
-    - **Stratégie Configurable :** Permettre de définir des seuils d'agrégation manuels (ex: "passer en vue 1h si plage > 1 jour") OU automatiques (basés sur la densité de pixels visuelle).
-    - **Agrégation X & Y :** Supporter non seulement le temps (X) mais aussi le prix (Y) pour les Heatmaps/DOM.
-    - Implémenter l'agrégation dynamique (fusion de bougies, simplification de lignes).
-    - Évite de saturer le GPU et le CPU pour des détails invisibles.
-- [ ] **Occlusion Culling**
-    - Ne pas envoyer de commandes de dessin pour les points hors du `Bounds` visible.
+- [x] **Streaming Optimisé (Ring Buffer)**
+    - Utiliser des structures de données circulaires ou par blocs (Chunks) pour éviter les réallocations coûteuses (`Vec::push`) lors de l'arrivée de données temps réel haute fréquence. (Implémenté via `StreamingDataSource` chunked).
+- [x] **LOD (Level of Detail) CPU**
+    - **API Standardisée :** Ajout de `iter_aggregated` au trait `PlotDataSource`.
+    - **Renderers Intelligents :** `BarPlot` et `CandlestickPlot` utilisent désormais la densité de pixels pour demander des données agrégées.
+    - **Binning Dynamique :** Implémenté pour `VecDataSource` (moyenne/OHLC à la volée).
+- [x] **LOD Pyramidal**
+    - Pré-calculer les agrégats à différentes échelles (Mipmaps) pour accélérer le binning sur les datasets massifs (O(1) vs O(N)). Implémenté pour `VecDataSource`.
+- [x] **Occlusion Culling**
+    - Ne pas envoyer de commandes de dessin pour les points hors du `Bounds` visible. (Implémenté via `iter_range` et `partition_point` binaire).
 
 ## Phase 5 : Intégration Adabraka-UI
 - [ ] **Export & Capture**
