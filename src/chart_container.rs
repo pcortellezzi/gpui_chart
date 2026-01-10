@@ -1,5 +1,5 @@
 use crate::chart_pane::ChartPane;
-use crate::data_types::{AxisRange, SharedPlotState, AxisEdge};
+use crate::data_types::{AxisRange, SharedPlotState, AxisEdge, AxisId};
 use adabraka_ui::util::PixelsExt;
 use gpui::prelude::*;
 use gpui::*;
@@ -94,6 +94,30 @@ impl ChartContainer {
         }
     }
 
+    /// Bascule un axe Y de gauche à droite ou un axe X de haut en bas.
+    pub fn flip_axis_edge(&mut self, pane_idx: Option<usize>, axis_idx: usize, cx: &mut Context<Self>) {
+        if let Some(p_idx) = pane_idx {
+            if let Some(pc) = self.panes.get_mut(p_idx) {
+                if let Some(axis) = pc.y_axes.get_mut(axis_idx) {
+                    axis.edge = match axis.edge {
+                        AxisEdge::Left => AxisEdge::Right,
+                        AxisEdge::Right => AxisEdge::Left,
+                        _ => axis.edge,
+                    };
+                }
+            }
+        } else {
+            if let Some(axis) = self.x_axes.get_mut(axis_idx) {
+                axis.edge = match axis.edge {
+                    AxisEdge::Top => AxisEdge::Bottom,
+                    AxisEdge::Bottom => AxisEdge::Top,
+                    _ => axis.edge,
+                };
+            }
+        }
+        cx.notify();
+    }
+
     pub fn move_series(&mut self, from_idx: usize, to_idx: usize, series_id: &str, cx: &mut Context<Self>) {
         if from_idx == to_idx { return; }
         let mut series_to_move = None;
@@ -153,9 +177,10 @@ impl ChartContainer {
         let container_handle = cx.entity().clone();
         let pane_id = pane.entity_id();
         pane.update(cx, |p, _cx| {
-            p.on_move_series(move |series_id, move_up, _window, cx| {
+            let container_handle_move = container_handle.clone();
+            p.on_move_series(move |series_id: &str, move_up: bool, _window: &mut Window, cx: &mut Context<ChartPane>| {
                 let series_id = series_id.to_string();
-                let container_handle = container_handle.clone();
+                let container_handle = container_handle_move.clone();
                 cx.defer(move |cx| {
                     cx.update_entity(&container_handle, |c: &mut ChartContainer, cx| {
                         if let Some(current_idx) = c.panes.iter().position(|pc| pc.pane.entity_id() == pane_id) {
@@ -166,8 +191,99 @@ impl ChartContainer {
                     });
                 });
             });
+
+            let container_handle_isolate = container_handle.clone();
+            p.on_isolate_series(move |series_id: &str, _window: &mut Window, cx: &mut Context<ChartPane>| {
+                let series_id = series_id.to_string();
+                let container_handle = container_handle_isolate.clone();
+                cx.defer(move |cx| {
+                    cx.update_entity(&container_handle, |c: &mut ChartContainer, cx| {
+                        if let Some(current_idx) = c.panes.iter().position(|pc| pc.pane.entity_id() == pane_id) {
+                            c.isolate_series(current_idx, &series_id, cx);
+                        }
+                    });
+                });
+            });
         });
         cx.observe(pane, |_, _, cx| cx.notify()).detach();
+    }
+
+    /// Bascule une série entre l'axe principal et un axe dédié (Isolation).
+    pub fn toggle_series_isolation(&mut self, pane_idx: usize, series_id: &str, cx: &mut Context<Self>) {
+        if let Some(pc) = self.panes.get_mut(pane_idx) {
+            let mut current_axis_idx = 0;
+            pc.pane.update(cx, |p, _| {
+                if let Some(s) = p.series.iter().find(|s| s.id == series_id) {
+                    current_axis_idx = s.y_axis_id.0;
+                }
+            });
+
+            if current_axis_idx == 0 {
+                // --- ISOLER ---
+                let mut s_min = 0.0; let mut s_max = 100.0;
+                pc.pane.update(cx, |p, _cx| {
+                    if let Some(s) = p.series.iter().find(|s| s.id == series_id) {
+                        if let Some((_, _, ymin, ymax)) = s.plot.borrow().get_min_max() {
+                            s_min = ymin; s_max = ymax;
+                        }
+                    }
+                });
+
+                let new_axis = cx.new(|_| AxisRange::new(s_min, s_max));
+                cx.observe(&new_axis, |_, _, cx| cx.notify()).detach();
+
+                pc.y_axes.push(AxisConfig {
+                    entity: new_axis.clone(),
+                    edge: AxisEdge::Right,
+                    size: px(60.0),
+                    label: series_id.to_string(),
+                });
+
+                let new_axis_id = AxisId(pc.y_axes.len() - 1);
+                pc.pane.update(cx, |p, cx| {
+                    p.add_y_axis(new_axis, cx);
+                    if let Some(s) = p.series.iter_mut().find(|s| s.id == series_id) {
+                        s.y_axis_id = new_axis_id;
+                    }
+                    cx.notify();
+                });
+            } else {
+                // --- RÉINTÉGRER (vers l'axe 0) ---
+                pc.pane.update(cx, |p, _| {
+                    if let Some(s) = p.series.iter_mut().find(|s| s.id == series_id) {
+                        s.y_axis_id = AxisId(0);
+                    }
+                });
+
+                // Nettoyage des axes qui ne sont plus utilisés par AUCUNE série
+                let mut axes_to_remove = Vec::new();
+                for i in 1..pc.y_axes.len() {
+                    let mut in_use = false;
+                    pc.pane.read(cx).series.iter().for_each(|s| {
+                        if s.y_axis_id.0 == i { in_use = true; }
+                    });
+                    if !in_use { axes_to_remove.push(i); }
+                }
+
+                // Supprimer de l'index le plus haut au plus bas pour ne pas fausser les décalages
+                axes_to_remove.sort_by(|a, b| b.cmp(a));
+                for idx in axes_to_remove {
+                    pc.y_axes.remove(idx);
+                    pc.pane.update(cx, |p, _| {
+                        p.y_axes.remove(idx);
+                        // Décalage des IDs pour les séries pointant vers des axes supérieurs
+                        for s in p.series.iter_mut() {
+                            if s.y_axis_id.0 > idx { s.y_axis_id.0 -= 1; }
+                        }
+                    });
+                }
+            }
+        }
+        cx.notify();
+    }
+
+    pub fn isolate_series(&mut self, pane_idx: usize, series_id: &str, cx: &mut Context<Self>) {
+        self.toggle_series_isolation(pane_idx, series_id, cx);
     }
 
     pub fn add_pane(&mut self, pane: Entity<ChartPane>, weight: f32, cx: &mut Context<Self>) {
@@ -337,6 +453,9 @@ impl Render for ChartContainer {
                     .top(relative(current_top_pct)).h(relative(h_pct)).w(axis.size)
                     .when(is_left, |d| d.left(x_pos).border_r_1()).when(!is_left, |d| d.right(x_pos).border_l_1())
                     .border_color(gpui::white().alpha(0.1)).cursor(CursorStyle::ResizeUpDown)
+                    .on_mouse_down(MouseButton::Right, cx.listener(move |this, _, _, cx| {
+                        this.flip_axis_edge(Some(pane_idx), axis_idx, cx);
+                    }))
                     .on_mouse_down(MouseButton::Left, {
                         let key = key.clone(); let axis_entity = axis_entity.clone(); let lab = last_render_axis_bounds.clone();
                         cx.listener(move |this, event: &MouseDownEvent, _win, cx| {
@@ -390,6 +509,9 @@ impl Render for ChartContainer {
             let ticks = d3rs::scale::LinearScale::new().domain(min, max).range(0.0, 1.0).ticks(10);
             let key = AxisKey::X(axis_idx).to_string();
             let axis_div = div().id(SharedString::from(key.clone())).absolute().left(self.gutter_left).right(self.gutter_right).h(x_axis.size).bg(gpui::black()).border_color(gpui::white().alpha(0.1)).cursor(CursorStyle::ResizeLeftRight)
+                .on_mouse_down(MouseButton::Right, cx.listener(move |this, _, _, cx| {
+                    this.flip_axis_edge(None, axis_idx, cx);
+                }))
                 .on_mouse_down(MouseButton::Left, {
                     let key = key.clone(); let axis_entity = axis_entity.clone(); let lab = last_render_axis_bounds.clone();
                     cx.listener(move |this, event: &MouseDownEvent, _win, cx| {
