@@ -237,7 +237,7 @@ impl AxisDomain {
 }
 
 /// État partagé entre plusieurs graphiques (Crosshair, etc.).
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct SharedPlotState {
     pub hover_x: Option<f64>, // Coordonnée X en unités de données
     pub mouse_pos: Option<gpui::Point<gpui::Pixels>>, // Position écran globale

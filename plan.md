@@ -66,7 +66,7 @@ C'est ici que l'écart avec `egui_plot` se réduit.
 - [ ] **ContextMenu des Séries** : Clic droit sur une série ou son étiquette pour changer la couleur, le type de tracé (ex: Ligne -> Step) ou les paramètres LOD.
 - [ ] **Pinning & Mesure** : Clic simple pour épingler une valeur ou mesurer la distance (prix/temps) entre deux points.
 - [ ] **Paramétrage des touches** : Permettre à l'utilisateur de définir ses propres KeyBindings pour les actions de navigation.
-- [ ] **Robustesse & Tests d'Interactions** :
+- [x] **Robustesse & Tests d'Interactions** :
     *   Extraire la logique de manipulation des axes dans un `ViewController` découplé de l'UI pour permettre des tests 100% automatisés sans macros GPUI complexes.
     *   Couvrir les cas limites de redimensionnement de panneaux (splitters).
 - [ ] **Échelles Logarithmiques** : Support complet des échelles log dans `ChartScale`.

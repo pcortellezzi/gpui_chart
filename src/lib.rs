@@ -10,6 +10,7 @@ pub mod theme;
 pub mod gutter_manager;
 pub mod axis_renderer;
 pub mod rendering;
+pub mod view_controller;
 
 pub use data_types::{AxisDomain, Ohlcv, PlotData, Series};
 pub use plot_types::*;

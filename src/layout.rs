@@ -1,6 +1,7 @@
 use gpui::prelude::*;
 use gpui::*;
 use crate::ChartPane;
+use crate::view_controller::ViewController;
 use adabraka_ui::util::PixelsExt;
 use std::rc::Rc;
 use std::cell::RefCell;
@@ -82,24 +83,17 @@ impl ChartLayout {
         if total_height <= px(0.0) { return; }
 
         if index + 1 < self.panes.len() {
-            let p1_size = self.panes[index].size;
-            let p2_size = self.panes[index + 1].size;
+            let mut weights: Vec<f32> = self.panes.iter().map(|p| match p.size {
+                PaneSize::Weight(w) => w,
+                PaneSize::Fixed(_) => 0.0,
+            }).collect();
 
-            if let (PaneSize::Weight(w1), PaneSize::Weight(w2)) = (p1_size, p2_size) {
-                // Calculate total weight of weighted panes
-                let total_weight: f32 = self.panes.iter().map(|p| match p.size {
-                    PaneSize::Weight(w) => w,
-                    _ => 0.0,
-                }).sum();
-
-                // Delta weight = (delta pixels / total height) * total weight
-                let dw = (delta.as_f32() / total_height.as_f32()) * total_weight;
+            // Only resize if both involved panes are weighted
+            if weights[index] > 0.0 && weights[index+1] > 0.0 {
+                ViewController::resize_panes(&mut weights, index, delta.as_f32(), total_height.as_f32());
                 
-                let new_w1 = (w1 + dw).max(0.05);
-                let new_w2 = (w2 - dw).max(0.05);
-
-                self.panes[index].size = PaneSize::Weight(new_w1);
-                self.panes[index + 1].size = PaneSize::Weight(new_w2);
+                self.panes[index].size = PaneSize::Weight(weights[index]);
+                self.panes[index + 1].size = PaneSize::Weight(weights[index + 1]);
                 cx.notify();
             }
         }

@@ -2,6 +2,7 @@
 
 use crate::data_types::{AxisRange, Series, AxisDomain};
 use crate::rendering::paint_plot;
+use crate::view_controller::ViewController;
 use gpui::prelude::*;
 use gpui::*;
 use adabraka_ui::util::PixelsExt;
@@ -95,13 +96,21 @@ impl NavigatorView {
         let bounds = *self.bounds.borrow();
         if bounds.is_empty() { return; }
 
-        let relative_x = (pos.x - bounds.origin.x).as_f32() as f64;
-        let pct_x = (relative_x / bounds.size.width.as_f32() as f64).clamp(0.0, 1.0);
-        let center_x = self.full_domain.x_min + self.full_domain.width() * pct_x;
+        let center_x = ViewController::map_pixels_to_value(
+            (pos.x - bounds.origin.x).as_f32(),
+            bounds.size.width.as_f32(),
+            self.full_domain.x_min,
+            self.full_domain.x_max,
+            false
+        );
 
-        let relative_y = (pos.y - bounds.origin.y).as_f32() as f64;
-        let pct_y = (relative_y / bounds.size.height.as_f32() as f64).clamp(0.0, 1.0);
-        let center_y = self.full_domain.y_max - self.full_domain.height() * pct_y;
+        let center_y = ViewController::map_pixels_to_value(
+            (pos.y - bounds.origin.y).as_f32(),
+            bounds.size.height.as_f32(),
+            self.full_domain.y_min,
+            self.full_domain.y_max,
+            true // Y is inverted on navigator as well
+        );
 
         let lock_x = self.config.lock_x;
         let lock_y = self.config.lock_y;
@@ -110,25 +119,17 @@ impl NavigatorView {
 
         if !lock_x {
             self.x_axis.update(cx, |x, cx| {
-                let half_w = x.span() / 2.0;
-                x.min = center_x - half_w; x.max = center_x + half_w;
-                if clamp_to_map {
-                    if x.min < full.x_min { x.min = full.x_min; x.max = full.x_min + half_w * 2.0; }
-                    if x.max > full.x_max { x.max = full.x_max; x.min = full.x_max - half_w * 2.0; }
-                }
-                x.clamp(); cx.notify();
+                let limit = if clamp_to_map { Some((full.x_min, full.x_max)) } else { None };
+                ViewController::move_to_center(x, center_x, limit);
+                cx.notify();
             });
         }
 
         if !lock_y {
             self.y_axis.update(cx, |y, cx| {
-                let half_h = y.span() / 2.0;
-                y.min = center_y - half_h; y.max = center_y + half_h;
-                if clamp_to_map {
-                    if y.min < full.y_min { y.min = full.y_min; y.max = full.y_min + half_h * 2.0; }
-                    if y.max > full.y_max { y.max = full.y_max; y.min = full.y_max - half_h * 2.0; }
-                }
-                y.clamp(); cx.notify();
+                let limit = if clamp_to_map { Some((full.y_min, full.y_max)) } else { None };
+                ViewController::move_to_center(y, center_y, limit);
+                cx.notify();
             });
         }
     }

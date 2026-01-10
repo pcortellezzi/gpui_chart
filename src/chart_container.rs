@@ -3,6 +3,7 @@ use crate::data_types::{AxisRange, SharedPlotState, AxisEdge, AxisId};
 use crate::theme::ChartTheme;
 use crate::gutter_manager::GutterManager;
 use crate::axis_renderer::AxisRenderer;
+use crate::view_controller::ViewController;
 use adabraka_ui::util::PixelsExt;
 use gpui::prelude::*;
 use gpui::*;
@@ -46,7 +47,6 @@ struct AxisDragInfo {
     axis_idx: usize,
     is_y: bool,
     button: MouseButton,
-    pivot_data: f64, 
     pivot_pct: f64,  
 }
 
@@ -342,27 +342,29 @@ impl ChartContainer {
     }
 
     fn handle_pan_left(&mut self, _: &crate::chart_pane::PanLeft, _win: &mut Window, cx: &mut Context<Self>) {
-        self.shared_x_axis.update(cx, |r, cx| { r.pan(-r.span() * 0.1); r.clamp(); cx.notify(); });
+        self.shared_x_axis.update(cx, |r, cx| { ViewController::pan_axis(r, -20.0, 200.0, false); cx.notify(); });
     }
     fn handle_pan_right(&mut self, _: &crate::chart_pane::PanRight, _win: &mut Window, cx: &mut Context<Self>) {
-        self.shared_x_axis.update(cx, |r, cx| { r.pan(r.span() * 0.1); r.clamp(); cx.notify(); });
+        self.shared_x_axis.update(cx, |r, cx| { ViewController::pan_axis(r, 20.0, 200.0, false); cx.notify(); });
     }
     fn handle_zoom_in(&mut self, _: &crate::chart_pane::ZoomIn, _win: &mut Window, cx: &mut Context<Self>) {
-        self.shared_x_axis.update(cx, |r, cx| { let p = r.min + r.span()/2.0; r.zoom_at(p, 0.5, 0.9); cx.notify(); });
+        self.shared_x_axis.update(cx, |r, cx| { ViewController::zoom_axis_at(r, 0.5, 0.9); cx.notify(); });
     }
     fn handle_zoom_out(&mut self, _: &crate::chart_pane::ZoomOut, _win: &mut Window, cx: &mut Context<Self>) {
-        self.shared_x_axis.update(cx, |r, cx| { let p = r.min + r.span()/2.0; r.zoom_at(p, 0.5, 1.1); cx.notify(); });
+        self.shared_x_axis.update(cx, |r, cx| { ViewController::zoom_axis_at(r, 0.5, 1.1); cx.notify(); });
     }
 
     fn resize_panes(&mut self, index: usize, delta: Pixels, cx: &mut Context<Self>) {
         if index + 1 >= self.panes.len() { return; }
-        let total_weight: f32 = self.panes.iter().map(|p| p.weight).sum();
         let bh = self.bounds.borrow().size.height.as_f32();
         let estimated_height = if bh > 0.0 { bh } else { 600.0 };
-        let dw = (delta.as_f32() / estimated_height) * total_weight;
-        let w1 = self.panes[index].weight; let w2 = self.panes[index + 1].weight;
-        self.panes[index].weight = (w1 + dw).max(0.1);
-        self.panes[index + 1].weight = (w2 - dw).max(0.1);
+        
+        let mut weights: Vec<f32> = self.panes.iter().map(|p| p.weight).collect();
+        ViewController::resize_panes(&mut weights, index, delta.as_f32(), estimated_height);
+        
+        for (i, p) in self.panes.iter_mut().enumerate() {
+            p.weight = weights[i];
+        }
         cx.notify();
     }
 
@@ -392,14 +394,14 @@ impl ChartContainer {
             axis.update(cx, |r: &mut AxisRange, cx| {
                 match info.button {
                     MouseButton::Left => {
-                        let move_delta = if info.is_y { let ratio = r.span() / bounds.size.height.as_f32() as f64; delta.y.as_f32() as f64 * ratio }
-                                        else { let ratio = r.span() / bounds.size.width.as_f32() as f64; -delta.x.as_f32() as f64 * ratio };
-                        r.pan(move_delta); r.clamp();
+                        let total_size = if info.is_y { bounds.size.height } else { bounds.size.width };
+                        let delta_val = if info.is_y { delta.y } else { delta.x };
+                        ViewController::pan_axis(r, delta_val.as_f32(), total_size.as_f32(), info.is_y);
                     }
                     MouseButton::Middle => {
                         let dy = if info.is_y { -delta.y.as_f32() as f64 } else { delta.x.as_f32() as f64 };
                         let zoom_factor = 1.0 + dy / 100.0;
-                        r.zoom_at(info.pivot_data, info.pivot_pct, 1.0 / zoom_factor);
+                        ViewController::zoom_axis_at(r, info.pivot_pct, 1.0 / zoom_factor);
                     }
                     _ => {}
                 }
@@ -470,24 +472,22 @@ impl Render for ChartContainer {
                     this.flip_axis_edge(Some(pane_idx), axis_idx, cx);
                 }))
                 .on_mouse_down(MouseButton::Left, {
-                    let key = key.clone(); let axis_entity = axis_entity.clone(); let lab = last_render_axis_bounds.clone();
+                    let key = key.clone(); let lab = last_render_axis_bounds.clone();
                     cx.listener(move |this, event: &MouseDownEvent, _win, cx| {
                         if event.click_count >= 2 { this.dragging_axis = None; this.auto_fit_axis(Some(pane_idx), axis_idx, cx); return; }
                         if let Some(bounds) = lab.borrow().get(&key) {
-                            let range = axis_entity.read(cx); let pct = ((event.position.y - bounds.origin.y).as_f32() / bounds.size.height.as_f32()).clamp(0.0, 1.0) as f64;
-                            let pivot = range.max - (range.max - range.min) * pct;
-                            this.dragging_axis = Some(AxisDragInfo { pane_idx: Some(pane_idx), axis_idx, is_y: true, button: MouseButton::Left, pivot_data: pivot, pivot_pct: 1.0 - pct });
+                            let pct = ((event.position.y - bounds.origin.y).as_f32() / bounds.size.height.as_f32()).clamp(0.0, 1.0) as f64;
+                            this.dragging_axis = Some(AxisDragInfo { pane_idx: Some(pane_idx), axis_idx, is_y: true, button: MouseButton::Left, pivot_pct: 1.0 - pct });
                             this.last_mouse_pos = Some(event.position); cx.notify();
                         }
                     })
                 })
                 .on_mouse_down(MouseButton::Middle, {
-                    let key = key.clone(); let axis_entity = axis_entity.clone(); let lab = last_render_axis_bounds.clone();
+                    let key = key.clone(); let lab = last_render_axis_bounds.clone();
                     cx.listener(move |this, event: &MouseDownEvent, _win, cx| {
                         if let Some(bounds) = lab.borrow().get(&key) {
-                            let range = axis_entity.read(cx); let pct = ((event.position.y - bounds.origin.y).as_f32() / bounds.size.height.as_f32()).clamp(0.0, 1.0) as f64;
-                            let pivot = range.max - (range.max - range.min) * pct;
-                            this.dragging_axis = Some(AxisDragInfo { pane_idx: Some(pane_idx), axis_idx, is_y: true, button: MouseButton::Middle, pivot_data: pivot, pivot_pct: 1.0 - pct });
+                            let pct = ((event.position.y - bounds.origin.y).as_f32() / bounds.size.height.as_f32()).clamp(0.0, 1.0) as f64;
+                            this.dragging_axis = Some(AxisDragInfo { pane_idx: Some(pane_idx), axis_idx, is_y: true, button: MouseButton::Middle, pivot_pct: 1.0 - pct });
                             this.last_mouse_pos = Some(event.position); cx.notify();
                         }
                     })
@@ -495,9 +495,9 @@ impl Render for ChartContainer {
                 .on_scroll_wheel({
                     let axis_entity = axis_entity.clone();
                     move |event, _, cx| {
-                        let dy = match event.delta { ScrollDelta::Pixels(p) => p.y.as_f32() as f64, ScrollDelta::Lines(p) => p.y as f64 * 20.0 };
-                        let factor = (1.0f64 - dy * 0.01).clamp(0.1, 10.0);
-                        axis_entity.update(cx, |r, cx| { let pivot = r.min + r.span() / 2.0; r.zoom_at(pivot, 0.5, factor); cx.notify(); });
+                        let dy = match event.delta { ScrollDelta::Pixels(p) => p.y.as_f32(), ScrollDelta::Lines(p) => p.y as f32 * 20.0 };
+                        let factor = (1.0f64 - dy as f64 * 0.01).clamp(0.1, 10.0);
+                        axis_entity.update(cx, |r, cx| { ViewController::zoom_axis_at(r, 0.5, factor); cx.notify(); });
                     }
                 })
                 .child({
@@ -532,24 +532,22 @@ impl Render for ChartContainer {
                 this.flip_axis_edge(None, axis_idx, cx);
             }))
             .on_mouse_down(MouseButton::Left, {
-                let key = key.clone(); let axis_entity = axis_entity.clone(); let lab = last_render_axis_bounds.clone();
+                let key = key.clone(); let lab = last_render_axis_bounds.clone();
                 cx.listener(move |this, event: &MouseDownEvent, _win, cx| {
                     if event.click_count >= 2 { this.dragging_axis = None; this.auto_fit_axis(None, axis_idx, cx); return; }
                     if let Some(bounds) = lab.borrow().get(&key) {
-                        let range = axis_entity.read(cx); let pct = ((event.position.x - bounds.origin.x).as_f32() / bounds.size.width.as_f32()).clamp(0.0, 1.0) as f64;
-                        let pivot = range.min + (range.max - range.min) * pct;
-                        this.dragging_axis = Some(AxisDragInfo { pane_idx: None, axis_idx, is_y: false, button: MouseButton::Left, pivot_data: pivot, pivot_pct: pct });
+                        let pct = ((event.position.x - bounds.origin.x).as_f32() / bounds.size.width.as_f32()).clamp(0.0, 1.0) as f64;
+                        this.dragging_axis = Some(AxisDragInfo { pane_idx: None, axis_idx, is_y: false, button: MouseButton::Left, pivot_pct: pct });
                         this.last_mouse_pos = Some(event.position); cx.notify();
                     }
                 })
             })
             .on_mouse_down(MouseButton::Middle, {
-                let key = key.clone(); let axis_entity = axis_entity.clone(); let lab = last_render_axis_bounds.clone();
+                let key = key.clone(); let lab = last_render_axis_bounds.clone();
                 cx.listener(move |this, event: &MouseDownEvent, _win, cx| {
                     if let Some(bounds) = lab.borrow().get(&key) {
-                        let range = axis_entity.read(cx); let pct = ((event.position.x - bounds.origin.x).as_f32() / bounds.size.width.as_f32()).clamp(0.0, 1.0) as f64;
-                        let pivot = range.min + (range.max - range.min) * pct;
-                        this.dragging_axis = Some(AxisDragInfo { pane_idx: None, axis_idx, is_y: false, button: MouseButton::Middle, pivot_data: pivot, pivot_pct: pct });
+                        let pct = ((event.position.x - bounds.origin.x).as_f32() / bounds.size.width.as_f32()).clamp(0.0, 1.0) as f64;
+                        this.dragging_axis = Some(AxisDragInfo { pane_idx: None, axis_idx, is_y: false, button: MouseButton::Middle, pivot_pct: pct });
                         this.last_mouse_pos = Some(event.position); cx.notify();
                     }
                 })
@@ -557,9 +555,9 @@ impl Render for ChartContainer {
             .on_scroll_wheel({
                 let axis_entity = axis_entity.clone();
                 move |event, _, cx| {
-                    let dy = match event.delta { ScrollDelta::Pixels(p) => p.y.as_f32() as f64, ScrollDelta::Lines(p) => p.y as f64 * 20.0 };
-                    let factor = (1.0f64 - dy * 0.01).clamp(0.1, 10.0);
-                    axis_entity.update(cx, |r, cx| { let pivot = r.min + r.span() / 2.0; r.zoom_at(pivot, 0.5, factor); cx.notify(); });
+                    let dy = match event.delta { ScrollDelta::Pixels(p) => p.y.as_f32(), ScrollDelta::Lines(p) => p.y as f32 * 20.0 };
+                    let factor = (1.0f64 - dy as f64 * 0.01).clamp(0.1, 10.0);
+                    axis_entity.update(cx, |r, cx| { ViewController::zoom_axis_at(r, 0.5, factor); cx.notify(); });
                 }
             })
             .child({
@@ -603,9 +601,6 @@ impl Render for ChartContainer {
                 }
             }
         }
-
-        let container_handle = cx.entity().clone();
-        cx.defer(move |cx| { container_handle.update(cx, |this, _| { let _ = this.last_render_axis_bounds.borrow(); }); });
 
         div().track_focus(&self.focus_handle).size_full().relative().bg(gpui::black())
             .child(canvas(|_, _, _| {}, move |bounds, (), _, _| { *container_bounds_rc.borrow_mut() = bounds; }).size_full().absolute())
