@@ -42,66 +42,47 @@ impl PlotRenderer for AreaPlot {
         _series_id: &str,
     ) {
         let (x_min, x_max) = transform.x_scale.domain();
-        let visible_iter = self.source.iter_range(x_min, x_max);
-        let visible_data: Vec<_> = visible_iter.collect();
-
-        if visible_data.is_empty() {
-            return;
-        }
-
-        // Render Fill
-        let mut fill_builder = PathBuilder::fill();
-        let mut first = true;
         
-        for data in &visible_data {
+        let baseline_y = transform.y_data_to_screen(self.baseline);
+
+        let mut fill_builder = PathBuilder::fill();
+        let mut line_builder = PathBuilder::stroke(px(self.config.line_width));
+        
+        let mut first_pt: Option<Point<f64>> = None;
+        let mut last_pt: Option<Point<f64>> = None;
+        let mut has_data = false;
+
+        for data in self.source.iter_range(x_min, x_max) {
             if let PlotData::Point(point) = data {
                 let screen_point = transform.data_to_screen(Point::new(point.x, point.y));
-                let baseline_y = transform.y_data_to_screen(self.baseline);
-
-                if first {
+                if first_pt.is_none() {
                     fill_builder.move_to(Point::new(screen_point.x, baseline_y));
                     fill_builder.line_to(screen_point);
-                    first = false;
+                    line_builder.move_to(screen_point);
+                    first_pt = Some(Point::new(point.x, point.y));
                 } else {
                     fill_builder.line_to(screen_point);
+                    line_builder.line_to(screen_point);
                 }
+                last_pt = Some(Point::new(point.x, point.y));
+                has_data = true;
             }
         }
-        
-        // Close the path for filling
-        if let Some(PlotData::Point(last)) = visible_data.last() {
+
+        if !has_data { return; }
+
+        // Close the paths
+        if let (Some(first), Some(last)) = (first_pt, last_pt) {
              let last_screen_x = transform.x_data_to_screen(last.x);
-             if let Some(PlotData::Point(first_pt)) = visible_data.first() {
-                let first_screen_x = transform.x_data_to_screen(first_pt.x);
-                let baseline_y = transform.y_data_to_screen(self.baseline);
-                
-                fill_builder.line_to(Point::new(last_screen_x, baseline_y));
-                fill_builder.line_to(Point::new(first_screen_x, baseline_y));
-                fill_builder.close();
-             }
+             let first_screen_x = transform.x_data_to_screen(first.x);
+             fill_builder.line_to(Point::new(last_screen_x, baseline_y));
+             fill_builder.line_to(Point::new(first_screen_x, baseline_y));
+             fill_builder.close();
         }
 
         if let Ok(path) = fill_builder.build() {
             window.paint_path(path, self.config.fill_color);
         }
-
-        // Render Line
-        let mut line_builder = PathBuilder::stroke(px(self.config.line_width));
-        let mut first = true;
-
-        for data in &visible_data {
-            if let PlotData::Point(point) = data {
-                let screen_point = transform.data_to_screen(Point::new(point.x, point.y));
-
-                if first {
-                    line_builder.move_to(screen_point);
-                    first = false;
-                } else {
-                    line_builder.line_to(screen_point);
-                }
-            }
-        }
-
         if let Ok(path) = line_builder.build() {
             window.paint_path(path, self.config.line_color);
         }

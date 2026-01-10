@@ -293,6 +293,173 @@ pub trait PlotDataSource: Send + Sync {
     fn is_empty(&self) -> bool { self.len() == 0 }
 }
 
+use std::collections::VecDeque;
+
+/// Data source optimized for real-time streaming with a fixed capacity.
+pub struct StreamingDataSource {
+    data: VecDeque<PlotData>,
+    capacity: usize,
+    bounds_cache: VecDeque<AxisDomain>,
+    suggested_spacing: f64,
+}
+
+impl StreamingDataSource {
+    pub fn new(capacity: usize) -> Self {
+        Self {
+            data: VecDeque::with_capacity(capacity),
+            capacity,
+            bounds_cache: VecDeque::new(),
+            suggested_spacing: 1.0,
+        }
+    }
+
+    fn update_suggested_spacing(&mut self, new_x: f64) {
+        if let Some(last) = self.data.back() {
+            let last_x = match last { PlotData::Point(p) => p.x, PlotData::Ohlcv(o) => o.time };
+            let s = (new_x - last_x).abs();
+            if s > f64::EPSILON {
+                if self.suggested_spacing == 1.0 { self.suggested_spacing = s; }
+                else { self.suggested_spacing = self.suggested_spacing * 0.95 + s * 0.05; }
+            }
+        }
+    }
+
+    fn rebuild_cache(&mut self) {
+        // Full rebuild if needed, though we prefer incremental
+        let mut min_spacing = f64::INFINITY;
+        let mut last_x: Option<f64> = None;
+        self.bounds_cache.clear();
+        
+        for chunk in self.data.as_slices().0.chunks(CHUNK_SIZE).chain(self.data.as_slices().1.chunks(CHUNK_SIZE)) {
+            let mut domain = AxisDomain {
+                x_min: f64::INFINITY, x_max: f64::NEG_INFINITY,
+                y_min: f64::INFINITY, y_max: f64::NEG_INFINITY,
+                ..Default::default()
+            };
+            for p in chunk {
+                let x = match p { PlotData::Point(pt) => pt.x, PlotData::Ohlcv(o) => o.time };
+                if let Some(lx) = last_x {
+                    let s = (x - lx).abs();
+                    if s > f64::EPSILON && s < min_spacing { min_spacing = s; }
+                }
+                last_x = Some(x);
+                match p {
+                    PlotData::Point(pt) => {
+                        domain.x_min = domain.x_min.min(pt.x); domain.x_max = domain.x_max.max(pt.x);
+                        domain.y_min = domain.y_min.min(pt.y); domain.y_max = domain.y_max.max(pt.y);
+                    }
+                    PlotData::Ohlcv(o) => {
+                        domain.x_min = domain.x_min.min(o.time); domain.x_max = domain.x_max.max(o.time + o.span);
+                        domain.y_min = domain.y_min.min(o.low); domain.y_max = domain.y_max.max(o.high);
+                    }
+                }
+            }
+            self.bounds_cache.push_back(domain);
+        }
+        self.suggested_spacing = if min_spacing == f64::INFINITY { 1.0 } else { min_spacing };
+    }
+}
+
+impl PlotDataSource for StreamingDataSource {
+    fn len(&self) -> usize { self.data.len() }
+    fn suggested_x_spacing(&self) -> f64 { self.suggested_spacing }
+
+    fn get_bounds(&self) -> Option<(f64, f64, f64, f64)> {
+        if self.bounds_cache.is_empty() { return None; }
+        let mut b = (f64::INFINITY, f64::NEG_INFINITY, f64::INFINITY, f64::NEG_INFINITY);
+        for d in &self.bounds_cache {
+            b.0 = b.0.min(d.x_min); b.1 = b.1.max(d.x_max);
+            b.2 = b.2.min(d.y_min); b.3 = b.3.max(d.y_max);
+        }
+        Some(b)
+    }
+
+    fn get_y_range(&self, x_min: f64, x_max: f64) -> Option<(f64, f64)> {
+        if self.data.is_empty() { return None; }
+        let mut y_min = f64::INFINITY;
+        let mut y_max = f64::NEG_INFINITY;
+        let mut found = false;
+
+        for (i, chunk) in self.bounds_cache.iter().enumerate() {
+            if chunk.x_max < x_min || chunk.x_min > x_max { continue; }
+            if chunk.x_min >= x_min && chunk.x_max <= x_max {
+                y_min = y_min.min(chunk.y_min); y_max = y_max.max(chunk.y_max);
+                found = true; continue;
+            }
+            let start = i * CHUNK_SIZE;
+            let end = (start + CHUNK_SIZE).min(self.data.len());
+            for idx in start..end {
+                let p = &self.data[idx];
+                let x = match p { PlotData::Point(pt) => pt.x, PlotData::Ohlcv(o) => o.time };
+                if x >= x_min && x <= x_max {
+                    match p {
+                        PlotData::Point(pt) => { y_min = y_min.min(pt.y); y_max = y_max.max(pt.y); }
+                        PlotData::Ohlcv(o) => { y_min = y_min.min(o.low); y_max = y_max.max(o.high); }
+                    }
+                    found = true;
+                }
+            }
+        }
+        if found { Some((y_min, y_max)) } else { None }
+    }
+
+    fn iter_range(&self, x_min: f64, x_max: f64) -> Box<dyn Iterator<Item = PlotData> + '_> {
+        // For VecDeque, we can't easily use partition_point on the whole thing if it's not contiguous.
+        // But for simplicity and correctness, we use the standard iterator filtered by range.
+        // Optimization: In a real ring buffer, we'd find the start/end indices.
+        Box::new(self.data.iter().filter(move |p| {
+            let x = match p { PlotData::Point(pt) => pt.x, PlotData::Ohlcv(o) => o.time };
+            x >= x_min && x <= x_max // Basic filtering for now, could be improved with binary search on contiguous slices
+        }).cloned())
+    }
+
+    fn add_data(&mut self, data: PlotData) {
+        let x = match &data { PlotData::Point(p) => p.x, PlotData::Ohlcv(o) => o.time };
+        self.update_suggested_spacing(x);
+
+        if self.data.len() >= self.capacity {
+            self.data.pop_front();
+            // If we pop, the bounds cache might need a full rebuild or careful management.
+            // For now, let's rebuild cache every CHUNK_SIZE pops to keep it simple.
+            if self.data.len() % CHUNK_SIZE == 0 { self.rebuild_cache(); }
+        }
+
+        self.data.push_back(data.clone());
+        
+        // Update incremental bounds cache
+        if self.data.len() % CHUNK_SIZE == 1 || self.bounds_cache.is_empty() {
+            let mut domain = AxisDomain {
+                x_min: x, x_max: x, y_min: f64::INFINITY, y_max: f64::NEG_INFINITY, ..Default::default()
+            };
+            match data {
+                PlotData::Point(pt) => { domain.y_min = pt.y; domain.y_max = pt.y; }
+                PlotData::Ohlcv(o) => { domain.x_max = o.time + o.span; domain.y_min = o.low; domain.y_max = o.high; }
+            }
+            self.bounds_cache.push_back(domain);
+        } else if let Some(last) = self.bounds_cache.back_mut() {
+            match data {
+                PlotData::Point(pt) => { 
+                    last.x_min = last.x_min.min(pt.x); last.x_max = last.x_max.max(pt.x);
+                    last.y_min = last.y_min.min(pt.y); last.y_max = last.y_max.max(pt.y);
+                }
+                PlotData::Ohlcv(o) => {
+                    last.x_min = last.x_min.min(o.time); last.x_max = last.x_max.max(o.time + o.span);
+                    last.y_min = last.y_min.min(o.low); last.y_max = last.y_max.max(o.high);
+                }
+            }
+        }
+    }
+
+    fn set_data(&mut self, data: Vec<PlotData>) {
+        self.data = VecDeque::from(data);
+        if self.data.len() > self.capacity {
+            let to_remove = self.data.len() - self.capacity;
+            for _ in 0..to_remove { self.data.pop_front(); }
+        }
+        self.rebuild_cache();
+    }
+}
+
 /// Default implementation using a simple Vec with chunked bounds cache.
 pub struct VecDataSource {
     data: Vec<PlotData>,

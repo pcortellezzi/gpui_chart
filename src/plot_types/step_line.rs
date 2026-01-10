@@ -35,51 +35,44 @@ impl PlotRenderer for StepLinePlot {
     ) {
         let (x_min, x_max) = transform.x_scale.domain();
         let visible_iter = self.source.iter_range(x_min, x_max);
-        let visible_data: Vec<_> = visible_iter.collect();
-
-        if visible_data.len() < 2 {
-            return;
-        }
 
         let mut builder = PathBuilder::stroke(px(self.config.line_width));
-        let mut first = true;
+        let mut prev_pt: Option<crate::data_types::PlotPoint> = None;
 
-        for i in 0..visible_data.len() {
-            if let PlotData::Point(p_curr) = &visible_data[i] {
+        for data in visible_iter {
+            if let PlotData::Point(p_curr) = data {
                 let s_curr = transform.data_to_screen(Point::new(p_curr.x, p_curr.y));
 
-                if first {
-                    builder.move_to(s_curr);
-                    first = false;
-                } else {
-                    if let PlotData::Point(p_prev) = &visible_data[i - 1] {
-                        let s_prev = transform.data_to_screen(Point::new(p_prev.x, p_prev.y));
+                if let Some(p_prev) = prev_pt {
+                    let s_prev = transform.data_to_screen(Point::new(p_prev.x, p_prev.y));
 
-                        match self.config.mode {
-                            StepMode::Post => {
-                                let corner = Point::new(s_curr.x, s_prev.y);
-                                builder.line_to(corner);
-                                builder.line_to(s_curr);
-                            }
-                            StepMode::Pre => {
-                                let corner = Point::new(s_prev.x, s_curr.y);
-                                builder.line_to(corner);
-                                builder.line_to(s_curr);
-                            }
-                            StepMode::Mid => {
-                                let mid_x_data = (p_prev.x + p_curr.x) / 2.0;
-                                let mid_x_screen = transform.data_to_screen(Point::new(mid_x_data, 0.0)).x;
-                                
-                                let corner1 = Point::new(mid_x_screen, s_prev.y);
-                                let corner2 = Point::new(mid_x_screen, s_curr.y);
-                                
-                                builder.line_to(corner1);
-                                builder.line_to(corner2);
-                                builder.line_to(s_curr);
-                            }
+                    match self.config.mode {
+                        StepMode::Post => {
+                            let corner = Point::new(s_curr.x, s_prev.y);
+                            builder.line_to(corner);
+                            builder.line_to(s_curr);
+                        }
+                        StepMode::Pre => {
+                            let corner = Point::new(s_prev.x, s_curr.y);
+                            builder.line_to(corner);
+                            builder.line_to(s_curr);
+                        }
+                        StepMode::Mid => {
+                            let mid_x_data = (p_prev.x + p_curr.x) / 2.0;
+                            let mid_x_screen = transform.data_to_screen(Point::new(mid_x_data, 0.0)).x;
+                            
+                            let corner1 = Point::new(mid_x_screen, s_prev.y);
+                            let corner2 = Point::new(mid_x_screen, s_curr.y);
+                            
+                            builder.line_to(corner1);
+                            builder.line_to(corner2);
+                            builder.line_to(s_curr);
                         }
                     }
+                } else {
+                    builder.move_to(s_curr);
                 }
+                prev_pt = Some(p_curr);
             }
         }
 

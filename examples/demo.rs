@@ -4,10 +4,12 @@ use gpui_chart::{
     ChartPane, Series, LinePlot, AreaPlot, BarPlot, StepLinePlot, AnnotationPlot, HeatmapPlot, Ohlcv, CandlestickPlot,
     chart_container::ChartContainer,
     navigator_view::NavigatorView,
-    data_types::{AxisRange, SharedPlotState, AxisEdge, Annotation, HeatmapCell},
+    data_types::{AxisRange, SharedPlotState, AxisEdge, Annotation, HeatmapCell, StreamingDataSource, PlotData},
 };
 use gpui_chart::data_types::{PlotPoint, ColorOp};
-use rand::Rng;
+use std::sync::Arc;
+use parking_lot::RwLock;
+use rand::{Rng, SeedableRng};
 
 struct DemoApp {
     chart: Entity<ChartContainer>,
@@ -15,7 +17,7 @@ struct DemoApp {
 }
 
 impl DemoApp {
-    pub fn new(cx: &mut Context<Self>) -> Self {
+    pub fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let now = chrono::Utc::now().timestamp_millis() as f64;
         let hour_ms = 3600_000.0;
 
@@ -33,7 +35,7 @@ impl DemoApp {
         let mut ma_data = Vec::new();
         let mut volume_data = Vec::new();
         let mut step_data = Vec::new();
-        let mut rng = rand::rng();
+        let mut rng = rand::rngs::StdRng::from_os_rng();
         let mut p: f64 = 100.0;
         
         for i in 0..200 {
@@ -72,7 +74,8 @@ impl DemoApp {
             pane
         });
 
-        // --- PANE 2: VOLUME (BARS) & AREA ---
+        // --- PANE 2: VOLUME (BARS) & STREAMING AREA ---
+        let mut momentum_plot_handle = None;
         let volume_pane = cx.new(|cx| {
             let mut pane = ChartPane::new(shared_plot_state.clone(), cx);
             pane.add_x_axis(shared_x.clone(), cx);
@@ -80,11 +83,15 @@ impl DemoApp {
             
             pane.add_series(Series::new("Volume", BarPlot::new(volume_data)));
 
-            let mut area_data = vec![];
-            for i in 0..100 { area_data.push(PlotPoint { x: now - (100 - i) as f64 * hour_ms, y: 200.0 + (i as f64 * 0.1).cos() * 100.0, color_op: ColorOp::None }); }
-            pane.add_series(Series::new("Momentum", AreaPlot::new(area_data).with_baseline(0.0)));
+            // Real-time Streaming Area Plot
+            let source = Box::new(StreamingDataSource::new(1000));
+            let plot = AreaPlot::with_source(source).with_baseline(0.0);
+            let handle = pane.add_plot("Momentum (Live)", plot);
+            momentum_plot_handle = Some(handle);
+            
             pane
         });
+        let momentum_plot = momentum_plot_handle.expect("Failed to create momentum plot");
 
         // --- PANE 3: STEP LINE & HEATMAP ---
         let indicator_pane = cx.new(|cx| {
@@ -137,8 +144,52 @@ impl DemoApp {
             NavigatorView::new(shared_x, price_y, nav_series, cx)
         });
 
+        // Start streaming loop
+        let x = now;
+        let y = 500.0;
+        let rng_stream = rand::rngs::StdRng::from_os_rng();
+        let app_entity = cx.entity().clone();
+        let chart_clone = chart.clone();
+        let momentum_plot_clone = momentum_plot.clone();
+        
+        window.on_next_frame(move |window, cx| {
+            app_entity.update(cx, |_, cx| {
+                stream_update(window, cx, chart_clone, momentum_plot_clone, x, y, rng_stream, hour_ms);
+            });
+        });
+
         Self { chart, navigator }
     }
+}
+
+fn stream_update(
+    window: &mut Window,
+    cx: &mut Context<DemoApp>,
+    chart: Entity<ChartContainer>,
+    plot: Arc<RwLock<AreaPlot>>,
+    mut x: f64,
+    mut y: f64,
+    mut rng: rand::rngs::StdRng,
+    hour_ms: f64,
+) {
+    x += hour_ms * 0.05;
+    y += rng.random_range(-10.0..10.0);
+    y = y.clamp(100.0, 900.0);
+
+    plot.write().source.add_data(PlotData::Point(PlotPoint {
+        x, y, color_op: ColorOp::None
+    }));
+
+    chart.update(cx, |_, cx| cx.notify());
+
+    let app_entity = cx.entity().clone();
+    let chart_clone = chart.clone();
+    let plot_clone = plot.clone();
+    window.on_next_frame(move |window, cx| {
+        app_entity.update(cx, |_, cx| {
+            stream_update(window, cx, chart_clone, plot_clone, x, y, rng, hour_ms);
+        });
+    });
 }
 
 impl Render for DemoApp {
@@ -155,8 +206,8 @@ impl Render for DemoApp {
 
 fn main() {
     Application::new().run(|cx: &mut App| {
-        cx.open_window(WindowOptions::default(), |_window, cx| {
-            cx.new(|cx| DemoApp::new(cx))
+        cx.open_window(WindowOptions::default(), |window, cx| {
+            cx.new(|cx| DemoApp::new(window, cx))
         }).unwrap();
     });
 }
