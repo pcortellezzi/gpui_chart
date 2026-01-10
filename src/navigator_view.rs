@@ -1,6 +1,6 @@
 // NavigatorView implementation
 
-use crate::data_types::{AxisRange, Series, AxisDomain};
+use crate::data_types::{AxisRange, Series, AxisDomain, SharedPlotState};
 use crate::rendering::paint_plot;
 use crate::view_controller::ViewController;
 use gpui::prelude::*;
@@ -30,6 +30,7 @@ impl Default for NavigatorConfig {
 pub struct NavigatorView {
     pub x_axis: Entity<AxisRange>,
     pub y_axis: Entity<AxisRange>,
+    pub shared_state: Entity<SharedPlotState>,
     pub series: Vec<Series>,
     pub config: NavigatorConfig,
     full_domain: AxisDomain,
@@ -39,13 +40,13 @@ pub struct NavigatorView {
 }
 
 impl NavigatorView {
-    pub fn new(x_axis: Entity<AxisRange>, y_axis: Entity<AxisRange>, series: Vec<Series>, cx: &mut Context<Self>) -> Self {
-        cx.observe(&x_axis, |_, _, cx| cx.notify()).detach();
-        cx.observe(&y_axis, |_, _, cx| cx.notify()).detach();
+    pub fn new(x_axis: Entity<AxisRange>, y_axis: Entity<AxisRange>, shared_state: Entity<SharedPlotState>, series: Vec<Series>, cx: &mut Context<Self>) -> Self {
+        cx.observe(&shared_state, |_, _, cx| cx.notify()).detach();
 
         let mut view = Self {
             x_axis,
             y_axis,
+            shared_state,
             series,
             config: NavigatorConfig::default(),
             full_domain: AxisDomain::default(),
@@ -89,7 +90,7 @@ impl NavigatorView {
 
     fn handle_mouse_up(&mut self, _event: &MouseUpEvent, _window: &mut Window, cx: &mut Context<Self>) {
         self.is_dragging = false;
-        cx.notify();
+        self.shared_state.update(cx, |s, _| s.request_render());
     }
 
     fn move_to_pos(&mut self, pos: Point<Pixels>, cx: &mut Context<Self>) {
@@ -109,7 +110,7 @@ impl NavigatorView {
             bounds.size.height.as_f32(),
             self.full_domain.y_min,
             self.full_domain.y_max,
-            true // Y is inverted on navigator as well
+            true
         );
 
         let lock_x = self.config.lock_x;
@@ -118,20 +119,19 @@ impl NavigatorView {
         let full = self.full_domain.clone();
 
         if !lock_x {
-            self.x_axis.update(cx, |x, cx| {
+            self.x_axis.update(cx, |x, _cx| {
                 let limit = if clamp_to_map { Some((full.x_min, full.x_max)) } else { None };
                 ViewController::move_to_center(x, center_x, limit);
-                cx.notify();
             });
         }
 
         if !lock_y {
-            self.y_axis.update(cx, |y, cx| {
+            self.y_axis.update(cx, |y, _cx| {
                 let limit = if clamp_to_map { Some((full.y_min, full.y_max)) } else { None };
                 ViewController::move_to_center(y, center_y, limit);
-                cx.notify();
             });
         }
+        self.shared_state.update(cx, |s, _| s.request_render());
     }
 }
 

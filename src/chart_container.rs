@@ -47,7 +47,7 @@ struct AxisDragInfo {
     axis_idx: usize,
     is_y: bool,
     button: MouseButton,
-    pivot_pct: f64,  
+    pivot_pct: f64,
 }
 
 pub struct ChartContainer {
@@ -56,7 +56,7 @@ pub struct ChartContainer {
     pub panes: Vec<PaneConfig>,
     pub x_axes: Vec<AxisConfig>,
     pub theme: ChartTheme,
-    
+
     gutter_left: Pixels,
     gutter_right: Pixels,
     gutter_top: Pixels,
@@ -124,17 +124,16 @@ impl ChartContainer {
                 };
             }
         }
-        cx.notify();
+        self.shared_state.update(cx, |s, _| s.request_render());
     }
 
     pub fn move_series(&mut self, from_idx: usize, to_idx: usize, series_id: &str, cx: &mut Context<Self>) {
         if from_idx == to_idx { return; }
         let mut series_to_move = None;
         if let Some(from_pane) = self.panes.get(from_idx) {
-            from_pane.pane.update(cx, |p, cx| {
+            from_pane.pane.update(cx, |p, _cx| {
                 if let Some(pos) = p.series.iter().position(|s| s.id == series_id) {
                     series_to_move = Some(p.series.remove(pos));
-                    cx.notify();
                 }
             });
         }
@@ -145,22 +144,30 @@ impl ChartContainer {
                     if p.y_axes.is_empty() { p.add_y_axis(ae, cx); }
                 }
                 p.add_series(s);
-                cx.notify();
             });
         }
-        cx.notify();
+        self.shared_state.update(cx, |s, _| s.request_render());
     }
 
     pub fn remove_pane(&mut self, idx: usize, cx: &mut Context<Self>) {
-        if idx < self.panes.len() { self.panes.remove(idx); cx.notify(); }
+        if idx < self.panes.len() {
+            self.panes.remove(idx);
+            self.shared_state.update(cx, |s, _| s.request_render());
+        }
     }
 
     pub fn move_pane_up(&mut self, idx: usize, cx: &mut Context<Self>) {
-        if idx > 0 && idx < self.panes.len() { self.panes.swap(idx, idx - 1); cx.notify(); }
+        if idx > 0 && idx < self.panes.len() {
+            self.panes.swap(idx, idx - 1);
+            self.shared_state.update(cx, |s, _| s.request_render());
+        }
     }
 
     pub fn move_pane_down(&mut self, idx: usize, cx: &mut Context<Self>) {
-        if idx < self.panes.len() - 1 { self.panes.swap(idx, idx + 1); cx.notify(); }
+        if idx < self.panes.len() - 1 {
+            self.panes.swap(idx, idx + 1);
+            self.shared_state.update(cx, |s, _| s.request_render());
+        }
     }
 
     pub fn add_pane_at(&mut self, idx: usize, weight: f32, cx: &mut Context<Self>) {
@@ -179,7 +186,7 @@ impl ChartContainer {
             y_axes: vec![AxisConfig { entity: default_y, edge: AxisEdge::Right, size: px(60.0), label: "New Axis".to_string() }],
         };
         if idx >= self.panes.len() { self.panes.push(config); } else { self.panes.insert(idx, config); }
-        cx.notify();
+        self.shared_state.update(cx, |s, _| s.request_render());
     }
 
     fn register_pane_callbacks(&self, pane: &Entity<ChartPane>, cx: &mut Context<Self>) {
@@ -193,7 +200,7 @@ impl ChartContainer {
                 cx.defer(move |cx| {
                     cx.update_entity(&container_handle, |c: &mut ChartContainer, cx| {
                         if let Some(current_idx) = c.panes.iter().position(|pc| pc.pane.entity_id() == pane_id) {
-                            let target_idx = if move_up { if current_idx > 0 { current_idx - 1 } else { current_idx } } 
+                            let target_idx = if move_up { if current_idx > 0 { current_idx - 1 } else { current_idx } }
                                             else { if current_idx < c.panes.len() - 1 { current_idx + 1 } else { current_idx } };
                             c.move_series(current_idx, target_idx, &series_id, cx);
                         }
@@ -214,7 +221,6 @@ impl ChartContainer {
                 });
             });
         });
-        cx.observe(pane, |_, _, cx| cx.notify()).detach();
     }
 
     /// Bascule une série entre l'axe principal et un axe dédié (Isolation).
@@ -301,11 +307,9 @@ impl ChartContainer {
         cx.notify();
     }
 
-    pub fn add_y_axis(&mut self, pane_idx: usize, axis: Entity<AxisRange>, edge: AxisEdge, size: Pixels, label: String, cx: &mut Context<Self>) {
+    pub fn add_y_axis(&mut self, pane_idx: usize, axis: Entity<AxisRange>, edge: AxisEdge, size: Pixels, label: String, _cx: &mut Context<Self>) {
         if let Some(pane_config) = self.panes.get_mut(pane_idx) {
-            cx.observe(&axis, |_, _, cx| cx.notify()).detach();
             pane_config.y_axes.push(AxisConfig { entity: axis, edge, size, label });
-            cx.notify();
         }
     }
 
@@ -335,37 +339,39 @@ impl ChartContainer {
         }
     }
 
-    pub fn add_x_axis(&mut self, axis: Entity<AxisRange>, edge: AxisEdge, size: Pixels, label: String, cx: &mut Context<Self>) {
-        cx.observe(&axis, |_, _, cx| cx.notify()).detach();
+    pub fn add_x_axis(&mut self, axis: Entity<AxisRange>, edge: AxisEdge, size: Pixels, label: String, _cx: &mut Context<Self>) {
         self.x_axes.push(AxisConfig { entity: axis, edge, size, label });
-        cx.notify();
     }
 
     fn handle_pan_left(&mut self, _: &crate::chart_pane::PanLeft, _win: &mut Window, cx: &mut Context<Self>) {
-        self.shared_x_axis.update(cx, |r, cx| { ViewController::pan_axis(r, -20.0, 200.0, false); cx.notify(); });
+        self.shared_x_axis.update(cx, |r, _cx| { ViewController::pan_axis(r, -20.0, 200.0, false); r.update_ticks_if_needed(10); });
+        self.shared_state.update(cx, |s, _| s.request_render());
     }
     fn handle_pan_right(&mut self, _: &crate::chart_pane::PanRight, _win: &mut Window, cx: &mut Context<Self>) {
-        self.shared_x_axis.update(cx, |r, cx| { ViewController::pan_axis(r, 20.0, 200.0, false); cx.notify(); });
+        self.shared_x_axis.update(cx, |r, _cx| { ViewController::pan_axis(r, 20.0, 200.0, false); r.update_ticks_if_needed(10); });
+        self.shared_state.update(cx, |s, _| s.request_render());
     }
     fn handle_zoom_in(&mut self, _: &crate::chart_pane::ZoomIn, _win: &mut Window, cx: &mut Context<Self>) {
-        self.shared_x_axis.update(cx, |r, cx| { ViewController::zoom_axis_at(r, 0.5, 0.9); cx.notify(); });
+        self.shared_x_axis.update(cx, |r, _cx| { ViewController::zoom_axis_at(r, 0.5, 0.9); r.update_ticks_if_needed(10); });
+        self.shared_state.update(cx, |s, _| s.request_render());
     }
     fn handle_zoom_out(&mut self, _: &crate::chart_pane::ZoomOut, _win: &mut Window, cx: &mut Context<Self>) {
-        self.shared_x_axis.update(cx, |r, cx| { ViewController::zoom_axis_at(r, 0.5, 1.1); cx.notify(); });
+        self.shared_x_axis.update(cx, |r, _cx| { ViewController::zoom_axis_at(r, 0.5, 1.1); r.update_ticks_if_needed(10); });
+        self.shared_state.update(cx, |s, _| s.request_render());
     }
 
     fn resize_panes(&mut self, index: usize, delta: Pixels, cx: &mut Context<Self>) {
         if index + 1 >= self.panes.len() { return; }
         let bh = self.bounds.borrow().size.height.as_f32();
         let estimated_height = if bh > 0.0 { bh } else { 600.0 };
-        
+
         let mut weights: Vec<f32> = self.panes.iter().map(|p| p.weight).collect();
         ViewController::resize_panes(&mut weights, index, delta.as_f32(), estimated_height);
-        
+
         for (i, p) in self.panes.iter_mut().enumerate() {
             p.weight = weights[i];
         }
-        cx.notify();
+        self.shared_state.update(cx, |s, _| s.request_render());
     }
 
     fn handle_global_mouse_move(&mut self, event: &MouseMoveEvent, _win: &mut Window, cx: &mut Context<Self>) {
@@ -384,14 +390,14 @@ impl ChartContainer {
     }
 
     fn handle_axis_drag(&self, info: &AxisDragInfo, delta: Point<Pixels>, cx: &mut Context<Self>) {
-        let key = if let Some(p_idx) = info.pane_idx { AxisKey::Y(p_idx, info.axis_idx).to_string() } 
+        let key = if let Some(p_idx) = info.pane_idx { AxisKey::Y(p_idx, info.axis_idx).to_string() }
                   else { AxisKey::X(info.axis_idx).to_string() };
         let axis_entity = if let Some(p_idx) = info.pane_idx {
             self.panes.get(p_idx).and_then(|p| p.y_axes.get(info.axis_idx)).map(|a| a.entity.clone())
         } else { self.x_axes.get(info.axis_idx).map(|a| a.entity.clone()) };
 
         if let (Some(axis), Some(bounds)) = (axis_entity, self.last_render_axis_bounds.borrow().get(&key)) {
-            axis.update(cx, |r: &mut AxisRange, cx| {
+            axis.update(cx, |r: &mut AxisRange, _cx| {
                 match info.button {
                     MouseButton::Left => {
                         let total_size = if info.is_y { bounds.size.height } else { bounds.size.width };
@@ -399,19 +405,21 @@ impl ChartContainer {
                         ViewController::pan_axis(r, delta_val.as_f32(), total_size.as_f32(), info.is_y);
                     }
                     MouseButton::Middle => {
-                        let dy = if info.is_y { -delta.y.as_f32() as f64 } else { delta.x.as_f32() as f64 };
-                        let zoom_factor = 1.0 + dy / 100.0;
-                        ViewController::zoom_axis_at(r, info.pivot_pct, 1.0 / zoom_factor);
+                        let dy = if info.is_y { -delta.y.as_f32() } else { delta.x.as_f32() };
+                        let factor = ViewController::compute_zoom_factor(dy, 100.0);
+                        ViewController::zoom_axis_at(r, info.pivot_pct, factor);
                     }
                     _ => {}
                 }
-                cx.notify();
+                r.update_ticks_if_needed(10);
             });
+            self.shared_state.update(cx, |s, _| s.request_render());
         }
     }
 
     fn handle_global_mouse_up(&mut self, _: &MouseUpEvent, _win: &mut Window, cx: &mut Context<Self>) {
-        self.dragging_splitter = None; self.dragging_axis = None; self.last_mouse_pos = None; self.last_mouse_y = None; cx.notify();
+        self.dragging_splitter = None; self.dragging_axis = None; self.last_mouse_pos = None; self.last_mouse_y = None;
+        self.shared_state.update(cx, |s, _| s.request_render());
     }
 
     fn calculate_gutters(&mut self) {
@@ -454,12 +462,11 @@ impl Render for ChartContainer {
                 let is_left = axis.edge == AxisEdge::Left;
                 let x_pos = if is_left { let pos = left_cursor; left_cursor += axis.size; pos } else { let pos = right_cursor; right_cursor += axis.size; pos };
                 let key = AxisKey::Y(pane_idx, axis_idx).to_string();
-                
-                let range = axis_entity.read(cx);
+
                 let el = AxisRenderer::render_y_axis(
                     pane_idx,
                     axis_idx,
-                    &range,
+                    &axis_entity.read(cx),
                     axis.edge,
                     axis.size,
                     h_pct,
@@ -478,7 +485,8 @@ impl Render for ChartContainer {
                         if let Some(bounds) = lab.borrow().get(&key) {
                             let pct = ((event.position.y - bounds.origin.y).as_f32() / bounds.size.height.as_f32()).clamp(0.0, 1.0) as f64;
                             this.dragging_axis = Some(AxisDragInfo { pane_idx: Some(pane_idx), axis_idx, is_y: true, button: MouseButton::Left, pivot_pct: 1.0 - pct });
-                            this.last_mouse_pos = Some(event.position); cx.notify();
+                            this.last_mouse_pos = Some(event.position);
+                            this.shared_state.update(cx, |s, _| s.request_render());
                         }
                     })
                 })
@@ -488,16 +496,19 @@ impl Render for ChartContainer {
                         if let Some(bounds) = lab.borrow().get(&key) {
                             let pct = ((event.position.y - bounds.origin.y).as_f32() / bounds.size.height.as_f32()).clamp(0.0, 1.0) as f64;
                             this.dragging_axis = Some(AxisDragInfo { pane_idx: Some(pane_idx), axis_idx, is_y: true, button: MouseButton::Middle, pivot_pct: 1.0 - pct });
-                            this.last_mouse_pos = Some(event.position); cx.notify();
+                            this.last_mouse_pos = Some(event.position);
+                            this.shared_state.update(cx, |s, _| s.request_render());
                         }
                     })
                 })
                 .on_scroll_wheel({
                     let axis_entity = axis_entity.clone();
+                    let shared_state = self.shared_state.clone();
                     move |event, _, cx| {
                         let dy = match event.delta { ScrollDelta::Pixels(p) => p.y.as_f32(), ScrollDelta::Lines(p) => p.y as f32 * 20.0 };
                         let factor = (1.0f64 - dy as f64 * 0.01).clamp(0.1, 10.0);
-                        axis_entity.update(cx, |r, cx| { ViewController::zoom_axis_at(r, 0.5, factor); cx.notify(); });
+                        axis_entity.update(cx, |r, _cx| { ViewController::zoom_axis_at(r, 0.5, factor); });
+                        shared_state.update(cx, |s, _cx| s.request_render());
                     }
                 })
                 .child({
@@ -514,13 +525,12 @@ impl Render for ChartContainer {
         let mut x_axis_elements = Vec::new();
         let mut top_cursor = px(0.0); let mut bot_cursor = px(0.0);
         for (axis_idx, x_axis) in self.x_axes.iter().enumerate() {
-            let axis_entity = x_axis.entity.clone(); 
-            let range = axis_entity.read(cx);
+            let axis_entity = x_axis.entity.clone();
             let key = AxisKey::X(axis_idx).to_string();
 
             let el = AxisRenderer::render_x_axis(
                 axis_idx,
-                &range,
+                &axis_entity.read(cx),
                 x_axis.edge,
                 x_axis.size,
                 self.gutter_left,
@@ -538,7 +548,8 @@ impl Render for ChartContainer {
                     if let Some(bounds) = lab.borrow().get(&key) {
                         let pct = ((event.position.x - bounds.origin.x).as_f32() / bounds.size.width.as_f32()).clamp(0.0, 1.0) as f64;
                         this.dragging_axis = Some(AxisDragInfo { pane_idx: None, axis_idx, is_y: false, button: MouseButton::Left, pivot_pct: pct });
-                        this.last_mouse_pos = Some(event.position); cx.notify();
+                        this.last_mouse_pos = Some(event.position);
+                        this.shared_state.update(cx, |s, _| s.request_render());
                     }
                 })
             })
@@ -548,16 +559,19 @@ impl Render for ChartContainer {
                     if let Some(bounds) = lab.borrow().get(&key) {
                         let pct = ((event.position.x - bounds.origin.x).as_f32() / bounds.size.width.as_f32()).clamp(0.0, 1.0) as f64;
                         this.dragging_axis = Some(AxisDragInfo { pane_idx: None, axis_idx, is_y: false, button: MouseButton::Middle, pivot_pct: pct });
-                        this.last_mouse_pos = Some(event.position); cx.notify();
+                        this.last_mouse_pos = Some(event.position);
+                        this.shared_state.update(cx, |s, _| s.request_render());
                     }
                 })
             })
             .on_scroll_wheel({
                 let axis_entity = axis_entity.clone();
+                let shared_state = self.shared_state.clone();
                 move |event, _, cx| {
                     let dy = match event.delta { ScrollDelta::Pixels(p) => p.y.as_f32(), ScrollDelta::Lines(p) => p.y as f32 * 20.0 };
                     let factor = (1.0f64 - dy as f64 * 0.01).clamp(0.1, 10.0);
-                    axis_entity.update(cx, |r, cx| { ViewController::zoom_axis_at(r, 0.5, factor); cx.notify(); });
+                    axis_entity.update(cx, |r, _cx| { ViewController::zoom_axis_at(r, 0.5, factor); });
+                    shared_state.update(cx, |s, _cx| s.request_render());
                 }
             })
             .child({

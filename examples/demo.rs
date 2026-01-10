@@ -121,7 +121,7 @@ impl DemoApp {
 
         // 5. Container
         let chart = cx.new(|cx| {
-            let mut container = ChartContainer::new(shared_x.clone(), shared_plot_state, cx);
+            let mut container = ChartContainer::new(shared_x.clone(), shared_plot_state.clone(), cx);
             
             container.add_x_axis(shared_x.clone(), AxisEdge::Bottom, px(25.0), "Time".to_string(), cx);
 
@@ -141,7 +141,7 @@ impl DemoApp {
             let mut nav_data = vec![];
             for c in &candles { nav_data.push(PlotPoint { x: c.time, y: c.close, color_op: ColorOp::None }); }
             let nav_series = vec![Series::new("Nav", LinePlot::new(nav_data))];
-            NavigatorView::new(shared_x, price_y, nav_series, cx)
+            NavigatorView::new(shared_x, price_y, shared_plot_state.clone(), nav_series, cx)
         });
 
         // Start streaming loop
@@ -149,12 +149,12 @@ impl DemoApp {
         let y = 500.0;
         let rng_stream = rand::rngs::StdRng::from_os_rng();
         let app_entity = cx.entity().clone();
-        let chart_clone = chart.clone();
+        let shared_state_clone = shared_plot_state.clone();
         let momentum_plot_clone = momentum_plot.clone();
         
         window.on_next_frame(move |window, cx| {
             app_entity.update(cx, |_, cx| {
-                stream_update(window, cx, chart_clone, momentum_plot_clone, x, y, rng_stream, hour_ms);
+                stream_update(window, cx, shared_state_clone, momentum_plot_clone, x, y, rng_stream, hour_ms);
             });
         });
 
@@ -165,7 +165,7 @@ impl DemoApp {
 fn stream_update(
     window: &mut Window,
     cx: &mut Context<DemoApp>,
-    chart: Entity<ChartContainer>,
+    shared_state: Entity<SharedPlotState>,
     plot: Arc<RwLock<AreaPlot>>,
     mut x: f64,
     mut y: f64,
@@ -180,14 +180,17 @@ fn stream_update(
         x, y, color_op: ColorOp::None
     }));
 
-    chart.update(cx, |_, cx| cx.notify());
+    shared_state.update(cx, |s, _cx| {
+        s.request_render();
+    });
+    cx.notify(); // Force local notification to ensure frame propagation
 
     let app_entity = cx.entity().clone();
-    let chart_clone = chart.clone();
+    let shared_state_clone = shared_state.clone();
     let plot_clone = plot.clone();
     window.on_next_frame(move |window, cx| {
         app_entity.update(cx, |_, cx| {
-            stream_update(window, cx, chart_clone, plot_clone, x, y, rng, hour_ms);
+            stream_update(window, cx, shared_state_clone, plot_clone, x, y, rng, hour_ms);
         });
     });
 }
@@ -206,6 +209,10 @@ impl Render for DemoApp {
 
 fn main() {
     Application::new().run(|cx: &mut App| {
+        cx.bind_keys([
+            KeyBinding::new("ctrl-d", gpui_chart::chart_pane::ToggleDebug, None),
+            KeyBinding::new("cmd-d", gpui_chart::chart_pane::ToggleDebug, None),
+        ]);
         cx.open_window(WindowOptions::default(), |window, cx| {
             cx.new(|cx| DemoApp::new(window, cx))
         }).unwrap();

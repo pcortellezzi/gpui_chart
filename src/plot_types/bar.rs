@@ -1,5 +1,6 @@
 use crate::data_types::{BarPlotConfig, PlotData, PlotDataSource, VecDataSource, PlotPoint};
 use gpui::*;
+use adabraka_ui::util::PixelsExt;
 use crate::transform::PlotTransform;
 use super::PlotRenderer;
 
@@ -43,8 +44,18 @@ impl PlotRenderer for BarPlot {
         let (x_min, x_max) = transform.x_scale.domain();
         let visible_iter = self.source.iter_range(x_min - half_width, x_max + half_width);
 
+        let mut last_px_x = f64::MIN;
+
         for data in visible_iter {
             if let PlotData::Point(point) = data {
+                let p_center = transform.data_to_screen(Point::new(point.x, point.y));
+                let px_x = p_center.x.as_f64();
+
+                // Only render if we moved at least 1 pixel
+                if (px_x - last_px_x).abs() < 1.0 {
+                    continue;
+                }
+
                 let x_left = point.x - half_width;
                 let x_right = point.x + half_width;
 
@@ -63,6 +74,7 @@ impl PlotRenderer for BarPlot {
                 );
 
                 window.paint_quad(fill(rect, self.config.color));
+                last_px_x = px_x;
             }
         }
     }

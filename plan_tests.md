@@ -54,7 +54,22 @@ Objectif : Alignement parfait des graphiques et des axes.
 
 ---
 
-## 4. Composants & Interactions (`chart_pane.rs`, `chart_container.rs`)
+## 4. Tests d'Interactions via ViewController (Découplage UI)
+Objectif : Simuler l'expérience utilisateur sans dépendre de la boucle de rendu GPUI.
+
+- [ ] **Interaction Mouse / Drag (Panning)**
+    - [ ] Simuler un `delta` de mouvement souris et vérifier le décalage proportionnel de `AxisRange`.
+    - [ ] Vérifier que le panoramique s'arrête aux limites virtuelles (clamping).
+- [ ] **Interaction Scroll / Ctrl (Zoom)**
+    - [ ] Calcul du `zoom_factor` à partir d'un `ScrollDelta`.
+    - [ ] Validation de la conservation du pivot sous le curseur simulé.
+- [ ] **Interaction Box Zoom (Selection)**
+    - [ ] Projection d'un rectangle `Bounds<Pixels>` vers un nouveau `AxisRange` de données.
+- [ ] **Gestion des États Partagés**
+    - [ ] Mise à jour du `hover_x` dans `SharedPlotState` lors d'un déplacement simulé.
+    - [ ] Synchronisation : vérifier qu'un changement sur l'axe X impacte toutes les Panes abonnées.
+
+## 5. Composants & Interactions (`chart_pane.rs`, `chart_container.rs`)
 Objectif : Comportement UI prévisible.
 
 - [ ] **Auto-Fit Intelligent**
@@ -73,9 +88,7 @@ Objectif : Comportement UI prévisible.
     - [ ] **Inertie** : Vérifier la décroissance de la vélocité frame par frame.
     - [ ] **Box Zoom** : Calcul des nouvelles bornes à partir des coordonnées d'un rectangle de sélection.
 
----
-
-## 5. Types de Tracés Spécifiques (`plot_types/*.rs`)
+## 6. Types de Tracés Spécifiques (`plot_types/*.rs`)
 Objectif : Rendu correct des primitives de données.
 
 - [ ] **CandlestickPlot**
@@ -92,7 +105,7 @@ Objectif : Rendu correct des primitives de données.
 
 ---
 
-## 6. Navigation & Visualisation (`navigator_view.rs`, `rendering.rs`)
+## 7. Navigation & Visualisation (`navigator_view.rs`, `rendering.rs`)
 Objectif : Navigation fluide dans l'historique.
 
 - [ ] **NavigatorView**

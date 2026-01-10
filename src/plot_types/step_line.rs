@@ -1,9 +1,10 @@
-use crate::data_types::{PlotData, PlotDataSource, StepLinePlotConfig, StepMode, VecDataSource, PlotPoint};
+use crate::data_types::{StepLinePlotConfig, PlotData, PlotDataSource, VecDataSource, StepMode, PlotPoint};
 use gpui::*;
+use adabraka_ui::util::PixelsExt;
 use crate::transform::PlotTransform;
 use super::PlotRenderer;
 
-/// Step Line plot type
+/// StepLine plot type
 pub struct StepLinePlot {
     pub source: Box<dyn PlotDataSource>,
     pub config: StepLinePlotConfig,
@@ -37,42 +38,41 @@ impl PlotRenderer for StepLinePlot {
         let visible_iter = self.source.iter_range(x_min, x_max);
 
         let mut builder = PathBuilder::stroke(px(self.config.line_width));
-        let mut prev_pt: Option<crate::data_types::PlotPoint> = None;
+        let mut prev_pt: Option<Point<Pixels>> = None;
+        let mut last_px_x = f64::MIN;
+        let mut first = true;
 
         for data in visible_iter {
             if let PlotData::Point(p_curr) = data {
                 let s_curr = transform.data_to_screen(Point::new(p_curr.x, p_curr.y));
+                let px_x = s_curr.x.as_f64();
 
-                if let Some(p_prev) = prev_pt {
-                    let s_prev = transform.data_to_screen(Point::new(p_prev.x, p_prev.y));
-
-                    match self.config.mode {
-                        StepMode::Post => {
-                            let corner = Point::new(s_curr.x, s_prev.y);
-                            builder.line_to(corner);
-                            builder.line_to(s_curr);
+                // Decimation: only process if we moved at least half a pixel
+                if first || (px_x - last_px_x).abs() >= 0.5 {
+                    if let Some(s_prev) = prev_pt {
+                        match self.config.mode {
+                            StepMode::Post => {
+                                builder.line_to(Point::new(s_curr.x, s_prev.y));
+                                builder.line_to(s_curr);
+                            }
+                            StepMode::Pre => {
+                                builder.line_to(Point::new(s_prev.x, s_curr.y));
+                                builder.line_to(s_curr);
+                            }
+                            StepMode::Mid => {
+                                let mid_x = (s_prev.x + s_curr.x) / 2.0;
+                                builder.line_to(Point::new(mid_x, s_prev.y));
+                                builder.line_to(Point::new(mid_x, s_curr.y));
+                                builder.line_to(s_curr);
+                            }
                         }
-                        StepMode::Pre => {
-                            let corner = Point::new(s_prev.x, s_curr.y);
-                            builder.line_to(corner);
-                            builder.line_to(s_curr);
-                        }
-                        StepMode::Mid => {
-                            let mid_x_data = (p_prev.x + p_curr.x) / 2.0;
-                            let mid_x_screen = transform.data_to_screen(Point::new(mid_x_data, 0.0)).x;
-                            
-                            let corner1 = Point::new(mid_x_screen, s_prev.y);
-                            let corner2 = Point::new(mid_x_screen, s_curr.y);
-                            
-                            builder.line_to(corner1);
-                            builder.line_to(corner2);
-                            builder.line_to(s_curr);
-                        }
+                    } else {
+                        builder.move_to(s_curr);
                     }
-                } else {
-                    builder.move_to(s_curr);
+                    prev_pt = Some(s_curr);
+                    last_px_x = px_x;
+                    first = false;
                 }
-                prev_pt = Some(p_curr);
             }
         }
 

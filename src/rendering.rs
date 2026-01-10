@@ -7,6 +7,13 @@ use crate::transform::PlotTransform;
 use gpui::*;
 use adabraka_ui::util::PixelsExt;
 
+/// Stats about the last paint operation.
+#[derive(Debug, Clone, Default)]
+pub struct PaintStats {
+    pub duration: std::time::Duration,
+    pub series_count: usize,
+}
+
 /// Paints the chart data on the canvas.
 pub fn paint_plot(
     window: &mut Window,
@@ -15,7 +22,8 @@ pub fn paint_plot(
     x_domains: &[(f64, f64)],
     y_domains: &[(f64, f64)],
     _cx: &mut App,
-) {
+) -> PaintStats {
+    let start = std::time::Instant::now();
     let width_px = bounds.size.width.as_f32();
     let height_px = bounds.size.height.as_f32();
     
@@ -28,6 +36,11 @@ pub fn paint_plot(
         
         let transform = PlotTransform::new(x_scale, y_scale, bounds);
         series.plot.read().render(window, &transform, &series.id);
+    }
+
+    PaintStats {
+        duration: start.elapsed(),
+        series_count: series.len(),
     }
 }
 

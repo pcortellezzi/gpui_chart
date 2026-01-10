@@ -10,16 +10,27 @@ pub enum ChartScale {
 
 impl ChartScale {
     pub fn new_linear(domain: (f64, f64), range: (f32, f32)) -> Self {
+        let mut d_min = domain.0;
+        let mut d_max = domain.1;
+        if (d_max - d_min).abs() < f64::EPSILON {
+            d_min -= 0.5;
+            d_max += 0.5;
+        }
         let scale = LinearScale::new()
-            .domain(domain.0, domain.1)
+            .domain(d_min, d_max)
             .range(range.0 as f64, range.1 as f64);
         Self::Linear(scale)
     }
 
     pub fn map(&self, value: f64) -> f32 {
-        match self {
+        let res = match self {
             Self::Linear(s) => s.scale(value) as f32,
             Self::Log(s) => s.scale(value) as f32,
+        };
+        if res.is_nan() || res.is_infinite() {
+            0.0
+        } else {
+            res
         }
     }
 
@@ -68,9 +79,15 @@ impl ChartScale {
     }
 
     pub fn update_domain(&mut self, min: f64, max: f64) {
+        let mut d_min = min;
+        let mut d_max = max;
+        if (d_max - d_min).abs() < f64::EPSILON {
+            d_min -= 0.5;
+            d_max += 0.5;
+        }
         match self {
-            Self::Linear(s) => { s.domain(min, max); },
-            Self::Log(s) => { s.domain(min, max); },
+            Self::Linear(s) => { s.domain(d_min, d_max); },
+            Self::Log(s) => { s.domain(d_min, d_max); },
         }
     }
 

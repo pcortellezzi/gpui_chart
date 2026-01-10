@@ -35,33 +35,25 @@ impl PlotRenderer for LinePlot {
         _series_id: &str,
     ) {
         let (x_min, x_max) = transform.x_scale.domain();
-        let visible_iter = self.source.iter_range(x_min, x_max);
-
-        let mut builder = PathBuilder::stroke(px(self.config.line_width));
+        
         let mut first = true;
-        let mut last_px_x = f32::MIN;
-        let mut last_px_y = 0.0;
+        let mut last_px_x = f64::MIN;
+        let mut builder = PathBuilder::stroke(px(self.config.line_width));
 
-        for data in visible_iter {
+        for data in self.source.iter_range(x_min, x_max) {
             if let PlotData::Point(point) = data {
                 let screen_point = transform.data_to_screen(Point::new(point.x, point.y));
-                let px_x = screen_point.x.as_f32();
-                let px_y = screen_point.y.as_f32();
+                let px_x = screen_point.x.as_f64();
 
-                // Simple decimation: if we are on the same X pixel, only draw if Y change is significant
-                // or if it's the first/last point.
-                if !first && (px_x - last_px_x).abs() < 0.5 && (px_y - last_px_y).abs() < 1.0 {
-                    continue;
+                if first || (px_x - last_px_x).abs() >= 0.5 {
+                    if first {
+                        builder.move_to(screen_point);
+                        first = false;
+                    } else {
+                        builder.line_to(screen_point);
+                    }
+                    last_px_x = px_x;
                 }
-
-                if first {
-                    builder.move_to(screen_point);
-                    first = false;
-                } else {
-                    builder.line_to(screen_point);
-                }
-                last_px_x = px_x;
-                last_px_y = px_y;
             }
         }
 

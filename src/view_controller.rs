@@ -30,8 +30,15 @@ impl ViewController {
 
     /// Zoom sur un axe à un point pivot précis (exprimé en pourcentage du domaine).
     pub fn zoom_axis_at(range: &mut AxisRange, pivot_pct: f64, factor: f64) {
+        let mut new_factor = factor;
+        const MIN_SPAN: f64 = 1e-9;
+        
+        if range.span() * factor < MIN_SPAN {
+            new_factor = MIN_SPAN / range.span();
+        }
+
         let pivot_data = range.min + range.span() * pivot_pct;
-        range.zoom_at(pivot_data, pivot_pct, factor);
+        range.zoom_at(pivot_data, pivot_pct, new_factor);
         range.clamp();
     }
 
