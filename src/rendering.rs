@@ -27,7 +27,7 @@ pub fn paint_plot(
         let y_scale = ChartScale::new_linear(y_domain, (height_px, 0.0));
         
         let transform = PlotTransform::new(x_scale, y_scale, bounds);
-        series.plot.borrow().render(window, &transform, &series.id);
+        series.plot.read().render(window, &transform, &series.id);
     }
 }
 

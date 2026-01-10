@@ -32,38 +32,44 @@ impl PlotRenderer for StepLinePlot {
             return;
         }
 
+        // --- CULLING ---
+        let (x_min, x_max) = transform.x_scale.domain();
+        let start_idx = self.data.partition_point(|p| p.x < x_min);
+        let end_idx = self.data.partition_point(|p| p.x <= x_max);
+        let start = start_idx.saturating_sub(1);
+        let end = (end_idx + 1).min(self.data.len());
+        let visible_data = &self.data[start..end];
+
+        if visible_data.len() < 2 {
+            return;
+        }
+
         let mut builder = PathBuilder::stroke(px(self.config.line_width));
         let mut first = true;
 
-        for i in 0..self.data.len() {
-            let p_curr = &self.data[i];
+        for i in 0..visible_data.len() {
+            let p_curr = &visible_data[i];
             let s_curr = transform.data_to_screen(Point::new(p_curr.x, p_curr.y));
 
             if first {
                 builder.move_to(s_curr);
                 first = false;
             } else {
-                let p_prev = &self.data[i - 1];
+                let p_prev = &visible_data[i - 1];
                 let s_prev = transform.data_to_screen(Point::new(p_prev.x, p_prev.y));
 
                 match self.config.mode {
                     StepMode::Post => {
-                        // Horizontal then Vertical
-                        // (prev.x, prev.y) -> (curr.x, prev.y) -> (curr.x, curr.y)
-                        // s_prev is already where we are.
                         let corner = Point::new(s_curr.x, s_prev.y);
                         builder.line_to(corner);
                         builder.line_to(s_curr);
                     }
                     StepMode::Pre => {
-                        // Vertical then Horizontal
-                        // (prev.x, prev.y) -> (prev.x, curr.y) -> (curr.x, curr.y)
                         let corner = Point::new(s_prev.x, s_curr.y);
                         builder.line_to(corner);
                         builder.line_to(s_curr);
                     }
                     StepMode::Mid => {
-                        // Midpoint step
                         let mid_x_data = (p_prev.x + p_curr.x) / 2.0;
                         let mid_x_screen = transform.data_to_screen(Point::new(mid_x_data, 0.0)).x;
                         

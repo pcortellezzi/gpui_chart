@@ -183,7 +183,7 @@ impl ChartPane {
             let mut x_min = f64::INFINITY; let mut x_max = f64::NEG_INFINITY;
             for series in &self.series {
                 if self.hidden_series.contains(&series.id) || series.x_axis_id.0 != idx { continue; }
-                if let Some((sx_min, sx_max, _, _)) = series.plot.borrow().get_min_max() {
+                if let Some((sx_min, sx_max, _, _)) = series.plot.read().get_min_max() {
                     x_min = x_min.min(sx_min); x_max = x_max.max(sx_max);
                 }
             }
@@ -198,20 +198,24 @@ impl ChartPane {
         }
     }
 
-    pub fn auto_fit_y(&mut self, cx: &mut Context<Self>) {
+    pub fn auto_fit_y(&mut self, axis_index: Option<usize>, cx: &mut Context<Self>) {
         let padding = 0.05;
         let x_range = if let Some(xa) = self.x_axes.first() {
             let r = xa.axis.read(cx); Some((r.min, r.max))
         } else { None };
 
         for (idx, y_axis) in self.y_axes.iter().enumerate() {
+            if let Some(target_idx) = axis_index {
+                if idx != target_idx { continue; }
+            }
+            
             let mut sy_min = f64::INFINITY; let mut sy_max = f64::NEG_INFINITY;
             for series in &self.series {
                 if self.hidden_series.contains(&series.id) || series.y_axis_id.0 != idx { continue; }
                 let range = if let Some((xmin, xmax)) = x_range {
-                    series.plot.borrow().get_y_range(xmin, xmax)
+                    series.plot.read().get_y_range(xmin, xmax)
                 } else {
-                    series.plot.borrow().get_min_max().map(|(_, _, ymin, ymax)| (ymin, ymax))
+                    series.plot.read().get_min_max().map(|(_, _, ymin, ymax)| (ymin, ymax))
                 };
                 if let Some((s_min, s_max)) = range { sy_min = sy_min.min(s_min); sy_max = sy_max.max(s_max); }
             }
@@ -237,7 +241,7 @@ impl ChartPane {
     fn handle_pan_down(&mut self, _: &PanDown, _win: &mut Window, cx: &mut Context<Self>) { self.pan_y(-0.1, cx); }
     fn handle_zoom_in(&mut self, _: &ZoomIn, _win: &mut Window, cx: &mut Context<Self>) { self.keyboard_zoom(0.9, cx); }
     fn handle_zoom_out(&mut self, _: &ZoomOut, _win: &mut Window, cx: &mut Context<Self>) { self.keyboard_zoom(1.1, cx); }
-    fn handle_reset_view(&mut self, _: &ResetView, _win: &mut Window, cx: &mut Context<Self>) { self.auto_fit_x(cx); self.auto_fit_y(cx); }
+    fn handle_reset_view(&mut self, _: &ResetView, _win: &mut Window, cx: &mut Context<Self>) { self.auto_fit_x(cx); self.auto_fit_y(None, cx); }
 
     fn pan_x(&mut self, factor: f64, cx: &mut Context<Self>) {
         for x_axis in &self.x_axes {
@@ -282,7 +286,7 @@ impl ChartPane {
         if event.button == MouseButton::Left {
             if event.click_count >= 2 {
                 if event.modifiers.shift { self.auto_fit_x(cx); }
-                self.auto_fit_y(cx);
+                self.auto_fit_y(None, cx);
                 return;
             }
             self.drag_mode = DragMode::Plot;

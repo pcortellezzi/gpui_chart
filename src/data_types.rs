@@ -268,7 +268,7 @@ pub enum PlotData {
 #[derive(Clone)]
 pub struct Series {
     pub id: String,
-    pub plot: std::rc::Rc<std::cell::RefCell<dyn crate::plot_types::PlotRenderer + Send + Sync>>,
+    pub plot: std::sync::Arc<parking_lot::RwLock<dyn crate::plot_types::PlotRenderer + Send + Sync>>,
     pub y_axis_id: AxisId,
     pub x_axis_id: AxisId,
 }

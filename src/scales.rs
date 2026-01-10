@@ -37,6 +37,13 @@ impl ChartScale {
         }
     }
 
+    pub fn domain(&self) -> (f64, f64) {
+        match self {
+            Self::Linear(s) => (s.domain().0, s.domain().1),
+            Self::Log(s) => (s.domain().0, s.domain().1),
+        }
+    }
+
     pub fn ticks(&self, count: usize) -> Vec<f64> {
         match self {
             Self::Linear(s) => s.ticks(count),

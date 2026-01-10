@@ -32,7 +32,7 @@ pub struct NavigatorView {
     pub series: Vec<Series>,
     pub config: NavigatorConfig,
     full_domain: AxisDomain,
-    
+
     bounds: Rc<RefCell<Bounds<Pixels>>>,
     is_dragging: bool,
 }
@@ -62,18 +62,18 @@ impl NavigatorView {
         let mut y_max = f64::NEG_INFINITY;
 
         for series in &self.series {
-                        if let Some((sx_min, sx_max, sy_min, sy_max)) = series.plot.borrow().get_min_max() {
-                            x_min = x_min.min(sx_min);
-                            x_max = x_max.max(sx_max);
-                            y_min = y_min.min(sy_min);
-                            y_max = y_max.max(sy_max);
-                        }
-                    }
-            
-                    if x_min != f64::INFINITY {
-                        self.full_domain = AxisDomain { x_min, x_max, y_min, y_max, ..Default::default() };
-                    }
-                }
+            if let Some((sx_min, sx_max, sy_min, sy_max)) = series.plot.read().get_min_max() {
+                x_min = x_min.min(sx_min);
+                x_max = x_max.max(sx_max);
+                y_min = y_min.min(sy_min);
+                y_max = y_max.max(sy_max);
+            }
+        }
+
+        if x_min != f64::INFINITY {
+            self.full_domain = AxisDomain { x_min, x_max, y_min, y_max, ..Default::default() };
+        }
+    }
 
     fn handle_click(&mut self, event: &MouseDownEvent, _window: &mut Window, cx: &mut Context<Self>) {
         self.is_dragging = true;
@@ -157,7 +157,7 @@ impl Render for NavigatorView {
                     paint_plot(window, bounds, &series, &[(full_domain.x_min, full_domain.x_max)], &[(full_domain.y_min, full_domain.y_max)], cx);
 
                     let (w, h) = (bounds.size.width.as_f32() as f64, bounds.size.height.as_f32() as f64);
-                    
+
                     let left_pct = (x_axis_val.min - full_domain.x_min) / full_domain.width();
                     let right_pct = (x_axis_val.max - full_domain.x_min) / full_domain.width();
                     let rect_left = (w * left_pct).clamp(0.0, w) as f32;
@@ -170,7 +170,7 @@ impl Render for NavigatorView {
                         let bot_pct = (full_domain.y_max - y_axis_val.min) / full_domain.height();
                         ((h * top_pct).clamp(0.0, h) as f32, (h * bot_pct).clamp(0.0, h) as f32)
                     };
-                    
+
                     let rect = Bounds::new(
                         Point::new(bounds.origin.x + px(rect_left), bounds.origin.y + px(rect_top)),
                         Size {

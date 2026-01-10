@@ -3,9 +3,12 @@ pub mod data_types;
 pub mod chart_pane;
 pub mod chart_container;
 pub mod navigator_view;
-pub mod rendering;
 pub mod scales;
 pub mod transform;
+pub mod theme;
+pub mod gutter_manager;
+pub mod axis_renderer;
+pub mod rendering;
 
 pub use data_types::{AxisDomain, Ohlcv, PlotData, Series};
 pub use plot_types::*;

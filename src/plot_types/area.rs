@@ -39,14 +39,25 @@ impl PlotRenderer for AreaPlot {
             return;
         }
 
+        // --- CULLING ---
+        let (x_min, x_max) = transform.x_scale.domain();
+        let start_idx = self.data.partition_point(|p| p.x < x_min);
+        let end_idx = self.data.partition_point(|p| p.x <= x_max);
+        let start = start_idx.saturating_sub(1);
+        let end = (end_idx + 1).min(self.data.len());
+        let visible_data = &self.data[start..end];
+
+        if visible_data.len() < 2 {
+            return;
+        }
+
         // Render Fill
         let mut fill_builder = PathBuilder::fill();
         let mut first = true;
         
-        let baseline_y = transform.data_to_screen(Point::new(self.data[0].x, self.baseline)).y;
-
-        for point in &self.data {
+        for point in visible_data {
             let screen_point = transform.data_to_screen(Point::new(point.x, point.y));
+            let baseline_y = transform.y_data_to_screen(self.baseline);
 
             if first {
                 fill_builder.move_to(Point::new(screen_point.x, baseline_y));
@@ -58,10 +69,14 @@ impl PlotRenderer for AreaPlot {
         }
         
         // Close the path for filling
-        if let Some(last) = self.data.last() {
-             let last_screen = transform.data_to_screen(Point::new(last.x, last.y));
-             fill_builder.line_to(Point::new(last_screen.x, baseline_y));
-             fill_builder.line_to(Point::new(transform.data_to_screen(Point::new(self.data[0].x, self.baseline)).x, baseline_y));
+        if let Some(last) = visible_data.last() {
+             let last_screen_x = transform.x_data_to_screen(last.x);
+             let first_screen_x = transform.x_data_to_screen(visible_data[0].x);
+             let baseline_y = transform.y_data_to_screen(self.baseline);
+             
+             fill_builder.line_to(Point::new(last_screen_x, baseline_y));
+             fill_builder.line_to(Point::new(first_screen_x, baseline_y));
+             fill_builder.close();
         }
 
         if let Ok(path) = fill_builder.build() {
@@ -70,9 +85,9 @@ impl PlotRenderer for AreaPlot {
 
         // Render Line
         let mut line_builder = PathBuilder::stroke(px(self.config.line_width));
-        first = true;
+        let mut first = true;
 
-        for point in &self.data {
+        for point in visible_data {
             let screen_point = transform.data_to_screen(Point::new(point.x, point.y));
 
             if first {

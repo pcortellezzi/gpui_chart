@@ -7,8 +7,8 @@ use gpui_chart::{
     data_types::{AxisRange, SharedPlotState, AxisId, AxisEdge},
 };
 use gpui_chart::data_types::{PlotPoint, ColorOp};
-use std::rc::Rc;
-use std::cell::RefCell;
+use std::sync::Arc;
+use parking_lot::RwLock;
 use rand::Rng;
 
 struct DemoApp {
@@ -55,7 +55,7 @@ impl DemoApp {
             // Série 1 : Bougies
             pane.add_series(Series {
                 id: "Price".to_string(),
-                plot: Rc::new(RefCell::new(CandlestickPlot::new(candles_clone))),
+                plot: Arc::new(RwLock::new(CandlestickPlot::new(candles_clone))),
                 x_axis_id: AxisId(0),
                 y_axis_id: AxisId(0),
             });
@@ -63,7 +63,7 @@ impl DemoApp {
             // Série 2 : Moyenne Mobile (MA) sur le même axe
             pane.add_series(Series {
                 id: "MA".to_string(),
-                plot: Rc::new(RefCell::new(LinePlot::new(ma_data))),
+                plot: Arc::new(RwLock::new(LinePlot::new(ma_data))),
                 x_axis_id: AxisId(0),
                 y_axis_id: AxisId(0),
             });
@@ -78,7 +78,7 @@ impl DemoApp {
             for i in 0..100 { data.push(PlotPoint { x: now - i as f64 * hour_ms, y: (i as f64 * 0.1).sin() * 50.0 + 50.0, color_op: ColorOp::None }); }
             pane.add_series(Series {
                 id: "RSI".to_string(),
-                plot: Rc::new(RefCell::new(LinePlot::new(data))),
+                plot: Arc::new(RwLock::new(LinePlot::new(data))),
                 x_axis_id: AxisId(0),
                 y_axis_id: AxisId(0),
             });
@@ -111,7 +111,7 @@ impl DemoApp {
             }
             let nav_series = vec![Series {
                 id: "Nav".to_string(),
-                plot: Rc::new(RefCell::new(LinePlot::new(line_data))),
+                plot: Arc::new(RwLock::new(LinePlot::new(line_data))),
                 x_axis_id: AxisId(0),
                 y_axis_id: AxisId(0),
             }];

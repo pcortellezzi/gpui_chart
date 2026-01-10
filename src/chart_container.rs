@@ -1,9 +1,11 @@
 use crate::chart_pane::ChartPane;
 use crate::data_types::{AxisRange, SharedPlotState, AxisEdge, AxisId};
+use crate::theme::ChartTheme;
+use crate::gutter_manager::GutterManager;
+use crate::axis_renderer::AxisRenderer;
 use adabraka_ui::util::PixelsExt;
 use gpui::prelude::*;
 use gpui::*;
-use d3rs::scale::Scale;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::cell::RefCell;
@@ -53,6 +55,7 @@ pub struct ChartContainer {
     pub shared_state: Entity<SharedPlotState>,
     pub panes: Vec<PaneConfig>,
     pub x_axes: Vec<AxisConfig>,
+    pub theme: ChartTheme,
     
     gutter_left: Pixels,
     gutter_right: Pixels,
@@ -80,6 +83,7 @@ impl ChartContainer {
             shared_state,
             panes: vec![],
             x_axes: vec![],
+            theme: ChartTheme::default(),
             gutter_left: px(0.0),
             gutter_right: px(0.0),
             gutter_top: px(0.0),
@@ -92,6 +96,11 @@ impl ChartContainer {
             bounds: Rc::new(RefCell::new(Bounds::default())),
             focus_handle: cx.focus_handle(),
         }
+    }
+
+    pub fn with_theme(mut self, theme: ChartTheme) -> Self {
+        self.theme = theme;
+        self
     }
 
     /// Bascule un axe Y de gauche à droite ou un axe X de haut en bas.
@@ -223,7 +232,7 @@ impl ChartContainer {
                 let mut s_min = 0.0; let mut s_max = 100.0;
                 pc.pane.update(cx, |p, _cx| {
                     if let Some(s) = p.series.iter().find(|s| s.id == series_id) {
-                        if let Some((_, _, ymin, ymax)) = s.plot.borrow().get_min_max() {
+                        if let Some((_, _, ymin, ymax)) = s.plot.read().get_min_max() {
                             s_min = ymin; s_max = ymax;
                         }
                     }
@@ -306,14 +315,14 @@ impl ChartContainer {
         }
     }
 
-    pub fn auto_fit_axis(&mut self, pane_idx: Option<usize>, _axis_idx: usize, cx: &mut Context<Self>) {
+    pub fn auto_fit_axis(&mut self, pane_idx: Option<usize>, axis_idx: usize, cx: &mut Context<Self>) {
         if let Some(p_idx) = pane_idx {
-            if let Some(pane_config) = self.panes.get(p_idx) { pane_config.pane.update(cx, |p, cx| p.auto_fit_y(cx)); }
+            if let Some(pane_config) = self.panes.get(p_idx) { pane_config.pane.update(cx, |p, cx| p.auto_fit_y(Some(axis_idx), cx)); }
         } else {
             let mut x_min = f64::INFINITY; let mut x_max = f64::NEG_INFINITY;
             for pc in &self.panes {
                 pc.pane.read(cx).series.iter().for_each(|s| {
-                    if let Some((sx_min, sx_max, _, _)) = s.plot.borrow().get_min_max() { x_min = x_min.min(sx_min); x_max = x_max.max(sx_max); }
+                    if let Some((sx_min, sx_max, _, _)) = s.plot.read().get_min_max() { x_min = x_min.min(sx_min); x_max = x_max.max(sx_max); }
                 });
             }
             if x_min != f64::INFINITY {
@@ -404,15 +413,11 @@ impl ChartContainer {
     }
 
     fn calculate_gutters(&mut self) {
-        let mut left = px(0.0); let mut right = px(0.0); let mut top = px(0.0); let mut bottom = px(0.0);
-        for pane in &self.panes {
-            let mut p_left = px(0.0); let mut p_right = px(0.0);
-            for axis in &pane.y_axes { match axis.edge { AxisEdge::Left => p_left += axis.size, AxisEdge::Right => p_right += axis.size, _ => {} } }
-            left = left.max(p_left); right = right.max(p_right);
-        }
-        for x_axis in &self.x_axes { match x_axis.edge { AxisEdge::Top => top += x_axis.size, AxisEdge::Bottom => bottom += x_axis.size, _ => {} } }
-        if bottom == px(0.0) { bottom = px(25.0); } 
-        self.gutter_left = left; self.gutter_right = right; self.gutter_top = top; self.gutter_bottom = bottom;
+        let g = GutterManager::calculate(&self.panes, &self.x_axes);
+        self.gutter_left = g.left;
+        self.gutter_right = g.right;
+        self.gutter_top = g.top;
+        self.gutter_bottom = g.bottom;
     }
 
     fn render_control_button(&self, label: &'static str, enabled: bool, on_click: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static) -> impl IntoElement {
@@ -437,89 +442,41 @@ impl Render for ChartContainer {
         let mut left_y_axis_elements = Vec::new();
         let mut right_y_axis_elements = Vec::new();
         let mut current_top_pct = 0.0;
+        let theme = self.theme.clone();
+
         for (pane_idx, p) in self.panes.iter().enumerate() {
             let h_pct = if total_weight > 0.0 { p.weight / total_weight } else { 1.0 / self.panes.len() as f32 };
             let mut left_cursor = px(0.0); let mut right_cursor = px(0.0);
             for (axis_idx, axis) in p.y_axes.iter().enumerate() {
                 let axis_entity = axis.entity.clone();
-                let range = axis_entity.read(cx);
-                let (min, max) = range.clamped_bounds();
-                let scale = crate::scales::ChartScale::new_linear((min, max), (1.0, 0.0));
-                let ticks = d3rs::scale::LinearScale::new().domain(min, max).range(1.0, 0.0).ticks(10);
                 let is_left = axis.edge == AxisEdge::Left;
                 let x_pos = if is_left { let pos = left_cursor; left_cursor += axis.size; pos } else { let pos = right_cursor; right_cursor += axis.size; pos };
                 let key = AxisKey::Y(pane_idx, axis_idx).to_string();
-                let axis_div = div().id(SharedString::from(key.clone())).absolute()
-                    .top(relative(current_top_pct)).h(relative(h_pct)).w(axis.size)
-                    .when(is_left, |d| d.left(x_pos).border_r_1()).when(!is_left, |d| d.right(x_pos).border_l_1())
-                    .border_color(gpui::white().alpha(0.1)).cursor(CursorStyle::ResizeUpDown)
-                    .on_mouse_down(MouseButton::Right, cx.listener(move |this, _, _, cx| {
-                        this.flip_axis_edge(Some(pane_idx), axis_idx, cx);
-                    }))
-                    .on_mouse_down(MouseButton::Left, {
-                        let key = key.clone(); let axis_entity = axis_entity.clone(); let lab = last_render_axis_bounds.clone();
-                        cx.listener(move |this, event: &MouseDownEvent, _win, cx| {
-                            if event.click_count >= 2 { this.dragging_axis = None; this.auto_fit_axis(Some(pane_idx), axis_idx, cx); return; }
-                            if let Some(bounds) = lab.borrow().get(&key) {
-                                let range = axis_entity.read(cx); let pct = ((event.position.y - bounds.origin.y).as_f32() / bounds.size.height.as_f32()).clamp(0.0, 1.0) as f64;
-                                let pivot = range.max - (range.max - range.min) * pct;
-                                this.dragging_axis = Some(AxisDragInfo { pane_idx: Some(pane_idx), axis_idx, is_y: true, button: MouseButton::Left, pivot_data: pivot, pivot_pct: 1.0 - pct });
-                                this.last_mouse_pos = Some(event.position); cx.notify();
-                            }
-                        })
-                    })
-                    .on_mouse_down(MouseButton::Middle, {
-                        let key = key.clone(); let axis_entity = axis_entity.clone(); let lab = last_render_axis_bounds.clone();
-                        cx.listener(move |this, event: &MouseDownEvent, _win, cx| {
-                            if let Some(bounds) = lab.borrow().get(&key) {
-                                let range = axis_entity.read(cx); let pct = ((event.position.y - bounds.origin.y).as_f32() / bounds.size.height.as_f32()).clamp(0.0, 1.0) as f64;
-                                let pivot = range.max - (range.max - range.min) * pct;
-                                this.dragging_axis = Some(AxisDragInfo { pane_idx: Some(pane_idx), axis_idx, is_y: true, button: MouseButton::Middle, pivot_data: pivot, pivot_pct: 1.0 - pct });
-                                this.last_mouse_pos = Some(event.position); cx.notify();
-                            }
-                        })
-                    })
-                    .on_scroll_wheel({
-                        let axis_entity = axis_entity.clone();
-                        move |event, _, cx| {
-                            let dy = match event.delta { ScrollDelta::Pixels(p) => p.y.as_f32() as f64, ScrollDelta::Lines(p) => p.y as f64 * 20.0 };
-                            let factor = (1.0f64 - dy * 0.01).clamp(0.1, 10.0);
-                            axis_entity.update(cx, |r, cx| { let pivot = r.min + r.span() / 2.0; r.zoom_at(pivot, 0.5, factor); cx.notify(); });
-                        }
-                    });
-                let mut labels = Vec::new();
-                for tick in ticks {
-                    let y_pct = scale.map(tick);
-                    labels.push(div().absolute().top(relative(y_pct)).mt(px(-8.0)).w_full().text_size(px(11.0)).text_color(gpui::white().alpha(0.8)).flex().items_center().justify_center().child(scale.format_tick(tick)));
-                }
-                let el = axis_div.child({
-                    let key = key.clone(); let lab = last_render_axis_bounds.clone();
-                    canvas(|_, _, _| {}, move |bounds, (), _, _| { lab.borrow_mut().insert(key, bounds); }).size_full().absolute()
-                }).children(labels).into_any_element();
-                if is_left { left_y_axis_elements.push(el); } else { right_y_axis_elements.push(el); }
-            }
-            current_top_pct += h_pct;
-        }
-
-        let mut x_axis_elements = Vec::new();
-        let mut top_cursor = px(0.0); let mut bot_cursor = px(0.0);
-        for (axis_idx, x_axis) in self.x_axes.iter().enumerate() {
-            let axis_entity = x_axis.entity.clone(); let range = axis_entity.read(cx); let (min, max) = range.clamped_bounds();
-            let scale = crate::scales::ChartScale::new_linear((min, max), (0.0, 1.0));
-            let ticks = d3rs::scale::LinearScale::new().domain(min, max).range(0.0, 1.0).ticks(10);
-            let key = AxisKey::X(axis_idx).to_string();
-            let axis_div = div().id(SharedString::from(key.clone())).absolute().left(self.gutter_left).right(self.gutter_right).h(x_axis.size).bg(gpui::black()).border_color(gpui::white().alpha(0.1)).cursor(CursorStyle::ResizeLeftRight)
+                
+                let range = axis_entity.read(cx);
+                let el = AxisRenderer::render_y_axis(
+                    pane_idx,
+                    axis_idx,
+                    &range,
+                    axis.edge,
+                    axis.size,
+                    h_pct,
+                    current_top_pct,
+                    x_pos,
+                    axis.label.clone(),
+                    &theme,
+                )
                 .on_mouse_down(MouseButton::Right, cx.listener(move |this, _, _, cx| {
-                    this.flip_axis_edge(None, axis_idx, cx);
+                    this.flip_axis_edge(Some(pane_idx), axis_idx, cx);
                 }))
                 .on_mouse_down(MouseButton::Left, {
                     let key = key.clone(); let axis_entity = axis_entity.clone(); let lab = last_render_axis_bounds.clone();
                     cx.listener(move |this, event: &MouseDownEvent, _win, cx| {
-                        if event.click_count >= 2 { this.dragging_axis = None; this.auto_fit_axis(None, axis_idx, cx); return; }
+                        if event.click_count >= 2 { this.dragging_axis = None; this.auto_fit_axis(Some(pane_idx), axis_idx, cx); return; }
                         if let Some(bounds) = lab.borrow().get(&key) {
-                            let range = axis_entity.read(cx); let pct = ((event.position.x - bounds.origin.x).as_f32() / bounds.size.width.as_f32()).clamp(0.0, 1.0) as f64;
-                            let pivot = range.min + (range.max - range.min) * pct;
-                            this.dragging_axis = Some(AxisDragInfo { pane_idx: None, axis_idx, is_y: false, button: MouseButton::Left, pivot_data: pivot, pivot_pct: pct });
+                            let range = axis_entity.read(cx); let pct = ((event.position.y - bounds.origin.y).as_f32() / bounds.size.height.as_f32()).clamp(0.0, 1.0) as f64;
+                            let pivot = range.max - (range.max - range.min) * pct;
+                            this.dragging_axis = Some(AxisDragInfo { pane_idx: Some(pane_idx), axis_idx, is_y: true, button: MouseButton::Left, pivot_data: pivot, pivot_pct: 1.0 - pct });
                             this.last_mouse_pos = Some(event.position); cx.notify();
                         }
                     })
@@ -528,9 +485,9 @@ impl Render for ChartContainer {
                     let key = key.clone(); let axis_entity = axis_entity.clone(); let lab = last_render_axis_bounds.clone();
                     cx.listener(move |this, event: &MouseDownEvent, _win, cx| {
                         if let Some(bounds) = lab.borrow().get(&key) {
-                            let range = axis_entity.read(cx); let pct = ((event.position.x - bounds.origin.x).as_f32() / bounds.size.width.as_f32()).clamp(0.0, 1.0) as f64;
-                            let pivot = range.min + (range.max - range.min) * pct;
-                            this.dragging_axis = Some(AxisDragInfo { pane_idx: None, axis_idx, is_y: false, button: MouseButton::Middle, pivot_data: pivot, pivot_pct: pct });
+                            let range = axis_entity.read(cx); let pct = ((event.position.y - bounds.origin.y).as_f32() / bounds.size.height.as_f32()).clamp(0.0, 1.0) as f64;
+                            let pivot = range.max - (range.max - range.min) * pct;
+                            this.dragging_axis = Some(AxisDragInfo { pane_idx: Some(pane_idx), axis_idx, is_y: true, button: MouseButton::Middle, pivot_data: pivot, pivot_pct: 1.0 - pct });
                             this.last_mouse_pos = Some(event.position); cx.notify();
                         }
                     })
@@ -542,22 +499,81 @@ impl Render for ChartContainer {
                         let factor = (1.0f64 - dy * 0.01).clamp(0.1, 10.0);
                         axis_entity.update(cx, |r, cx| { let pivot = r.min + r.span() / 2.0; r.zoom_at(pivot, 0.5, factor); cx.notify(); });
                     }
-                });
-            let axis_div = match x_axis.edge {
-                AxisEdge::Top => { let pos = top_cursor; top_cursor += x_axis.size; axis_div.top(pos).border_b_1() }
-                AxisEdge::Bottom => { let pos = bot_cursor; bot_cursor += x_axis.size; axis_div.bottom(pos).border_t_1() }
-                _ => axis_div,
-            };
-            let mut labels = Vec::new();
-            for tick in ticks {
-                let x_pct = scale.map(tick);
-                labels.push(div().absolute().left(relative(x_pct)).ml(px(-30.0)).w(px(60.0)).text_size(px(11.0)).text_color(gpui::white()).text_align(TextAlign::Center).child(scale.format_tick(tick)));
+                })
+                .child({
+                    let key = key.clone(); let lab = last_render_axis_bounds.clone();
+                    canvas(|_, _, _| {}, move |bounds, (), _, _| { lab.borrow_mut().insert(key, bounds); }).size_full().absolute()
+                })
+                .into_any_element();
+
+                if is_left { left_y_axis_elements.push(el); } else { right_y_axis_elements.push(el); }
             }
-            labels.push(div().absolute().left_2().top_0().text_size(px(10.0)).text_color(gpui::blue()).child(x_axis.label.clone()));
-            x_axis_elements.push(axis_div.child({
+            current_top_pct += h_pct;
+        }
+
+        let mut x_axis_elements = Vec::new();
+        let mut top_cursor = px(0.0); let mut bot_cursor = px(0.0);
+        for (axis_idx, x_axis) in self.x_axes.iter().enumerate() {
+            let axis_entity = x_axis.entity.clone(); 
+            let range = axis_entity.read(cx);
+            let key = AxisKey::X(axis_idx).to_string();
+
+            let el = AxisRenderer::render_x_axis(
+                axis_idx,
+                &range,
+                x_axis.edge,
+                x_axis.size,
+                self.gutter_left,
+                self.gutter_right,
+                x_axis.label.clone(),
+                &theme,
+            )
+            .on_mouse_down(MouseButton::Right, cx.listener(move |this, _, _, cx| {
+                this.flip_axis_edge(None, axis_idx, cx);
+            }))
+            .on_mouse_down(MouseButton::Left, {
+                let key = key.clone(); let axis_entity = axis_entity.clone(); let lab = last_render_axis_bounds.clone();
+                cx.listener(move |this, event: &MouseDownEvent, _win, cx| {
+                    if event.click_count >= 2 { this.dragging_axis = None; this.auto_fit_axis(None, axis_idx, cx); return; }
+                    if let Some(bounds) = lab.borrow().get(&key) {
+                        let range = axis_entity.read(cx); let pct = ((event.position.x - bounds.origin.x).as_f32() / bounds.size.width.as_f32()).clamp(0.0, 1.0) as f64;
+                        let pivot = range.min + (range.max - range.min) * pct;
+                        this.dragging_axis = Some(AxisDragInfo { pane_idx: None, axis_idx, is_y: false, button: MouseButton::Left, pivot_data: pivot, pivot_pct: pct });
+                        this.last_mouse_pos = Some(event.position); cx.notify();
+                    }
+                })
+            })
+            .on_mouse_down(MouseButton::Middle, {
+                let key = key.clone(); let axis_entity = axis_entity.clone(); let lab = last_render_axis_bounds.clone();
+                cx.listener(move |this, event: &MouseDownEvent, _win, cx| {
+                    if let Some(bounds) = lab.borrow().get(&key) {
+                        let range = axis_entity.read(cx); let pct = ((event.position.x - bounds.origin.x).as_f32() / bounds.size.width.as_f32()).clamp(0.0, 1.0) as f64;
+                        let pivot = range.min + (range.max - range.min) * pct;
+                        this.dragging_axis = Some(AxisDragInfo { pane_idx: None, axis_idx, is_y: false, button: MouseButton::Middle, pivot_data: pivot, pivot_pct: pct });
+                        this.last_mouse_pos = Some(event.position); cx.notify();
+                    }
+                })
+            })
+            .on_scroll_wheel({
+                let axis_entity = axis_entity.clone();
+                move |event, _, cx| {
+                    let dy = match event.delta { ScrollDelta::Pixels(p) => p.y.as_f32() as f64, ScrollDelta::Lines(p) => p.y as f64 * 20.0 };
+                    let factor = (1.0f64 - dy * 0.01).clamp(0.1, 10.0);
+                    axis_entity.update(cx, |r, cx| { let pivot = r.min + r.span() / 2.0; r.zoom_at(pivot, 0.5, factor); cx.notify(); });
+                }
+            })
+            .child({
                 let key = key.clone(); let lab = last_render_axis_bounds.clone();
                 canvas(|_, _, _| {}, move |bounds, (), _, _| { lab.borrow_mut().insert(key, bounds); }).size_full().absolute()
-            }).children(labels).into_any_element());
+            });
+
+            let axis_div = match x_axis.edge {
+                AxisEdge::Top => { let pos = top_cursor; top_cursor += x_axis.size; el.top(pos) }
+                AxisEdge::Bottom => { let pos = bot_cursor; bot_cursor += x_axis.size; el.bottom(pos) }
+                _ => el,
+            };
+
+            x_axis_elements.push(axis_div.into_any_element());
         }
 
         let (mouse_pos, hover_x) = { let state = self.shared_state.read(cx); (state.mouse_pos, state.hover_x) };

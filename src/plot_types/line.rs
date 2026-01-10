@@ -32,10 +32,27 @@ impl PlotRenderer for LinePlot {
             return;
         }
 
+        // --- CULLING ---
+        let (x_min, x_max) = transform.x_scale.domain();
+        
+        // Find the range of visible points using binary search (assumes data is sorted by X)
+        let start_idx = self.data.partition_point(|p| p.x < x_min);
+        let end_idx = self.data.partition_point(|p| p.x <= x_max);
+        
+        // Include one extra point on each side to ensure the line segments 
+        // leading into and out of the visible area are drawn.
+        let start = start_idx.saturating_sub(1);
+        let end = (end_idx + 1).min(self.data.len());
+        
+        let visible_data = &self.data[start..end];
+        if visible_data.len() < 2 {
+            return;
+        }
+
         let mut builder = PathBuilder::stroke(px(self.config.line_width));
         let mut first = true;
 
-        for point in &self.data {
+        for point in visible_data {
             let screen_point = transform.data_to_screen(Point::new(point.x, point.y));
 
             if first {
