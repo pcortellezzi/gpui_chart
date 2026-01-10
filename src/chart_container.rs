@@ -4,7 +4,7 @@ use crate::theme::ChartTheme;
 use crate::gutter_manager::GutterManager;
 use crate::axis_renderer::AxisRenderer;
 use crate::view_controller::ViewController;
-use adabraka_ui::util::PixelsExt;
+use crate::utils::PixelsExt;
 use gpui::prelude::*;
 use gpui::*;
 use std::collections::HashMap;
@@ -78,12 +78,15 @@ impl ChartContainer {
         cx.observe(&shared_x_axis, |_, _, cx| cx.notify()).detach();
         cx.observe(&shared_state, |_, _, cx| cx.notify()).detach();
 
+        let theme = ChartTheme::default();
+        shared_state.update(cx, |s, _| s.theme = theme.clone());
+
         Self {
             shared_x_axis,
             shared_state,
             panes: vec![],
             x_axes: vec![],
-            theme: ChartTheme::default(),
+            theme,
             gutter_left: px(0.0),
             gutter_right: px(0.0),
             gutter_top: px(0.0),
@@ -98,8 +101,9 @@ impl ChartContainer {
         }
     }
 
-    pub fn with_theme(mut self, theme: ChartTheme) -> Self {
-        self.theme = theme;
+    pub fn with_theme(mut self, theme: ChartTheme, cx: &mut Context<Self>) -> Self {
+        self.theme = theme.clone();
+        self.shared_state.update(cx, |s, _| s.theme = theme);
         self
     }
 
@@ -173,8 +177,10 @@ impl ChartContainer {
     pub fn add_pane_at(&mut self, idx: usize, weight: f32, cx: &mut Context<Self>) {
         let shared_state = self.shared_state.clone();
         let shared_x = self.shared_x_axis.clone();
+        let theme = self.theme.clone();
         let new_pane = cx.new(|cx| {
             let mut p = ChartPane::new(shared_state, cx);
+            p.theme = theme;
             p.add_x_axis(shared_x, cx);
             p
         });
@@ -431,9 +437,10 @@ impl ChartContainer {
     }
 
     fn render_control_button(&self, label: &'static str, enabled: bool, on_click: impl Fn(&MouseDownEvent, &mut Window, &mut App) + 'static) -> impl IntoElement {
-        div().size_7().flex().items_center().justify_center().rounded_md().text_size(px(14.0)).bg(gpui::white().alpha(0.05)).border_1().border_color(gpui::white().alpha(0.1))
-            .when(enabled, |d| { d.text_color(gpui::white()).hover(|s| s.bg(gpui::blue().alpha(0.4)).border_color(gpui::blue())).cursor_pointer().on_mouse_down(MouseButton::Left, on_click) })
-            .when(!enabled, |d| { d.text_color(gpui::white().alpha(0.2)).bg(gpui::transparent_black()) })
+        let theme = &self.theme;
+        div().size_7().flex().items_center().justify_center().rounded_md().text_size(px(14.0)).bg(theme.axis_label.opacity(0.05)).border_1().border_color(theme.axis_label.opacity(0.1))
+            .when(enabled, |d| { d.text_color(theme.axis_label).hover(|s| s.bg(theme.accent.opacity(0.4)).border_color(theme.accent)).cursor_pointer().on_mouse_down(MouseButton::Left, on_click) })
+            .when(!enabled, |d| { d.text_color(theme.axis_label.opacity(0.2)).bg(gpui::transparent_black()) })
             .child(label)
     }
 }
@@ -598,7 +605,7 @@ impl Render for ChartContainer {
                     let r = x_a.entity.read(cx); let scale = crate::scales::ChartScale::new_linear(r.clamped_bounds(), (0.0, b.size.width.as_f32()));
                     let sx = b.origin.x - container_origin.x + px(scale.map(hx));
                     tags.push(div().absolute().top(b.origin.y - container_origin.y).left(sx).ml(px(-40.0)).w(px(80.0)).h(x_a.size)
-                        .child(crate::rendering::create_axis_tag(scale.format_tick(hx), px(40.0), true)).into_any_element());
+                        .child(crate::rendering::create_axis_tag(scale.format_tick(hx), px(40.0), true, &theme)).into_any_element());
                 }
             }
             for (p_idx, pc) in self.panes.iter().enumerate() {
@@ -609,14 +616,14 @@ impl Render for ChartContainer {
                             let r = y_a.entity.read(cx); let scale = crate::scales::ChartScale::new_linear(r.clamped_bounds(), (b.size.height.as_f32(), 0.0));
                             let val = scale.invert((pos.y - b.origin.y).as_f32());
                             tags.push(div().absolute().top(pos.y - container_origin.y - px(10.0)).left(b.origin.x - container_origin.x).w(y_a.size).h(px(20.0))
-                                .bg(gpui::white()).text_color(gpui::black()).rounded_sm().text_size(px(11.0)).flex().items_center().justify_center().child(scale.format_tick(val)).into_any_element());
+                                .bg(theme.tag_background).text_color(theme.tag_text).rounded_sm().text_size(px(11.0)).flex().items_center().justify_center().child(scale.format_tick(val)).into_any_element());
                         }
                     }
                 }
             }
         }
 
-        div().track_focus(&self.focus_handle).size_full().relative().bg(gpui::black())
+        div().track_focus(&self.focus_handle).size_full().relative().bg(theme.background)
             .child(canvas(|_, _, _| {}, move |bounds, (), _, _| { *container_bounds_rc.borrow_mut() = bounds; }).size_full().absolute())
             .on_mouse_down(MouseButton::Left, { let fh = self.focus_handle.clone(); move |_, window, _| { window.focus(&fh); } })
             .on_mouse_move(cx.listener(Self::handle_global_mouse_move))
@@ -629,14 +636,14 @@ impl Render for ChartContainer {
                     let h_pct = if total_weight > 0.0 { p.weight / total_weight } else { 1.0 / pane_count as f32 };
                     let is_first = i == 0; let is_last = i == pane_count - 1;
                     children.push(div().h(relative(h_pct)).w_full().relative().group("pane_container").child(p.pane.clone())
-                        .child(div().absolute().top_2().right_2().flex().gap_1().bg(gpui::black().alpha(0.4)).rounded_lg().p_1().border_1().border_color(gpui::white().alpha(0.05)).group_hover("pane_container", |d| d.bg(gpui::black().alpha(0.8)).border_color(gpui::white().alpha(0.2)))
+                        .child(div().absolute().top_2().right_2().flex().gap_1().bg(theme.background.opacity(0.4)).rounded_lg().p_1().border_1().border_color(theme.axis_label.opacity(0.05)).group_hover("pane_container", |d| d.bg(theme.background.opacity(0.8)).border_color(theme.axis_label.opacity(0.2)))
                             .child(self.render_control_button("↑", !is_first, cx.listener(move |this, _, _, cx| this.move_pane_up(i, cx))))
                             .child(self.render_control_button("↓", !is_last, cx.listener(move |this, _, _, cx| this.move_pane_down(i, cx))))
                             .child(self.render_control_button("+", true, cx.listener(move |this, _, _, cx| this.add_pane_at(i + 1, 1.0, cx))))
                             .child(self.render_control_button("✕", true, cx.listener(move |this, _, _, cx| this.remove_pane(i, cx))))).into_any_element());
                     if !is_last {
                         children.push(div().h(px(6.0)).w_full().flex().items_center().bg(gpui::transparent_black()).group("splitter").cursor(CursorStyle::ResizeUpDown).on_mouse_down(MouseButton::Left, cx.listener(move |this, event: &MouseDownEvent, _win, cx| { this.dragging_splitter = Some(i); this.last_mouse_y = Some(event.position.y); cx.notify(); }))
-                            .child(div().h(px(2.0)).w_full().bg(gpui::white().alpha(0.1)).group_hover("splitter", |d| d.bg(gpui::blue().alpha(0.5)))).into_any_element());
+                            .child(div().h(px(2.0)).w_full().bg(theme.axis_label.opacity(0.1)).group_hover("splitter", |d| d.bg(theme.accent.opacity(0.5)))).into_any_element());
                     }
                 }
                 children

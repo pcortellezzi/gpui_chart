@@ -280,6 +280,7 @@ pub struct SharedPlotState {
     pub active_chart_id: Option<gpui::EntityId>, // ID du graphique actuellement survolé
     pub is_dragging: bool,
     pub debug_mode: bool,
+    pub theme: crate::theme::ChartTheme,
     pub render_version: u64,
 }
 

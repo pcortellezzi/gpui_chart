@@ -1,6 +1,6 @@
 use crate::data_types::{LinePlotConfig, PlotData, PlotDataSource, VecDataSource, PlotPoint};
 use gpui::*;
-use adabraka_ui::util::PixelsExt;
+use crate::utils::PixelsExt;
 use crate::transform::PlotTransform;
 use super::PlotRenderer;
 

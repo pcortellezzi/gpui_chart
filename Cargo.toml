@@ -7,7 +7,6 @@ license = "MIT"
 
 [dependencies]
 gpui = "0.2.2"
-adabraka-ui = "0.2.3"
 parking_lot = "0.12"
 glam = "0.28"
 bytemuck = "1.24"

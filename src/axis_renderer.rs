@@ -71,7 +71,7 @@ impl AxisRenderer {
                     .child(
                         div()
                             .text_size(px(9.0))
-                            .text_color(gpui::blue().alpha(0.5))
+                            .text_color(theme.accent.opacity(0.5))
                             .child(label)
                     )
             )
@@ -132,7 +132,7 @@ impl AxisRenderer {
                     .left_2()
                     .top_0()
                     .text_size(px(10.0))
-                    .text_color(gpui::blue())
+                    .text_color(theme.accent)
                     .child(label)
             )
     }

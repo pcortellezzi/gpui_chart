@@ -5,7 +5,7 @@ use crate::view_controller::ViewController;
 use gpui::prelude::*;
 use gpui::*;
 use d3rs::scale::Scale;
-use adabraka_ui::util::PixelsExt;
+use crate::utils::PixelsExt;
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::rc::Rc;
@@ -85,8 +85,7 @@ pub struct ChartPane {
 
     pub series: Vec<Series>,
     pub hidden_series: HashSet<String>,
-    pub bg_color: Hsla,
-    pub label_color: Hsla,
+    pub theme: crate::theme::ChartTheme,
 
     // UI Options
     pub show_crosshair: bool,
@@ -142,8 +141,7 @@ impl ChartPane {
             notify_count: 0,
             last_stats_reset: Instant::now(),
             last_notify_rate: 0.0,
-            bg_color: gpui::black(),
-            label_color: gpui::white(),
+            theme: crate::theme::ChartTheme::default(),
             show_crosshair: true,
             show_tooltip: true,
             legend_config: LegendConfig::default(),
@@ -586,175 +584,173 @@ impl Render for ChartPane {
         let hx = shared_state.hover_x;
         let mouse_pos = shared_state.mouse_pos;
 
-        let x_axes = self.x_axes.clone();
-        let y_axes = self.y_axes.clone();
-        let lc = self.label_color;
-        let sc = self.show_crosshair;
-
-        let cursor = if self.is_dragging { CursorStyle::Crosshair } else if self.box_zoom_start.is_some() { CursorStyle::Arrow } else { CursorStyle::Crosshair };
-        let this_paint_stats = self.last_paint_stats.clone();
-        let debug_mode = shared_state.debug_mode;
-
-        div().track_focus(&self.focus_handle).size_full().relative().bg(gpui::transparent_black()).cursor(cursor)
-            .on_mouse_down(MouseButton::Left, cx.listener(Self::handle_mouse_down))
-            .on_mouse_down(MouseButton::Right, cx.listener(Self::handle_mouse_down))
-            .on_mouse_down(MouseButton::Middle, cx.listener(Self::handle_mouse_down))
-            .on_mouse_up(MouseButton::Left, cx.listener(Self::handle_mouse_up))
-            .on_mouse_up(MouseButton::Right, cx.listener(Self::handle_mouse_up))
-            .on_mouse_up(MouseButton::Middle, cx.listener(Self::handle_mouse_up))
-            .on_mouse_move(cx.listener(Self::handle_mouse_move))
-            .on_scroll_wheel(cx.listener(Self::handle_scroll_wheel))
-            .on_action(cx.listener(Self::handle_pan_left))
-            .on_action(cx.listener(Self::handle_pan_right))
-            .on_action(cx.listener(Self::handle_pan_up))
-            .on_action(cx.listener(Self::handle_pan_down))
-            .on_action(cx.listener(Self::handle_zoom_in))
-            .on_action(cx.listener(Self::handle_zoom_out))
-            .on_action(cx.listener(Self::handle_reset_view))
-            .on_action(cx.listener(|this, _: &ToggleDebug, _win, cx| {
-                this.shared_state.update(cx, |s, _| {
-                    s.debug_mode = !s.debug_mode;
-                    s.request_render();
-                });
-            }))
-            .child(canvas(|_, _, _| {}, {
-                let vs = vs.clone();
-                let this_paint_stats = this_paint_stats.clone();
-                move |bounds, (), window, cx| {
-                    *bounds_rc.borrow_mut() = bounds;
-                    if x_axes.is_empty() || y_axes.is_empty() { return; }
-
-                    let x_domains: Vec<(f64, f64)> = x_axes.iter().map(|a| a.axis.read(cx).clamped_bounds()).collect();
-                    let y_domains: Vec<(f64, f64)> = y_axes.iter().map(|a| a.axis.read(cx).clamped_bounds()).collect();
-
-                    window.with_content_mask(Some(ContentMask { bounds }), |window| {
-                        // 1. Grille (Utilisant le premier axe X et le premier axe Y)
-                        let x0 = x_axes[0].axis.read(cx);
-                        let y0 = y_axes[0].axis.read(cx);
-                        let x_scale = crate::scales::ChartScale::new_linear(x_domains[0], (0.0, bounds.size.width.as_f32()));
-                        let x_ticks = d3rs::scale::LinearScale::new().domain(x_domains[0].0, x_domains[0].1).range(0.0, bounds.size.width.as_f32() as f64).ticks(10);
-
-                        let y_render_info = crate::rendering::YAxisRenderInfo {
-                            domain: y_domains[0],
-                            scale: crate::scales::ChartScale::new_linear(y_domains[0], (bounds.size.height.as_f32(), 0.0)),
-                            ticks: d3rs::scale::LinearScale::new().domain(y_domains[0].0, y_domains[0].1).range(bounds.size.height.as_f32() as f64, 0.0).ticks(10),
-                            limits: (y0.min_limit, y0.max_limit),
-                            edge: y_axes[0].edge,
-                            size: y_axes[0].size,
-                            offset: px(0.0),
-                        };
-
-                        let x_domain_full = crate::data_types::AxisDomain {
-                            x_min: x_domains[0].0,
-                            x_max: x_domains[0].1,
-                            x_min_limit: x0.min_limit,
-                            x_max_limit: x0.max_limit,
-                            ..Default::default()
-                        };
-
-                        crate::rendering::paint_grid(window, bounds, &x_domain_full, &x_scale, &x_ticks, &y_render_info);
-
-                        // 2. Tracé des séries
-                        let stats = crate::rendering::paint_plot(window, bounds, &vs, &x_domains, &y_domains, cx);
-                        if let Ok(mut s) = this_paint_stats.try_borrow_mut() {
-                            *s = stats;
-                        }
-
-                        if sc {
-                            if let Some(hx_val) = hx {
-                                let transform = crate::transform::PlotTransform::new(
-                                    x_scale.clone(),
-                                    y_render_info.scale.clone(),
-                                    bounds
-                                );
-                                let sx = transform.x_data_to_screen(hx_val);
-                                let mut builder = PathBuilder::stroke(px(1.0));
-                                builder.move_to(Point::new(sx, bounds.origin.y));
-                                builder.line_to(Point::new(sx, bounds.origin.y + bounds.size.height));
-                                if let Ok(path) = builder.build() { window.paint_path(path, lc.alpha(0.3)); }
-                            }
-                            if let Some(pos) = mouse_pos {
-                                if bounds.contains(&pos) {
-                                    let mut builder = PathBuilder::stroke(px(1.0));
-                                    builder.move_to(Point::new(bounds.origin.x, pos.y));
-                                    builder.line_to(Point::new(bounds.origin.x + bounds.size.width, pos.y));
-                                    if let Ok(path) = builder.build() { window.paint_path(path, lc.alpha(0.3)); }
+                        let x_axes = self.x_axes.clone();
+                        let y_axes = self.y_axes.clone();
+                        let theme = shared_state.theme.clone();
+                        let sc = self.show_crosshair;
+                                let cursor = if self.is_dragging { CursorStyle::Crosshair } else if self.box_zoom_start.is_some() { CursorStyle::Arrow } else { CursorStyle::Crosshair };
+                let this_paint_stats = self.last_paint_stats.clone();
+                let debug_mode = shared_state.debug_mode;
+        
+                div().track_focus(&self.focus_handle).size_full().relative().bg(theme.background).cursor(cursor)
+                    .on_mouse_down(MouseButton::Left, cx.listener(Self::handle_mouse_down))
+                    .on_mouse_down(MouseButton::Right, cx.listener(Self::handle_mouse_down))
+                    .on_mouse_down(MouseButton::Middle, cx.listener(Self::handle_mouse_down))
+                    .on_mouse_up(MouseButton::Left, cx.listener(Self::handle_mouse_up))
+                    .on_mouse_up(MouseButton::Right, cx.listener(Self::handle_mouse_up))
+                    .on_mouse_up(MouseButton::Middle, cx.listener(Self::handle_mouse_up))
+                    .on_mouse_move(cx.listener(Self::handle_mouse_move))
+                    .on_scroll_wheel(cx.listener(Self::handle_scroll_wheel))
+                    .on_action(cx.listener(Self::handle_pan_left))
+                    .on_action(cx.listener(Self::handle_pan_right))
+                    .on_action(cx.listener(Self::handle_pan_up))
+                    .on_action(cx.listener(Self::handle_pan_down))
+                    .on_action(cx.listener(Self::handle_zoom_in))
+                    .on_action(cx.listener(Self::handle_zoom_out))
+                    .on_action(cx.listener(Self::handle_reset_view))
+                    .on_action(cx.listener(|this, _: &ToggleDebug, _win, cx| {
+                        this.shared_state.update(cx, |s, _| {
+                            s.debug_mode = !s.debug_mode;
+                            s.request_render();
+                        });
+                    }))
+                    .child(canvas(|_, _, _| {}, {
+                        let vs = vs.clone();
+                        let this_paint_stats = this_paint_stats.clone();
+                        let theme = theme.clone();
+                        move |bounds, (), window, cx| {
+                            *bounds_rc.borrow_mut() = bounds;
+                            if x_axes.is_empty() || y_axes.is_empty() { return; }
+                            
+                            let x_domains: Vec<(f64, f64)> = x_axes.iter().map(|a| a.axis.read(cx).clamped_bounds()).collect();
+                            let y_domains: Vec<(f64, f64)> = y_axes.iter().map(|a| a.axis.read(cx).clamped_bounds()).collect();
+                            
+                            window.with_content_mask(Some(ContentMask { bounds }), |window| {
+                                // 1. Grille (Utilisant le premier axe X et le premier axe Y)
+                                let x0 = x_axes[0].axis.read(cx);
+                                let y0 = y_axes[0].axis.read(cx);
+                                let x_scale = crate::scales::ChartScale::new_linear(x_domains[0], (0.0, bounds.size.width.as_f32()));
+                                let x_ticks = d3rs::scale::LinearScale::new().domain(x_domains[0].0, x_domains[0].1).range(0.0, bounds.size.width.as_f32() as f64).ticks(10);
+                                
+                                let y_render_info = crate::rendering::YAxisRenderInfo {
+                                    domain: y_domains[0],
+                                    scale: crate::scales::ChartScale::new_linear(y_domains[0], (bounds.size.height.as_f32(), 0.0)),
+                                    ticks: d3rs::scale::LinearScale::new().domain(y_domains[0].0, y_domains[0].1).range(bounds.size.height.as_f32() as f64, 0.0).ticks(10),
+                                    limits: (y0.min_limit, y0.max_limit),
+                                    edge: y_axes[0].edge,
+                                    size: y_axes[0].size,
+                                    offset: px(0.0),
+                                };
+        
+                                let x_domain_full = crate::data_types::AxisDomain {
+                                    x_min: x_domains[0].0,
+                                    x_max: x_domains[0].1,
+                                    x_min_limit: x0.min_limit,
+                                    x_max_limit: x0.max_limit,
+                                    ..Default::default()
+                                };
+        
+                                crate::rendering::paint_grid(window, bounds, &x_domain_full, &x_scale, &x_ticks, &y_render_info, &theme);
+        
+                                // 2. Tracé des séries
+                                let stats = crate::rendering::paint_plot(window, bounds, &vs, &x_domains, &y_domains, cx);
+                                if let Ok(mut s) = this_paint_stats.try_borrow_mut() {
+                                    *s = stats;
                                 }
+                                
+                                if sc {
+                                    if let Some(hx_val) = hx {
+                                        let transform = crate::transform::PlotTransform::new(
+                                            x_scale.clone(),
+                                            y_render_info.scale.clone(),
+                                            bounds
+                                        );
+                                        let sx = transform.x_data_to_screen(hx_val);
+                                        let mut builder = PathBuilder::stroke(px(1.0));
+                                        builder.move_to(Point::new(sx, bounds.origin.y));
+                                        builder.line_to(Point::new(sx, bounds.origin.y + bounds.size.height));
+                                        if let Ok(path) = builder.build() { window.paint_path(path, theme.crosshair_line); }
+                                    }
+                                    if let Some(pos) = mouse_pos {
+                                        if bounds.contains(&pos) {
+                                            let mut builder = PathBuilder::stroke(px(1.0));
+                                            builder.move_to(Point::new(bounds.origin.x, pos.y));
+                                            builder.line_to(Point::new(bounds.origin.x + bounds.size.width, pos.y));
+                                            if let Ok(path) = builder.build() { window.paint_path(path, theme.crosshair_line); }
+                                        }
+                                    }
+                                }
+                            });
+                        }
+                    }).size_full().absolute())
+                                .when(debug_mode, |parent| {
+                                    if let Ok(stats) = self.last_paint_stats.try_borrow() {
+                                        parent.child(
+                                            div().absolute().bottom_2().left_2().bg(theme.background.opacity(0.6)).p_1().rounded_sm().text_size(px(10.0)).text_color(gpui::green())
+                                                .child(format!("Paint: {:.2}ms | Series: {} | Notify: {:.2}/ms", 
+                                                    stats.duration.as_secs_f64() * 1000.0, 
+                                                    stats.series_count,
+                                                    self.last_notify_rate))
+                                        )
+                                    } else {
+                                        parent
+                                    }
+                                })
+                                .children(if self.legend_config.enabled {
+                                    let is_vertical = self.legend_config.orientation == Orientation::Vertical;
+                                    let mut name_col_children = vec![];
+                                    let mut btn_col_children = vec![];
+                                    let mut horiz_items = vec![];
+                    
+                                    for s in &self.series {
+                                        let id = s.id.clone();
+                                        let hidden = self.hidden_series.contains(&id);
+                    
+                                        let other_on_same_axis = self.series.iter()
+                                            .filter(|other| other.id != id && other.y_axis_id.0 == s.y_axis_id.0)
+                                            .count() > 0;
+                    
+                                        let is_isolated = s.y_axis_id.0 != 0;
+                                        let s_enabled = is_isolated || other_on_same_axis;
+                    
+                                        // Name Element (Height fixed to h_5/20px to match buttons)
+                                        let name_el = div().h_5().flex().items_center().gap_1().cursor_pointer()
+                                            .on_mouse_down(MouseButton::Left, { let id = id.clone(); cx.listener(move |this, _, _, cx| this.toggle_series_visibility(&id, cx)) })
+                                            .child(div().w_3().h_3().bg(if hidden { gpui::transparent_black() } else { theme.accent }).border_1().border_color(theme.axis_label))
+                                            .child(div().text_size(px(10.0)).text_color(if hidden { theme.axis_label.opacity(0.4) } else { theme.axis_label }).child(id.clone()));
+                                                // Buttons Element (Height fixed to h_5/20px)
+                            let btn_el = div().h_5().flex().items_center().gap_1()
+                                .child(self.render_legend_button("▲", true, cx, { let id = id.clone(); move |this, _, win, cx| if let Some(f) = &this.on_move_series { f(&id, true, win, cx); } }))
+                                .child(self.render_legend_button("▼", true, cx, { let id = id.clone(); move |this, _, win, cx| if let Some(f) = &this.on_move_series { f(&id, false, win, cx); } }))
+                                .child(self.render_legend_button("S", s_enabled, cx, { let id = id.clone(); move |this, _, win, cx| if s_enabled { if let Some(f) = &this.on_isolate_series { f(&id, win, cx); } } }));
+        
+                            if is_vertical {
+                                name_col_children.push(name_el.into_any_element());
+                                btn_col_children.push(btn_el.into_any_element());
+                            } else {
+                                horiz_items.push(div().flex().items_center().gap_2().child(name_el).child(btn_el).into_any_element());
                             }
                         }
-                    });
-                }
-            }).size_full().absolute())
-            .when(debug_mode, |parent| {
-                if let Ok(stats) = self.last_paint_stats.try_borrow() {
-                    parent.child(
-                        div().absolute().bottom_2().left_2().bg(gpui::black().alpha(0.6)).p_1().rounded_sm().text_size(px(10.0)).text_color(gpui::green())
-                            .child(format!("Paint: {:.2}ms | Series: {} | Notify: {:.2}/ms",
-                                stats.duration.as_secs_f64() * 1000.0,
-                                stats.series_count,
-                                self.last_notify_rate))
-                    )
-                } else {
-                    parent
-                }
-            })
-            .children(if self.legend_config.enabled {
-                let is_vertical = self.legend_config.orientation == Orientation::Vertical;
-                let mut name_col_children = vec![];
-                let mut btn_col_children = vec![];
-                let mut horiz_items = vec![];
-
-                for s in &self.series {
-                    let id = s.id.clone();
-                    let hidden = self.hidden_series.contains(&id);
-
-                    let other_on_same_axis = self.series.iter()
-                        .filter(|other| other.id != id && other.y_axis_id.0 == s.y_axis_id.0)
-                        .count() > 0;
-
-                    let is_isolated = s.y_axis_id.0 != 0;
-                    let s_enabled = is_isolated || other_on_same_axis;
-
-                    // Name Element (Height fixed to h_5/20px to match buttons)
-                    let name_el = div().h_5().flex().items_center().gap_1().cursor_pointer()
-                        .on_mouse_down(MouseButton::Left, { let id = id.clone(); cx.listener(move |this, _, _, cx| this.toggle_series_visibility(&id, cx)) })
-                        .child(div().w_3().h_3().bg(if hidden { gpui::transparent_black() } else { gpui::blue() }).border_1().border_color(gpui::white()))
-                        .child(div().text_size(px(10.0)).text_color(if hidden { self.label_color.alpha(0.4) } else { self.label_color }).child(id.clone()));
-
-                    // Buttons Element (Height fixed to h_5/20px)
-                    let btn_el = div().h_5().flex().items_center().gap_1()
-                        .child(self.render_legend_button("▲", true, cx, { let id = id.clone(); move |this, _, win, cx| if let Some(f) = &this.on_move_series { f(&id, true, win, cx); } }))
-                        .child(self.render_legend_button("▼", true, cx, { let id = id.clone(); move |this, _, win, cx| if let Some(f) = &this.on_move_series { f(&id, false, win, cx); } }))
-                        .child(self.render_legend_button("S", s_enabled, cx, { let id = id.clone(); move |this, _, win, cx| if s_enabled { if let Some(f) = &this.on_isolate_series { f(&id, win, cx); } } }));
-
-                    if is_vertical {
-                        name_col_children.push(name_el.into_any_element());
-                        btn_col_children.push(btn_el.into_any_element());
-                    } else {
-                        horiz_items.push(div().flex().items_center().gap_2().child(name_el).child(btn_el).into_any_element());
-                    }
-                }
-
-                let mut leg = div().absolute().bg(self.bg_color.alpha(0.8)).p_2().rounded_md().border_1().border_color(self.label_color.alpha(0.2));
-                
-                match self.legend_config.position {
-                    LegendPosition::TopLeft => leg = leg.top(px(10.0)).left(px(10.0)),
-                    LegendPosition::TopRight => leg = leg.top(px(10.0)).right(px(10.0)),
-                    LegendPosition::BottomLeft => leg = leg.bottom(px(10.0)).left(px(10.0)),
-                    LegendPosition::BottomRight => leg = leg.bottom(px(10.0)).right(px(10.0)),
-                    _ => leg = leg.top(px(10.0)).left(px(10.0)),
-                }
-
-                if is_vertical {
-                    // Two columns layout
-                    Some(leg.flex().gap_3()
-                        .child(div().flex_col().gap_1().children(name_col_children))
-                        .child(div().flex_col().gap_1().children(btn_col_children))
-                        .into_any_element())
-                } else {
-                    // Row layout
-                    Some(leg.flex_row().gap_3().children(horiz_items).into_any_element())
-                }
-            } else { None })
-    }
+        
+                        let mut leg = div().absolute().bg(theme.background.opacity(0.8)).p_2().rounded_md().border_1().border_color(theme.axis_line).flex().gap_3();
+                        
+                        match self.legend_config.position {
+                            LegendPosition::TopLeft => leg = leg.top(px(10.0)).left(px(10.0)),
+                            LegendPosition::TopRight => leg = leg.top(px(10.0)).right(px(10.0)),
+                            LegendPosition::BottomLeft => leg = leg.bottom(px(10.0)).left(px(10.0)),
+                            LegendPosition::BottomRight => leg = leg.bottom(px(10.0)).right(px(10.0)),
+                            _ => leg = leg.top(px(10.0)).left(px(10.0)),
+                        }
+        
+                        if is_vertical {
+                            // Two columns layout
+                            Some(leg
+                                .child(div().flex_col().gap_1().children(name_col_children))
+                                .child(div().flex_col().gap_1().children(btn_col_children))
+                                .into_any_element())
+                        } else {
+                            // Row layout
+                            Some(leg.flex_row().gap_3().children(horiz_items).into_any_element())
+                        }
+                    } else { None })    }
 }

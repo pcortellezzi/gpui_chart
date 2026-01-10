@@ -5,7 +5,7 @@ use crate::rendering::paint_plot;
 use crate::view_controller::ViewController;
 use gpui::prelude::*;
 use gpui::*;
-use adabraka_ui::util::PixelsExt;
+use crate::utils::PixelsExt;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -143,12 +143,13 @@ impl Render for NavigatorView {
         let series = self.series.clone();
         let bounds_rc = self.bounds.clone();
         let lock_y = self.config.lock_y;
+        let theme = self.shared_state.read(cx).theme.clone();
 
         div()
             .size_full()
-            .bg(gpui::black())
+            .bg(theme.background)
             .border_1()
-            .border_color(gpui::white().alpha(0.2))
+            .border_color(theme.axis_line)
             .on_mouse_down(MouseButton::Left, cx.listener(Self::handle_click))
             .on_mouse_move(cx.listener(Self::handle_mouse_move))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::handle_mouse_up))
@@ -180,8 +181,8 @@ impl Render for NavigatorView {
                         }
                     );
 
-                    window.paint_quad(gpui::fill(rect, gpui::white().alpha(0.2)));
-                    window.paint_quad(gpui::outline(rect, gpui::white().alpha(0.5), BorderStyle::Solid));
+                    window.paint_quad(gpui::fill(rect, theme.axis_label.opacity(0.2)));
+                    window.paint_quad(gpui::outline(rect, theme.axis_label.opacity(0.5), BorderStyle::Solid));
                 })
                 .size_full()
             )

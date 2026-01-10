@@ -5,7 +5,7 @@ use crate::data_types::{AxisDomain, Series, AxisEdge};
 use crate::scales::ChartScale;
 use crate::transform::PlotTransform;
 use gpui::*;
-use adabraka_ui::util::PixelsExt;
+use crate::utils::PixelsExt;
 
 /// Stats about the last paint operation.
 #[derive(Debug, Clone, Default)]
@@ -63,6 +63,7 @@ pub fn paint_grid(
     x_scale: &ChartScale,
     x_ticks: &[f64],
     primary_y_axis: &YAxisRenderInfo,
+    theme: &crate::theme::ChartTheme,
 ) {
     let origin_x = bounds.origin.x.as_f32();
     let origin_y = bounds.origin.y.as_f32();
@@ -86,7 +87,7 @@ pub fn paint_grid(
     }
     if has_vertical {
         if let Ok(path) = vertical_builder.build() {
-            window.paint_path(path, gpui::white().opacity(0.1));
+            window.paint_path(path, theme.grid_line);
         }
     }
 
@@ -107,7 +108,7 @@ pub fn paint_grid(
     }
     if has_horizontal {
         if let Ok(path) = horizontal_builder.build() {
-            window.paint_path(path, gpui::white().opacity(0.1));
+            window.paint_path(path, theme.grid_line);
         }
     }
 }
@@ -117,6 +118,7 @@ pub fn create_axis_tag(
     text: String,
     position: Pixels,
     is_x_axis: bool,
+    theme: &crate::theme::ChartTheme,
 ) -> gpui::AnyElement {
     if is_x_axis {
         div()
@@ -126,8 +128,8 @@ pub fn create_axis_tag(
             .ml(px(-40.0))
             .w(px(80.0))
             .h(px(20.0))
-            .bg(gpui::white())
-            .text_color(gpui::black())
+            .bg(theme.tag_background)
+            .text_color(theme.tag_text)
             .text_size(px(12.0))
             .flex()
             .items_center()
@@ -140,8 +142,8 @@ pub fn create_axis_tag(
             .top(position)
             .mt(px(-8.0))
             .h(px(16.0))
-            .bg(gpui::white())
-            .text_color(gpui::black())
+            .bg(theme.tag_background)
+            .text_color(theme.tag_text)
             .text_size(px(12.0))
             .flex()
             .items_center()

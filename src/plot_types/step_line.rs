@@ -1,6 +1,6 @@
 use crate::data_types::{StepLinePlotConfig, PlotData, PlotDataSource, VecDataSource, StepMode, PlotPoint};
 use gpui::*;
-use adabraka_ui::util::PixelsExt;
+use crate::utils::PixelsExt;
 use crate::transform::PlotTransform;
 use super::PlotRenderer;
 

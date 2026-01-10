@@ -2,7 +2,7 @@
 
 use gpui::*;
 use crate::scales::ChartScale;
-use adabraka_ui::util::PixelsExt;
+use crate::utils::PixelsExt;
 
 #[derive(Clone)]
 pub struct PlotTransform {

@@ -157,6 +157,25 @@ Pour gérer le "Big Data".
 - [x] **Occlusion Culling**
     - Ne pas envoyer de commandes de dessin pour les points hors du `Bounds` visible. (Implémenté via `iter_range` et `partition_point` binaire).
 
+## Phase Finalisation v1.0 (Release Candidate)
+Objectif : Rendre la librairie utilisable, configurable et documentée pour une utilisation publique immédiate.
+
+- [ ] **API Fluide (Declarative Style)**
+    - Abandonner le Builder Pattern classique (`Chart::new().with...`).
+    - Adopter une API inspirée de GPUI : `chart(view).zones([ zone().axis_x(...).series(...), ... ])`.
+    - L'objectif est de réduire le boilerplate et de rendre la structure du graphique lisible d'un coup d'œil.
+- [ ] **Système de Thème (Theming)**
+    - Extraire toutes les couleurs hardcodées (bg, grid, text) vers une configuration centralisée.
+    - Support du basculement Light/Dark mode.
+    - Intégration optionnelle avec les tokens `adabraka-ui`.
+- [ ] **Interactions & Menus**
+    - Menu contextuel (clic droit) pour reset zoom, cacher séries, etc.
+    - Formatage avancé des axes (Dates locales, Prix avec décimales dynamiques).
+- [ ] **Robustesse & Packaging**
+    - Gestion propre des états vides ("No Data").
+    - Documentation publique (`cargo doc`) des structs principales.
+    - Exemples simples (`basic_chart.rs`, `realtime.rs`) pour faciliter la prise en main.
+
 ## Phase 5 : Intégration Adabraka-UI
 - [ ] **Export & Capture**
     - API `save_to_image()` ou `copy_to_clipboard()` pour partager les analyses instantanément.

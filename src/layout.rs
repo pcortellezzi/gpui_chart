@@ -2,7 +2,7 @@ use gpui::prelude::*;
 use gpui::*;
 use crate::ChartPane;
 use crate::view_controller::ViewController;
-use adabraka_ui::util::PixelsExt;
+use crate::utils::PixelsExt;
 use std::rc::Rc;
 use std::cell::RefCell;
 
