@@ -1,22 +1,20 @@
-// Candlestick plot implementation
-
-use crate::data_types::{CandlestickConfig, Ohlcv};
+use crate::data_types::{CandlestickConfig, Ohlcv, PlotData, PlotDataSource, VecDataSource};
 use gpui::*;
 use adabraka_ui::util::PixelsExt;
-
+use crate::transform::PlotTransform;
 use super::PlotRenderer;
 
 /// Candlestick plot type
-#[derive(Clone)]
 pub struct CandlestickPlot {
-    pub data: Vec<Ohlcv>,
+    pub source: Box<dyn PlotDataSource>,
     pub config: CandlestickConfig,
 }
 
 impl CandlestickPlot {
     pub fn new(data: Vec<Ohlcv>) -> Self {
+        let plot_data = data.into_iter().map(PlotData::Ohlcv).collect();
         Self {
-            data,
+            source: Box::new(VecDataSource::new(plot_data)),
             config: CandlestickConfig::default(),
         }
     }
@@ -24,60 +22,31 @@ impl CandlestickPlot {
 
 impl PlotRenderer for CandlestickPlot {
     fn get_min_max(&self) -> Option<(f64, f64, f64, f64)> {
-        if self.data.is_empty() { return None; }
-        
-        let mut x_min = f64::INFINITY;
-        let mut x_max = f64::NEG_INFINITY;
-        let mut y_min = f64::INFINITY;
-        let mut y_max = f64::NEG_INFINITY;
-
-        for candle in &self.data {
-            x_min = x_min.min(candle.time);
-            x_max = x_max.max(candle.time + candle.span);
-            y_min = y_min.min(candle.low);
-            y_max = y_max.max(candle.high);
-        }
-
-        Some((x_min, x_max, y_min, y_max))
+        self.source.get_bounds()
     }
 
     fn get_y_range(&self, x_min: f64, x_max: f64) -> Option<(f64, f64)> {
-        let mut y_min = f64::INFINITY;
-        let mut y_max = f64::NEG_INFINITY;
-        let mut found = false;
-
-        for candle in &self.data {
-            if candle.time + candle.span >= x_min && candle.time <= x_max {
-                y_min = y_min.min(candle.low);
-                y_max = y_max.max(candle.high);
-                found = true;
-            }
-        }
-
-        if found { Some((y_min, y_max)) } else { None }
+        self.source.get_y_range(x_min, x_max)
     }
 
     fn render(
         &self,
         window: &mut Window,
-        transform: &crate::transform::PlotTransform,
+        transform: &PlotTransform,
         _series_id: &str,
     ) {
-        if self.data.is_empty() { return; }
-
         let bounds = transform.bounds;
         let width_px = bounds.size.width.as_f32();
         if width_px <= 0.0 { return; }
 
-        let domain_x_min = transform.x_scale.invert(0.0);
-        let domain_x_max = transform.x_scale.invert(width_px);
-        let margin_x = (domain_x_max - domain_x_min) * 0.01;
-        let start_time = domain_x_min - margin_x;
-        let end_time = domain_x_max + margin_x;
-
-        let start_idx = self.data.partition_point(|c| c.time + c.span < start_time);
-        let end_idx = self.data.partition_point(|c| c.time < end_time);
-        let visible_candles = &self.data[start_idx..end_idx];
+        let (x_min, x_max) = transform.x_scale.domain();
+        let visible_iter = self.source.iter_range(x_min, x_max);
+        let mut visible_candles = Vec::new();
+        for data in visible_iter {
+            if let PlotData::Ohlcv(candle) = data {
+                visible_candles.push(candle);
+            }
+        }
 
         if visible_candles.is_empty() { return; }
 
@@ -90,6 +59,8 @@ impl PlotRenderer for CandlestickPlot {
         let mut has_down = false;
 
         let origin_x = bounds.origin.x.as_f32();
+        let domain_x_min = x_min;
+        let domain_x_max = x_max;
         
         let mut current_pixel_idx: i32 = -1;
         let mut agg_open = 0.0;

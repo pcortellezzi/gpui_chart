@@ -1,8 +1,7 @@
 // Heatmap plot implementation
 
-use crate::data_types::{PlotData, HeatmapCell};
+use crate::data_types::{HeatmapCell};
 use gpui::*;
-
 use super::PlotRenderer;
 
 /// Heatmap plot type
@@ -56,14 +55,6 @@ impl PlotRenderer for HeatmapPlot {
 
             window.paint_quad(gpui::fill(rect, cell.color));
         }
-    }
-
-    fn add_data(&mut self, _data: PlotData) {
-        // Not supported via standard add_data yet
-    }
-
-    fn set_data(&mut self, _data: Vec<PlotData>) {
-        // Not supported
     }
 
     fn get_min_max(&self) -> Option<(f64, f64, f64, f64)> {

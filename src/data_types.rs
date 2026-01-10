@@ -265,10 +265,180 @@ pub enum PlotData {
     Ohlcv(Ohlcv),
 }
 
+/// Trait abstraction for data providers.
+/// This allows using Polars, RingBuffers, or simple Vecs as backends.
+pub trait PlotDataSource: Send + Sync {
+    /// Total bounds of the data (x_min, x_max, y_min, y_max)
+    fn get_bounds(&self) -> Option<(f64, f64, f64, f64)>;
+
+    /// Y-range within a specific X-window (for auto-scaling Y)
+    fn get_y_range(&self, x_min: f64, x_max: f64) -> Option<(f64, f64)>;
+
+    /// Iterate over data within an X-window (for rendering with culling)
+    /// Includes one point before and after the range for line continuity.
+    fn iter_range(&self, x_min: f64, x_max: f64) -> Box<dyn Iterator<Item = PlotData> + '_>;
+
+    /// Add a single data point
+    fn add_data(&mut self, data: PlotData);
+
+    /// Replace all data
+    fn set_data(&mut self, data: Vec<PlotData>);
+
+    /// Suggested X spacing between points (e.g. for Bar width calculation)
+    fn suggested_x_spacing(&self) -> f64;
+
+    /// Total number of points
+    fn len(&self) -> usize;
+    
+    fn is_empty(&self) -> bool { self.len() == 0 }
+}
+
+/// Default implementation using a simple Vec with chunked bounds cache.
+pub struct VecDataSource {
+    data: Vec<PlotData>,
+    bounds_cache: Vec<AxisDomain>, // Reusing AxisDomain for chunk bounds
+    suggested_spacing: f64,
+}
+
+const CHUNK_SIZE: usize = 512;
+
+impl VecDataSource {
+    pub fn new(data: Vec<PlotData>) -> Self {
+        let mut inst = Self { data, bounds_cache: Vec::new(), suggested_spacing: 1.0 };
+        inst.rebuild_cache();
+        inst
+    }
+
+    fn rebuild_cache(&mut self) {
+        self.bounds_cache.clear();
+        let mut min_spacing = f64::INFINITY;
+        let mut last_x: Option<f64> = None;
+
+        for chunk in self.data.chunks(CHUNK_SIZE) {
+            let mut domain = AxisDomain {
+                x_min: f64::INFINITY, x_max: f64::NEG_INFINITY,
+                y_min: f64::INFINITY, y_max: f64::NEG_INFINITY,
+                ..Default::default()
+            };
+            for p in chunk {
+                let x = self.get_x(p);
+                if let Some(lx) = last_x {
+                    let s = (x - lx).abs();
+                    if s > f64::EPSILON && s < min_spacing { min_spacing = s; }
+                }
+                last_x = Some(x);
+
+                match p {
+                    PlotData::Point(pt) => {
+                        domain.x_min = domain.x_min.min(pt.x); domain.x_max = domain.x_max.max(pt.x);
+                        domain.y_min = domain.y_min.min(pt.y); domain.y_max = domain.y_max.max(pt.y);
+                    }
+                    PlotData::Ohlcv(o) => {
+                        domain.x_min = domain.x_min.min(o.time); domain.x_max = domain.x_max.max(o.time + o.span);
+                        domain.y_min = domain.y_min.min(o.low); domain.y_max = domain.y_max.max(o.high);
+                    }
+                }
+            }
+            self.bounds_cache.push(domain);
+        }
+        self.suggested_spacing = if min_spacing == f64::INFINITY { 1.0 } else { min_spacing };
+    }
+
+    fn get_x(&self, data: &PlotData) -> f64 {
+        match data {
+            PlotData::Point(p) => p.x,
+            PlotData::Ohlcv(o) => o.time,
+        }
+    }
+}
+
+impl PlotDataSource for VecDataSource {
+    fn len(&self) -> usize { self.data.len() }
+
+    fn suggested_x_spacing(&self) -> f64 {
+        self.suggested_spacing
+    }
+
+    fn get_bounds(&self) -> Option<(f64, f64, f64, f64)> {
+        if self.bounds_cache.is_empty() { return None; }
+        let mut b = (f64::INFINITY, f64::NEG_INFINITY, f64::INFINITY, f64::NEG_INFINITY);
+        for d in &self.bounds_cache {
+            b.0 = b.0.min(d.x_min); b.1 = b.1.max(d.x_max);
+            b.2 = b.2.min(d.y_min); b.3 = b.3.max(d.y_max);
+        }
+        Some(b)
+    }
+
+    fn get_y_range(&self, x_min: f64, x_max: f64) -> Option<(f64, f64)> {
+        if self.data.is_empty() { return None; }
+        let mut y_min = f64::INFINITY;
+        let mut y_max = f64::NEG_INFINITY;
+        let mut found = false;
+
+        for (i, chunk) in self.bounds_cache.iter().enumerate() {
+            if chunk.x_max < x_min || chunk.x_min > x_max { continue; }
+            if chunk.x_min >= x_min && chunk.x_max <= x_max {
+                y_min = y_min.min(chunk.y_min); y_max = y_max.max(chunk.y_max);
+                found = true; continue;
+            }
+            let start = i * CHUNK_SIZE;
+            let end = (start + CHUNK_SIZE).min(self.data.len());
+            for p in &self.data[start..end] {
+                let x = self.get_x(p);
+                if x >= x_min && x <= x_max {
+                    match p {
+                        PlotData::Point(pt) => { y_min = y_min.min(pt.y); y_max = y_max.max(pt.y); }
+                        PlotData::Ohlcv(o) => { y_min = y_min.min(o.low); y_max = y_max.max(o.high); }
+                    }
+                    found = true;
+                }
+            }
+        }
+        if found { Some((y_min, y_max)) } else { None }
+    }
+
+    fn iter_range(&self, x_min: f64, x_max: f64) -> Box<dyn Iterator<Item = PlotData> + '_> {
+        // Find range via binary search (assumes sorted by X)
+        let start_idx = self.data.partition_point(|p| self.get_x(p) < x_min);
+        let end_idx = self.data.partition_point(|p| self.get_x(p) <= x_max);
+        
+        let start = start_idx.saturating_sub(1);
+        let end = (end_idx + 1).min(self.data.len());
+        
+        Box::new(self.data[start..end].iter().cloned())
+    }
+
+    fn add_data(&mut self, data: PlotData) {
+        self.data.push(data);
+        if self.data.len() % CHUNK_SIZE == 1 { self.rebuild_cache(); } // Simple re-trigger for now
+    }
+
+    fn set_data(&mut self, data: Vec<PlotData>) {
+        self.data = data;
+        self.rebuild_cache();
+    }
+}
+
 #[derive(Clone)]
 pub struct Series {
     pub id: String,
     pub plot: std::sync::Arc<parking_lot::RwLock<dyn crate::plot_types::PlotRenderer + Send + Sync>>,
     pub y_axis_id: AxisId,
     pub x_axis_id: AxisId,
+}
+
+impl Series {
+    pub fn new(id: impl Into<String>, plot: impl crate::plot_types::PlotRenderer + 'static) -> Self {
+        Self {
+            id: id.into(),
+            plot: std::sync::Arc::new(parking_lot::RwLock::new(plot)),
+            x_axis_id: AxisId(0),
+            y_axis_id: AxisId(0),
+        }
+    }
+
+    pub fn on_axis(mut self, y_axis_id: usize) -> Self {
+        self.y_axis_id = AxisId(y_axis_id);
+        self
+    }
 }

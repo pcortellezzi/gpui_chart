@@ -1,6 +1,6 @@
 // ChartPane implementation
 
-use crate::data_types::{AxisRange, Series, SharedPlotState, ChartAxis, AxisEdge};
+use crate::data_types::{AxisRange, Series, SharedPlotState, ChartAxis, AxisEdge, AxisId};
 use gpui::prelude::*;
 use gpui::*;
 use adabraka_ui::util::PixelsExt;
@@ -63,7 +63,7 @@ impl Default for InertiaConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            friction: 0.90,
+            friction: 0.80,
             sensitivity: 1.0,
             stop_threshold: Duration::from_millis(150),
         }
@@ -169,6 +169,23 @@ impl ChartPane {
 
     pub fn add_series(&mut self, series: Series) {
         self.series.push(series);
+    }
+
+    /// Convenience method to add a plot and get back a thread-safe handle to update its data.
+    pub fn add_plot<P: crate::plot_types::PlotRenderer + 'static>(
+        &mut self, 
+        id: impl Into<String>, 
+        plot: P
+    ) -> std::sync::Arc<parking_lot::RwLock<P>> {
+        let id = id.into();
+        let plot_arc = std::sync::Arc::new(parking_lot::RwLock::new(plot));
+        self.series.push(Series {
+            id,
+            plot: plot_arc.clone(),
+            x_axis_id: AxisId(0),
+            y_axis_id: AxisId(0),
+        });
+        plot_arc
     }
 
     pub fn toggle_series_visibility(&mut self, id: &str, cx: &mut Context<Self>) {
