@@ -37,6 +37,9 @@ The chart is fully interactive out-of-the-box:
 - **Themable**: Full support for Light/Dark modes and custom themes via `ChartTheme`.
 - **Debug Mode**: Built-in performance overlay (toggle via action) showing render times and paint stats.
 
+> **Note on Performance:** 
+> Currently, geometry generation happens on the CPU using GPUI's drawing primitives. While optimized for large datasets via **Level-of-Detail (LOD)** and **Occlusion Culling**, we are awaiting **Custom Shaders** support in GPUI to transition to a full-GPU pipeline (WGPU), which will unlock even higher scale performance.
+
 ---
 
 ## 📦 Installation
@@ -175,3 +178,9 @@ To debug rendering performance or layout issues:
    - Frame render time.
    - Paint duration per pane.
    - Coordinate under cursor.
+
+---
+
+## 🤖 Acknowledgment
+
+This library was architected and implemented through a symbiotic collaboration between human intent and AI execution. It stands as a testament to what modern AI-assisted engineering can achieve: rapidly iterating from concept to a robust, production-ready graphics engine.
