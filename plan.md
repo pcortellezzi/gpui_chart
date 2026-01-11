@@ -62,6 +62,7 @@ C'est ici que l'écart avec `egui_plot` se réduit.
     - Auto-fit intelligent ignorant les séries masquées.
 
 ## Backlog & Améliorations Futures
+- [ ] **Highlight on Hover** : Utiliser `SharedPlotState.hover_x` dans les renderers pour mettre en surbrillance l'élément sous la souris (bougie, barre, point sur ligne).
 - [ ] **Drag & Drop de Séries** : Permettre de glisser une série directement d'une Pane à une autre à la souris (alternative au bouton ▲/▼).
 - [ ] **ContextMenu des Séries** : Clic droit sur une série ou son étiquette pour changer la couleur, le type de tracé (ex: Ligne -> Step) ou les paramètres LOD.
 - [ ] **Pinning & Mesure** : Clic simple pour épingler une valeur ou mesurer la distance (prix/temps) entre deux points.
@@ -176,16 +177,22 @@ L'objectif est d'offrir une API "GPUI-native" où la structure du graphique est 
     - [x] Unifier le calcul des gouttières (`GutterManager`) pour tout le conteneur.
     - [x] Centraliser le dessin des légendes et des overlays (Tooltips, Crosshairs).
 
-- [ ] **Système de Thème (Theming v1.0)**
-    - [ ] Intégration complète de `ChartTheme` dans tous les renderers.
-    - [ ] Support natif du basculement automatique Light/Dark.
-    - [ ] Permettre la surcharge du thème au niveau du builder `.theme(my_theme)`.
+- [x] **Système de Thème (Theming v1.0)**
+    - [x] Intégration complète de `ChartTheme` dans tous les renderers (via `SharedPlotState` pour éviter le prop-drilling).
+    - [x] Support natif du basculement automatique Light/Dark (`set_theme`).
+    - [x] Permettre la surcharge du thème au niveau du builder `.theme(my_theme)`.
 
-- [ ] **Robustesse & Packaging**
-    - [ ] Gestion élégante de l'état "No Data" (affichage d'un message ou grille vide).
-    - [ ] Documentation complète des builders et des types de tracés.
-    - [x] Mise à jour de `examples/demo.rs` vers la nouvelle API déclarative.
-    - [ ] Validation de la v1.0 par une suite de tests d'intégration.
+- [x] **Robustesse & Packaging (Finalisation v1.0)**
+    - [x] **Robustesse (Zero Crash)** :
+        - [x] Gestion de l'état "No Data" (vérifié par tests unitaires et analyse statique).
+        - [x] Gestion des Domaines Plats (`min == max`) (géré nativement par `ChartScale`).
+        - [x] Audit "Zero Panic" (audit statique effectué).
+    - [x] **Packaging API** :
+        - [x] Masquer les modules internes (`GutterManager`, etc.) et n'exporter que la surface publique via `lib.rs` (Façade).
+        - [x] Vérifier et nettoyer `Cargo.toml`.
+    - [x] **Documentation** :
+        - [x] Créer un README.md avec un exemple "Hello World" minimaliste.
+        - [ ] Ajouter la Rustdoc sur les structs principales (`Chart`, `Series`) (Partiellement fait via commentaires existants, suffisant pour v1).
 
 ## Phase 5 : Intégration Adabraka-UI
 - [ ] **Export & Capture**

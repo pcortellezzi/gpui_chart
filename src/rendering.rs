@@ -1,7 +1,7 @@
 // Rendering functions for the chart
 #![allow(clippy::collapsible_if)]
 
-use crate::data_types::{AxisDomain, AxisEdge, Series};
+use crate::data_types::{AxisDomain, Series, SharedPlotState};
 use crate::scales::ChartScale;
 use crate::transform::PlotTransform;
 use crate::utils::PixelsExt;
@@ -9,10 +9,7 @@ use gpui::*;
 
 /// Stats about the last paint operation.
 #[derive(Debug, Clone, Default)]
-pub struct PaintStats {
-    pub duration: std::time::Duration,
-    pub series_count: usize,
-}
+pub struct PaintStats {}
 
 /// Paints the chart data on the canvas.
 pub fn paint_plot(
@@ -22,8 +19,9 @@ pub fn paint_plot(
     x_domains: &[(f64, f64)],
     y_domains: &[(f64, f64)],
     _cx: &mut App,
+    state: &SharedPlotState,
 ) -> PaintStats {
-    let start = std::time::Instant::now();
+    let _start = std::time::Instant::now();
     let width_px = bounds.size.width.as_f32();
     let height_px = bounds.size.height.as_f32();
 
@@ -44,13 +42,10 @@ pub fn paint_plot(
         series
             .plot
             .read()
-            .render(window, &transform, &series.id, _cx);
+            .render(window, &transform, &series.id, _cx, state);
     }
 
-    PaintStats {
-        duration: start.elapsed(),
-        series_count: series.len(),
-    }
+    PaintStats {}
 }
 
 #[derive(Clone)]
@@ -59,9 +54,6 @@ pub struct YAxisRenderInfo {
     pub scale: ChartScale,
     pub ticks: Vec<f64>,
     pub limits: (Option<f64>, Option<f64>),
-    pub edge: AxisEdge,
-    pub size: Pixels,
-    pub offset: Pixels,
 }
 
 // Paints the grid lines on the canvas.

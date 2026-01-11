@@ -24,6 +24,7 @@ impl PlotRenderer for HeatmapPlot {
         transform: &PlotTransform,
         _series_id: &str,
         _cx: &mut App,
+        _state: &crate::data_types::SharedPlotState,
     ) {
         let bounds = transform.bounds;
         let origin = bounds.origin;

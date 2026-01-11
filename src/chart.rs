@@ -274,6 +274,12 @@ impl Chart {
         self.notify_render(cx);
     }
 
+    pub fn set_theme(&mut self, theme: ChartTheme, cx: &mut Context<Self>) {
+        self.theme = theme.clone();
+        self.shared_state.update(cx, |s, _| s.theme = theme);
+        self.notify_render(cx);
+    }
+
     fn notify_render(&self, cx: &mut Context<Self>) {
         self.shared_state.update(cx, |s, _| s.request_render());
         cx.notify();

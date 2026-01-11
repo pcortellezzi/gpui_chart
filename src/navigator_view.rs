@@ -181,6 +181,7 @@ impl Render for NavigatorView {
         let bounds_rc = self.bounds.clone();
         let lock_y = self.config.lock_y;
         let theme = self.shared_state.read(cx).theme.clone();
+        let shared_state_handle = self.shared_state.clone();
 
         div()
             .size_full()
@@ -195,6 +196,7 @@ impl Render for NavigatorView {
                     |_bounds, _window, _cx| {},
                     move |bounds, (), window, cx| {
                         *bounds_rc.borrow_mut() = bounds;
+                        let shared_state = shared_state_handle.read(cx).clone();
                         paint_plot(
                             window,
                             bounds,
@@ -202,6 +204,7 @@ impl Render for NavigatorView {
                             &[(full_domain.x_min, full_domain.x_max)],
                             &[(full_domain.y_min, full_domain.y_max)],
                             cx,
+                            &shared_state,
                         );
 
                         let (w, h) = (

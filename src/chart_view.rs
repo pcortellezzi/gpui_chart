@@ -324,6 +324,35 @@ impl ChartView {
             for ps in c.panes.iter_mut() {
                 if let Some(bounds) = p_bounds.get(&ps.id) {
                     if bounds.contains(&event.position) {
+                        if event.click_count >= 2 {
+                            // Auto-fit Y for this pane specifically
+                            let x_range = c.shared_x_axis.read(cx);
+                            let x_bounds = (x_range.min, x_range.max);
+                            for (a_idx, y_axis_state) in ps.y_axes.iter().enumerate() {
+                                let mut sy_min = f64::INFINITY;
+                                let mut sy_max = f64::NEG_INFINITY;
+                                for series in &ps.series {
+                                    if series.y_axis_id.0 != a_idx || ps.hidden_series.contains(&series.id) {
+                                        continue;
+                                    }
+                                    if let Some((s_min, s_max)) =
+                                        series.plot.read().get_y_range(x_bounds.0, x_bounds.1)
+                                    {
+                                        sy_min = sy_min.min(s_min);
+                                        sy_max = sy_max.max(s_max);
+                                    }
+                                }
+                                if sy_min != f64::INFINITY {
+                                    y_axis_state.entity.update(cx, |y, _| {
+                                        ViewController::auto_fit_axis(y, sy_min, sy_max, 0.05);
+                                        y.update_ticks_if_needed(10);
+                                    });
+                                }
+                            }
+                            c.shared_state.update(cx, |s, _| s.request_render());
+                            return;
+                        }
+
                         match event.button {
                             MouseButton::Left | MouseButton::Middle => {
                                 ps.drag_start = Some(event.position);
@@ -1285,7 +1314,7 @@ impl Render for ChartView {
             let chart = chart_handle.clone();
             let legend = self.render_legend(i, ps, &theme, panes.len(), chart.clone(), cx);
             let shared_state_for_canvas = shared_state_handle.clone();
-
+            
             let mut pane_debug_overlay = None;
             if shared_state.debug_mode {
                 let times = shared_state.pane_paint_times.read();
@@ -1305,6 +1334,7 @@ impl Render for ChartView {
                 }
             }
 
+            let shared_state_for_paint = shared_state.clone();
             pane_elements.push(
                 div()
                     .h(relative(h_pct))
@@ -1349,9 +1379,6 @@ impl Render for ChartView {
                                                 .range(bounds.size.height.as_f32() as f64, 0.0)
                                                 .ticks(10),
                                             limits: (y0.min_limit, y0.max_limit),
-                                            edge: AxisEdge::Right,
-                                            size: px(60.0),
-                                            offset: px(0.0),
                                         };
                                         crate::rendering::paint_grid(
                                             window,
@@ -1379,6 +1406,7 @@ impl Render for ChartView {
                                         &x_domains,
                                         &y_domains,
                                         cx,
+                                        &shared_state_for_paint,
                                     );
                                     if let Some(hx) = hx_val {
                                         let sx = x_scale.map(hx);

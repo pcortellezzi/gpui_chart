@@ -37,6 +37,7 @@ impl PlotRenderer for BarPlot {
         transform: &PlotTransform,
         _series_id: &str,
         _cx: &mut App,
+        _state: &crate::data_types::SharedPlotState,
     ) {
         let (x_min, x_max) = transform.x_scale.domain();
 

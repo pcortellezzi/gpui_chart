@@ -21,6 +21,7 @@ impl PlotRenderer for AnnotationPlot {
         transform: &PlotTransform,
         _series_id: &str,
         cx: &mut App,
+        _state: &crate::data_types::SharedPlotState,
     ) {
         let bounds = transform.bounds;
         let origin = bounds.origin;
