@@ -1,7 +1,7 @@
-use crate::data_types::{Annotation};
-use gpui::*;
-use crate::transform::PlotTransform;
 use super::PlotRenderer;
+use crate::data_types::Annotation;
+use crate::transform::PlotTransform;
+use gpui::*;
 
 /// Annotation plot type (Layer of annotations)
 pub struct AnnotationPlot {
@@ -28,18 +28,25 @@ impl PlotRenderer for AnnotationPlot {
 
         for annotation in &self.annotations {
             match annotation {
-                Annotation::VLine { x, color, width, label } => {
+                Annotation::VLine {
+                    x,
+                    color,
+                    width,
+                    label,
+                } => {
                     let screen_x = transform.x_data_to_screen(*x);
-                    
+
                     // Only draw if within (or close to) X bounds
-                    if screen_x >= origin.x - px(*width) && screen_x <= origin.x + size.width + px(*width) {
+                    if screen_x >= origin.x - px(*width)
+                        && screen_x <= origin.x + size.width + px(*width)
+                    {
                         let p1 = Point::new(screen_x, origin.y);
                         let p2 = Point::new(screen_x, origin.y + size.height);
-                        
+
                         let mut builder = PathBuilder::stroke(px(*width));
                         builder.move_to(p1);
                         builder.line_to(p2);
-                        
+
                         if let Ok(path) = builder.build() {
                             window.paint_path(path, *color);
                         }
@@ -55,18 +62,38 @@ impl PlotRenderer for AnnotationPlot {
                                 underline: None,
                                 strikethrough: None,
                             };
-                            if let Ok(lines) = window.text_system().shape_text(text.clone().into(), font_size, &[run], None, None) {
+                            if let Ok(lines) = window.text_system().shape_text(
+                                text.clone().into(),
+                                font_size,
+                                &[run],
+                                None,
+                                None,
+                            ) {
                                 for line in lines {
-                                    let _ = line.paint(p1 + point(px(2.0), px(2.0)), font_size, TextAlign::Left, None, window, cx);
+                                    let _ = line.paint(
+                                        p1 + point(px(2.0), px(2.0)),
+                                        font_size,
+                                        TextAlign::Left,
+                                        None,
+                                        window,
+                                        cx,
+                                    );
                                 }
                             }
                         }
                     }
                 }
-                Annotation::HLine { y, color, width, label } => {
-                     let screen_y = transform.y_data_to_screen(*y);
+                Annotation::HLine {
+                    y,
+                    color,
+                    width,
+                    label,
+                } => {
+                    let screen_y = transform.y_data_to_screen(*y);
 
-                     if screen_y >= origin.y - px(*width) && screen_y <= origin.y + size.height + px(*width) {
+                    if screen_y >= origin.y - px(*width)
+                        && screen_y <= origin.y + size.height + px(*width)
+                    {
                         let p1 = Point::new(origin.x, screen_y);
                         let p2 = Point::new(origin.x + size.width, screen_y);
 
@@ -77,7 +104,7 @@ impl PlotRenderer for AnnotationPlot {
                         if let Ok(path) = builder.build() {
                             window.paint_path(path, *color);
                         }
-                        
+
                         if let Some(text) = label {
                             let font_size = px(10.0);
                             let run = TextRun {
@@ -88,27 +115,53 @@ impl PlotRenderer for AnnotationPlot {
                                 underline: None,
                                 strikethrough: None,
                             };
-                            if let Ok(lines) = window.text_system().shape_text(text.clone().into(), font_size, &[run], None, None) {
+                            if let Ok(lines) = window.text_system().shape_text(
+                                text.clone().into(),
+                                font_size,
+                                &[run],
+                                None,
+                                None,
+                            ) {
                                 for line in lines {
-                                    let _ = line.paint(p1 + point(px(2.0), px(-12.0)), font_size, TextAlign::Left, None, window, cx);
+                                    let _ = line.paint(
+                                        p1 + point(px(2.0), px(-12.0)),
+                                        font_size,
+                                        TextAlign::Left,
+                                        None,
+                                        window,
+                                        cx,
+                                    );
                                 }
                             }
                         }
-                     }
+                    }
                 }
-                Annotation::Rect { x_min, x_max, y_min, y_max, color, fill } => {
+                Annotation::Rect {
+                    x_min,
+                    x_max,
+                    y_min,
+                    y_max,
+                    color,
+                    fill,
+                } => {
                     let p1 = transform.data_to_screen(Point::new(*x_min, *y_max)); // Top-Left (since Y grows down, max Y is top)
                     let p2 = transform.data_to_screen(Point::new(*x_max, *y_min)); // Bottom-Right
 
                     let rect = Bounds::from_corners(p1, p2);
-                    
+
                     if *fill {
                         window.paint_quad(gpui::fill(rect, *color));
                     } else {
                         window.paint_quad(gpui::outline(rect, *color, gpui::BorderStyle::Solid));
                     }
                 }
-                Annotation::Text { x, y, text, color, font_size } => {
+                Annotation::Text {
+                    x,
+                    y,
+                    text,
+                    color,
+                    font_size,
+                } => {
                     let pos = transform.data_to_screen(Point::new(*x, *y));
                     let font_size_px = px(*font_size);
                     let run = TextRun {
@@ -119,10 +172,17 @@ impl PlotRenderer for AnnotationPlot {
                         underline: None,
                         strikethrough: None,
                     };
-                    if let Ok(lines) = window.text_system().shape_text(text.clone().into(), font_size_px, &[run], None, None) {
+                    if let Ok(lines) = window.text_system().shape_text(
+                        text.clone().into(),
+                        font_size_px,
+                        &[run],
+                        None,
+                        None,
+                    ) {
                         let mut origin = pos;
                         for line in lines {
-                            let _ = line.paint(origin, font_size_px, TextAlign::Left, None, window, cx);
+                            let _ =
+                                line.paint(origin, font_size_px, TextAlign::Left, None, window, cx);
                             origin.y += font_size_px;
                         }
                     }

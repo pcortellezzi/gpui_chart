@@ -157,24 +157,35 @@ Pour gérer le "Big Data".
 - [x] **Occlusion Culling**
     - Ne pas envoyer de commandes de dessin pour les points hors du `Bounds` visible. (Implémenté via `iter_range` et `partition_point` binaire).
 
-## Phase Finalisation v1.0 (Release Candidate)
-Objectif : Rendre la librairie utilisable, configurable et documentée pour une utilisation publique immédiate.
+## Phase Finalisation v1.0 (Architecture Déclarative)
+L'objectif est d'offrir une API "GPUI-native" où la structure du graphique est décrite dans le `render()` tout en conservant l'état (zoom, splitters) dans une entité unique.
 
-- [ ] **API Fluide (Declarative Style)**
-    - Abandonner le Builder Pattern classique (`Chart::new().with...`).
-    - Adopter une API inspirée de GPUI : `chart(view).zones([ zone().axis_x(...).series(...), ... ])`.
-    - L'objectif est de réduire le boilerplate et de rendre la structure du graphique lisible d'un coup d'œil.
-- [ ] **Système de Thème (Theming)**
-    - Extraire toutes les couleurs hardcodées (bg, grid, text) vers une configuration centralisée.
-    - Support du basculement Light/Dark mode.
-    - Intégration optionnelle avec les tokens `adabraka-ui`.
-- [ ] **Interactions & Menus**
-    - Menu contextuel (clic droit) pour reset zoom, cacher séries, etc.
-    - Formatage avancé des axes (Dates locales, Prix avec décimales dynamiques).
+- [x] **Refonte du Modèle de Données (Découplage État/Vue)**
+    - [x] Créer `ChartElement`, `PaneElement` et `AxisElementConfig` (Builders légers).
+    - [x] Implémenter les fonctions globales `chart()`, `pane()`, `axis()`.
+    - [x] Faire de `ChartContainer` l'unique `Entity` (View) persistante.
+    - [x] Supprimer l'entité `ChartPane` (devient une structure de données passive `PaneElement`).
+
+- [x] **Synchronisation de Structure (`sync_from_element`)**
+    - [x] Implémenter la logique de réconciliation dans `ChartContainer`.
+    - [x] Préserver les poids (`weights`) des panneaux lors du redimensionnement par splitter, même si la structure est redéfinie.
+    - [x] Gérer l'ajout/suppression dynamique d'axes ou de panneaux sans perdre le zoom des axes restants.
+
+- [x] **Centralisation du Rendu & Événements**
+    - [x] Déplacer la logique d'interaction (Pan, Zoom, Inertie) de `ChartPane` vers `ChartContainer`.
+    - [x] Unifier le calcul des gouttières (`GutterManager`) pour tout le conteneur.
+    - [x] Centraliser le dessin des légendes et des overlays (Tooltips, Crosshairs).
+
+- [ ] **Système de Thème (Theming v1.0)**
+    - [ ] Intégration complète de `ChartTheme` dans tous les renderers.
+    - [ ] Support natif du basculement automatique Light/Dark.
+    - [ ] Permettre la surcharge du thème au niveau du builder `.theme(my_theme)`.
+
 - [ ] **Robustesse & Packaging**
-    - Gestion propre des états vides ("No Data").
-    - Documentation publique (`cargo doc`) des structs principales.
-    - Exemples simples (`basic_chart.rs`, `realtime.rs`) pour faciliter la prise en main.
+    - [ ] Gestion élégante de l'état "No Data" (affichage d'un message ou grille vide).
+    - [ ] Documentation complète des builders et des types de tracés.
+    - [x] Mise à jour de `examples/demo.rs` vers la nouvelle API déclarative.
+    - [ ] Validation de la v1.0 par une suite de tests d'intégration.
 
 ## Phase 5 : Intégration Adabraka-UI
 - [ ] **Export & Capture**

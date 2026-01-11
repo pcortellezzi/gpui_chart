@@ -1,4 +1,4 @@
-use gpui::{Pixels, px};
+use gpui::{px, Pixels};
 
 pub trait PixelsExt {
     fn px(self) -> Pixels;
@@ -10,24 +10,36 @@ impl PixelsExt for f32 {
     fn px(self) -> Pixels {
         px(self)
     }
-    fn as_f32(&self) -> f32 { *self }
-    fn as_f64(&self) -> f64 { *self as f64 }
+    fn as_f32(&self) -> f32 {
+        *self
+    }
+    fn as_f64(&self) -> f64 {
+        *self as f64
+    }
 }
 
 impl PixelsExt for i32 {
     fn px(self) -> Pixels {
         px(self as f32)
     }
-    fn as_f32(&self) -> f32 { *self as f32 }
-    fn as_f64(&self) -> f64 { *self as f64 }
+    fn as_f32(&self) -> f32 {
+        *self as f32
+    }
+    fn as_f64(&self) -> f64 {
+        *self as f64
+    }
 }
 
 impl PixelsExt for f64 {
     fn px(self) -> Pixels {
         px(self as f32)
     }
-    fn as_f32(&self) -> f32 { *self as f32 }
-    fn as_f64(&self) -> f64 { *self }
+    fn as_f32(&self) -> f32 {
+        *self as f32
+    }
+    fn as_f64(&self) -> f64 {
+        *self
+    }
 }
 
 impl PixelsExt for Pixels {

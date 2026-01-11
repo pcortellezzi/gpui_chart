@@ -1,8 +1,8 @@
 // Transform helper for coordinate projection
 
-use gpui::*;
 use crate::scales::ChartScale;
 use crate::utils::PixelsExt;
+use gpui::*;
 
 #[derive(Clone)]
 pub struct PlotTransform {
@@ -13,7 +13,11 @@ pub struct PlotTransform {
 
 impl PlotTransform {
     pub fn new(x_scale: ChartScale, y_scale: ChartScale, bounds: Bounds<Pixels>) -> Self {
-        Self { x_scale, y_scale, bounds }
+        Self {
+            x_scale,
+            y_scale,
+            bounds,
+        }
     }
 
     pub fn data_to_screen(&self, point: Point<f64>) -> Point<Pixels> {
@@ -25,8 +29,10 @@ impl PlotTransform {
 
     pub fn screen_to_data(&self, point: Point<Pixels>) -> Point<f64> {
         Point::new(
-            self.x_scale.invert((point.x - self.bounds.origin.x).as_f32()),
-            self.y_scale.invert((point.y - self.bounds.origin.y).as_f32()),
+            self.x_scale
+                .invert((point.x - self.bounds.origin.x).as_f32()),
+            self.y_scale
+                .invert((point.y - self.bounds.origin.y).as_f32()),
         )
     }
 

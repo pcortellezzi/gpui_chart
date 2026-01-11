@@ -1,9 +1,9 @@
 // Heatmap plot implementation
 
-use crate::data_types::{HeatmapCell};
-use gpui::*;
-use crate::transform::PlotTransform;
 use super::PlotRenderer;
+use crate::data_types::HeatmapCell;
+use crate::transform::PlotTransform;
+use gpui::*;
 
 /// Heatmap plot type
 #[derive(Clone)]
@@ -35,7 +35,7 @@ impl PlotRenderer for HeatmapPlot {
             // "Heatmap" usually implies a grid.
             // Let's assume x,y are the center of the cell or the starting corner.
             // Standard: x,y is center. width/height are data units.
-            
+
             let half_w = cell.width / 2.0;
             let half_h = cell.height / 2.0;
 
@@ -50,8 +50,11 @@ impl PlotRenderer for HeatmapPlot {
             let rect = Bounds::from_corners(p1, p2);
 
             // Culling
-            if rect.origin.x > origin.x + size.width || rect.origin.x + rect.size.width < origin.x ||
-               rect.origin.y > origin.y + size.height || rect.origin.y + rect.size.height < origin.y {
+            if rect.origin.x > origin.x + size.width
+                || rect.origin.x + rect.size.width < origin.x
+                || rect.origin.y > origin.y + size.height
+                || rect.origin.y + rect.size.height < origin.y
+            {
                 continue;
             }
 
@@ -72,7 +75,7 @@ impl PlotRenderer for HeatmapPlot {
         for cell in &self.cells {
             let half_w = cell.width / 2.0;
             let half_h = cell.height / 2.0;
-            
+
             x_min = x_min.min(cell.x - half_w);
             x_max = x_max.max(cell.x + half_w);
             y_min = y_min.min(cell.y - half_h);
@@ -100,6 +103,10 @@ impl PlotRenderer for HeatmapPlot {
             }
         }
 
-        if found { Some((y_min, y_max)) } else { None }
+        if found {
+            Some((y_min, y_max))
+        } else {
+            None
+        }
     }
 }

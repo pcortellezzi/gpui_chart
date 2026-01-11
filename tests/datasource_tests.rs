@@ -1,4 +1,6 @@
-use gpui_chart::data_types::{PlotPoint, ColorOp, PlotDataSource, StreamingDataSource, VecDataSource, PlotData};
+use gpui_chart::data_types::{
+    ColorOp, PlotData, PlotDataSource, PlotPoint, StreamingDataSource, VecDataSource,
+};
 
 #[test]
 fn test_streaming_datasource_capacity() {
@@ -10,7 +12,7 @@ fn test_streaming_datasource_capacity() {
             color_op: ColorOp::None,
         }));
     }
-    
+
     assert_eq!(source.len(), 10);
     // Les premières données (0-4) doivent avoir été supprimées
     let bounds = source.get_bounds().unwrap();
@@ -45,9 +47,13 @@ fn test_streaming_cache_rebuild() {
     let mut source = StreamingDataSource::new(1000);
     // Ajouter assez de points pour remplir des chunks
     for i in 0..600 {
-        source.add_data(PlotData::Point(PlotPoint { x: i as f64, y: i as f64, color_op: ColorOp::None }));
+        source.add_data(PlotData::Point(PlotPoint {
+            x: i as f64,
+            y: i as f64,
+            color_op: ColorOp::None,
+        }));
     }
-    
+
     let bounds = source.get_bounds().unwrap();
     assert_eq!(bounds.0, 0.0);
     assert_eq!(bounds.1, 599.0);

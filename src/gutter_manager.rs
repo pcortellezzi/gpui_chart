@@ -1,7 +1,6 @@
+use crate::chart::{AxisState, PaneState};
+use crate::data_types::AxisEdge;
 use gpui::*;
-use crate::data_types::{AxisEdge};
-use crate::chart_container::PaneConfig;
-use crate::chart_container::AxisConfig;
 
 #[derive(Default)]
 pub struct Gutters {
@@ -14,7 +13,7 @@ pub struct Gutters {
 pub struct GutterManager;
 
 impl GutterManager {
-    pub fn calculate(panes: &[PaneConfig], x_axes: &[AxisConfig]) -> Gutters {
+    pub fn calculate(panes: &[PaneState], x_axes: &[AxisState]) -> Gutters {
         let mut left = px(0.0);
         let mut right = px(0.0);
         let mut top = px(0.0);
@@ -47,6 +46,11 @@ impl GutterManager {
             bottom = px(25.0);
         }
 
-        Gutters { left, right, top, bottom }
+        Gutters {
+            left,
+            right,
+            top,
+            bottom,
+        }
     }
 }

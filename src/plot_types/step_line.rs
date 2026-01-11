@@ -1,8 +1,10 @@
-use crate::data_types::{StepLinePlotConfig, PlotData, PlotDataSource, VecDataSource, StepMode, PlotPoint};
-use gpui::*;
-use crate::utils::PixelsExt;
-use crate::transform::PlotTransform;
 use super::PlotRenderer;
+use crate::data_types::{
+    PlotData, PlotDataSource, PlotPoint, StepLinePlotConfig, StepMode, VecDataSource,
+};
+use crate::transform::PlotTransform;
+use crate::utils::PixelsExt;
+use gpui::*;
 
 /// StepLine plot type
 pub struct StepLinePlot {

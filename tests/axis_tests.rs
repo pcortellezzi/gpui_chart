@@ -64,13 +64,13 @@ fn test_axis_range_zoom_pivot_with_clamping() {
     range.max_limit = Some(300.0);
 
     // Zoom out (factor 4.0) at pivot 150.0 (pct 0.5)
-    // Virtual range: [-50, 350]. 
+    // Virtual range: [-50, 350].
     range.zoom_at(150.0, 0.5, 4.0);
-    
-    // Avec la nouvelle logique, clamp() ne doit pas modifier les bornes 
+
+    // Avec la nouvelle logique, clamp() ne doit pas modifier les bornes
     // car elles couvrent déjà toute la zone [0, 300].
-    range.clamp(); 
-    
+    range.clamp();
+
     assert_eq!(range.min, -50.0, "Virtual min should be preserved");
     assert_eq!(range.max, 350.0, "Virtual max should be preserved");
 
@@ -91,11 +91,15 @@ fn test_axis_range_zoom_pivot_with_clamping() {
 #[test]
 fn test_chart_scale_formatting() {
     let scale = ChartScale::new_linear((0.0, 1.0), (0.0, 100.0));
-    
+
     // Test large numbers (timestamps)
     let ts = 1736500000000.0; // Sometime in 2025
     let formatted = scale.format_tick(ts);
-    assert!(formatted.contains(":"), "Should be formatted as time: {}", formatted);
+    assert!(
+        formatted.contains(":"),
+        "Should be formatted as time: {}",
+        formatted
+    );
 
     // Test small numbers
     assert_eq!(scale.format_tick(0.000123), "0.0001");

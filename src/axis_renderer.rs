@@ -1,10 +1,10 @@
-use gpui::*;
-use gpui::prelude::FluentBuilder;
-use d3rs::scale::Scale;
-use crate::data_types::{AxisRange, AxisEdge};
+use crate::data_types::{AxisEdge, AxisRange};
 use crate::scales::ChartScale;
 use crate::theme::ChartTheme;
 use crate::utils::PixelsExt;
+use d3rs::scale::Scale;
+use gpui::prelude::FluentBuilder;
+use gpui::*;
 
 pub struct AxisRenderer;
 
@@ -28,15 +28,22 @@ impl AxisRenderer {
         } else {
             (0.0, bounds.size.width.as_f32())
         };
-        
+
         let scale = ChartScale::new_linear((min, max), scale_range);
-        
+
         let ticks_vec;
         let ticks = if range.cached_ticks.is_empty() {
-            let max_px = if is_vertical { bounds.size.height.as_f32() } else { bounds.size.width.as_f32() };
+            let max_px = if is_vertical {
+                bounds.size.height.as_f32()
+            } else {
+                bounds.size.width.as_f32()
+            };
             ticks_vec = d3rs::scale::LinearScale::new()
                 .domain(min, max)
-                .range(if is_vertical { max_px as f64 } else { 0.0 }, if is_vertical { 0.0 } else { max_px as f64 })
+                .range(
+                    if is_vertical { max_px as f64 } else { 0.0 },
+                    if is_vertical { 0.0 } else { max_px as f64 },
+                )
                 .ticks(10);
             &ticks_vec
         } else {
@@ -46,11 +53,19 @@ impl AxisRenderer {
         // 1. Axis Border Line
         let mut line_builder = PathBuilder::stroke(px(1.0));
         if is_vertical {
-            let x = if edge == AxisEdge::Left { bounds.origin.x + bounds.size.width } else { bounds.origin.x };
+            let x = if edge == AxisEdge::Left {
+                bounds.origin.x + bounds.size.width
+            } else {
+                bounds.origin.x
+            };
             line_builder.move_to(point(x, bounds.origin.y));
             line_builder.line_to(point(x, bounds.origin.y + bounds.size.height));
         } else {
-            let y = if edge == AxisEdge::Top { bounds.origin.y + bounds.size.height } else { bounds.origin.y };
+            let y = if edge == AxisEdge::Top {
+                bounds.origin.y + bounds.size.height
+            } else {
+                bounds.origin.y
+            };
             line_builder.move_to(point(bounds.origin.x, y));
             line_builder.line_to(point(bounds.origin.x + bounds.size.width, y));
         }
@@ -65,7 +80,7 @@ impl AxisRenderer {
         for tick in ticks {
             let tick_px = scale.map(*tick) as f32;
             let tick_text = scale.format_tick(*tick);
-            
+
             let run = TextRun {
                 len: tick_text.len(),
                 font: font.clone(),
@@ -75,13 +90,11 @@ impl AxisRenderer {
                 strikethrough: None,
             };
 
-            if let Ok(lines) = window.text_system().shape_text(
-                tick_text.into(),
-                font_size,
-                &[run],
-                None,
-                None
-            ) {
+            if let Ok(lines) =
+                window
+                    .text_system()
+                    .shape_text(tick_text.into(), font_size, &[run], None, None)
+            {
                 for line in lines {
                     let origin = if is_vertical {
                         let y_centered = px(tick_px) - font_size / 2.0;
@@ -97,8 +110,9 @@ impl AxisRenderer {
                         let y_text = (bounds.size.height - font_size) / 2.0;
                         bounds.origin + point(x_centered, y_text)
                     };
-                    
-                    let _ = line.paint(origin, font_size, TextAlign::Left, Some(bounds), window, cx);
+
+                    let _ =
+                        line.paint(origin, font_size, TextAlign::Left, Some(bounds), window, cx);
                 }
             }
         }
@@ -107,8 +121,12 @@ impl AxisRenderer {
         if !label.is_empty() {
             let title_font_size = px(9.0); // Y axis small
             let title_font_size_x = px(10.0); // X axis slightly larger
-            let effective_size = if is_vertical { title_font_size } else { title_font_size_x };
-            
+            let effective_size = if is_vertical {
+                title_font_size
+            } else {
+                title_font_size_x
+            };
+
             let title_run = TextRun {
                 len: label.len(),
                 font: font.clone(),
@@ -117,17 +135,27 @@ impl AxisRenderer {
                 underline: None,
                 strikethrough: None,
             };
-            if let Ok(lines) = window.text_system().shape_text(label.to_string().into(), effective_size, &[title_run], None, None) {
+            if let Ok(lines) = window.text_system().shape_text(
+                label.to_string().into(),
+                effective_size,
+                &[title_run],
+                None,
+                None,
+            ) {
                 let origin = if is_vertical {
                     bounds.origin + point(px(0.0), bounds.size.height - px(12.0))
                 } else {
                     bounds.origin + point(px(8.0), px(0.0))
                 };
-                
+
                 // For Y axis title, we used TextAlign::Center before?
                 // Y: TextAlign::Center. X: TextAlign::Left.
-                let align = if is_vertical { TextAlign::Center } else { TextAlign::Left };
-                
+                let align = if is_vertical {
+                    TextAlign::Center
+                } else {
+                    TextAlign::Left
+                };
+
                 for line in lines {
                     let _ = line.paint(origin, effective_size, align, Some(bounds), window, cx);
                 }
@@ -151,9 +179,12 @@ impl AxisRenderer {
         let is_left = edge == AxisEdge::Left;
         let range = range.clone();
         let theme = theme.clone();
-        
+
         div()
-            .id(SharedString::from(format!("y-axis-{}-{}", pane_idx, axis_idx)))
+            .id(SharedString::from(format!(
+                "y-axis-{}-{}",
+                pane_idx, axis_idx
+            )))
             .absolute()
             .top(relative(current_top_pct))
             .h(relative(h_pct))
@@ -165,9 +196,12 @@ impl AxisRenderer {
                 canvas(
                     |_, _, _| {},
                     move |bounds, (), window: &mut Window, cx| {
-                        Self::paint_axis(&range, true, edge, &theme, &label, bounds, window, cx, &on_draw);
-                    }
-                ).size_full()
+                        Self::paint_axis(
+                            &range, true, edge, &theme, &label, bounds, window, cx, &on_draw,
+                        );
+                    },
+                )
+                .size_full(),
             )
     }
 
@@ -209,10 +243,13 @@ impl AxisRenderer {
                     canvas(
                         |_, _, _| {},
                         move |bounds, (), window: &mut Window, cx| {
-                            Self::paint_axis(&range, false, edge, &theme, &label, bounds, window, cx, &on_draw);
-                        }
-                    ).size_full()
-                )
+                            Self::paint_axis(
+                                &range, false, edge, &theme, &label, bounds, window, cx, &on_draw,
+                            );
+                        },
+                    )
+                    .size_full(),
+                ),
             )
             .child(div().w(gutter_right))
     }

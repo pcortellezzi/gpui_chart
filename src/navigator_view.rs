@@ -1,11 +1,11 @@
 // NavigatorView implementation
 
-use crate::data_types::{AxisRange, Series, AxisDomain, SharedPlotState};
+use crate::data_types::{AxisDomain, AxisRange, Series, SharedPlotState};
 use crate::rendering::paint_plot;
+use crate::utils::PixelsExt;
 use crate::view_controller::ViewController;
 use gpui::prelude::*;
 use gpui::*;
-use crate::utils::PixelsExt;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -40,7 +40,13 @@ pub struct NavigatorView {
 }
 
 impl NavigatorView {
-    pub fn new(x_axis: Entity<AxisRange>, y_axis: Entity<AxisRange>, shared_state: Entity<SharedPlotState>, series: Vec<Series>, cx: &mut Context<Self>) -> Self {
+    pub fn new(
+        x_axis: Entity<AxisRange>,
+        y_axis: Entity<AxisRange>,
+        shared_state: Entity<SharedPlotState>,
+        series: Vec<Series>,
+        cx: &mut Context<Self>,
+    ) -> Self {
         cx.observe(&shared_state, |_, _, cx| cx.notify()).detach();
 
         let mut view = Self {
@@ -73,36 +79,59 @@ impl NavigatorView {
         }
 
         if x_min != f64::INFINITY {
-            self.full_domain = AxisDomain { x_min, x_max, y_min, y_max, ..Default::default() };
+            self.full_domain = AxisDomain {
+                x_min,
+                x_max,
+                y_min,
+                y_max,
+                ..Default::default()
+            };
         }
     }
 
-    fn handle_click(&mut self, event: &MouseDownEvent, _window: &mut Window, cx: &mut Context<Self>) {
+    fn handle_click(
+        &mut self,
+        event: &MouseDownEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.is_dragging = true;
         self.move_to_pos(event.position, cx);
     }
 
-    fn handle_mouse_move(&mut self, event: &MouseMoveEvent, _window: &mut Window, cx: &mut Context<Self>) {
+    fn handle_mouse_move(
+        &mut self,
+        event: &MouseMoveEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         if self.is_dragging {
             self.move_to_pos(event.position, cx);
         }
     }
 
-    fn handle_mouse_up(&mut self, _event: &MouseUpEvent, _window: &mut Window, cx: &mut Context<Self>) {
+    fn handle_mouse_up(
+        &mut self,
+        _event: &MouseUpEvent,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.is_dragging = false;
         self.shared_state.update(cx, |s, _| s.request_render());
     }
 
     fn move_to_pos(&mut self, pos: Point<Pixels>, cx: &mut Context<Self>) {
         let bounds = *self.bounds.borrow();
-        if bounds.is_empty() { return; }
+        if bounds.is_empty() {
+            return;
+        }
 
         let center_x = ViewController::map_pixels_to_value(
             (pos.x - bounds.origin.x).as_f32(),
             bounds.size.width.as_f32(),
             self.full_domain.x_min,
             self.full_domain.x_max,
-            false
+            false,
         );
 
         let center_y = ViewController::map_pixels_to_value(
@@ -110,7 +139,7 @@ impl NavigatorView {
             bounds.size.height.as_f32(),
             self.full_domain.y_min,
             self.full_domain.y_max,
-            true
+            true,
         );
 
         let lock_x = self.config.lock_x;
@@ -120,14 +149,22 @@ impl NavigatorView {
 
         if !lock_x {
             self.x_axis.update(cx, |x, _cx| {
-                let limit = if clamp_to_map { Some((full.x_min, full.x_max)) } else { None };
+                let limit = if clamp_to_map {
+                    Some((full.x_min, full.x_max))
+                } else {
+                    None
+                };
                 ViewController::move_to_center(x, center_x, limit);
             });
         }
 
         if !lock_y {
             self.y_axis.update(cx, |y, _cx| {
-                let limit = if clamp_to_map { Some((full.y_min, full.y_max)) } else { None };
+                let limit = if clamp_to_map {
+                    Some((full.y_min, full.y_max))
+                } else {
+                    None
+                };
                 ViewController::move_to_center(y, center_y, limit);
             });
         }
@@ -154,37 +191,62 @@ impl Render for NavigatorView {
             .on_mouse_move(cx.listener(Self::handle_mouse_move))
             .on_mouse_up(MouseButton::Left, cx.listener(Self::handle_mouse_up))
             .child(
-                canvas(|_bounds, _window, _cx| {}, move |bounds, (), window, cx| {
-                    *bounds_rc.borrow_mut() = bounds;
-                    paint_plot(window, bounds, &series, &[(full_domain.x_min, full_domain.x_max)], &[(full_domain.y_min, full_domain.y_max)], cx);
+                canvas(
+                    |_bounds, _window, _cx| {},
+                    move |bounds, (), window, cx| {
+                        *bounds_rc.borrow_mut() = bounds;
+                        paint_plot(
+                            window,
+                            bounds,
+                            &series,
+                            &[(full_domain.x_min, full_domain.x_max)],
+                            &[(full_domain.y_min, full_domain.y_max)],
+                            cx,
+                        );
 
-                    let (w, h) = (bounds.size.width.as_f32() as f64, bounds.size.height.as_f32() as f64);
+                        let (w, h) = (
+                            bounds.size.width.as_f32() as f64,
+                            bounds.size.height.as_f32() as f64,
+                        );
 
-                    let left_pct = (x_axis_val.min - full_domain.x_min) / full_domain.width();
-                    let right_pct = (x_axis_val.max - full_domain.x_min) / full_domain.width();
-                    let rect_left = (w * left_pct).clamp(0.0, w) as f32;
-                    let rect_right = (w * right_pct).clamp(0.0, w) as f32;
+                        let left_pct = (x_axis_val.min - full_domain.x_min) / full_domain.width();
+                        let right_pct = (x_axis_val.max - full_domain.x_min) / full_domain.width();
+                        let rect_left = (w * left_pct).clamp(0.0, w) as f32;
+                        let rect_right = (w * right_pct).clamp(0.0, w) as f32;
 
-                    let (rect_top, rect_bot) = if lock_y {
-                        (0.0, h as f32)
-                    } else {
-                        let top_pct = (full_domain.y_max - y_axis_val.max) / full_domain.height();
-                        let bot_pct = (full_domain.y_max - y_axis_val.min) / full_domain.height();
-                        ((h * top_pct).clamp(0.0, h) as f32, (h * bot_pct).clamp(0.0, h) as f32)
-                    };
+                        let (rect_top, rect_bot) = if lock_y {
+                            (0.0, h as f32)
+                        } else {
+                            let top_pct =
+                                (full_domain.y_max - y_axis_val.max) / full_domain.height();
+                            let bot_pct =
+                                (full_domain.y_max - y_axis_val.min) / full_domain.height();
+                            (
+                                (h * top_pct).clamp(0.0, h) as f32,
+                                (h * bot_pct).clamp(0.0, h) as f32,
+                            )
+                        };
 
-                    let rect = Bounds::new(
-                        Point::new(bounds.origin.x + px(rect_left), bounds.origin.y + px(rect_top)),
-                        Size {
-                            width: px(rect_right - rect_left).max(px(2.0)),
-                            height: px(rect_bot - rect_top).max(px(2.0)),
-                        }
-                    );
+                        let rect = Bounds::new(
+                            Point::new(
+                                bounds.origin.x + px(rect_left),
+                                bounds.origin.y + px(rect_top),
+                            ),
+                            Size {
+                                width: px(rect_right - rect_left).max(px(2.0)),
+                                height: px(rect_bot - rect_top).max(px(2.0)),
+                            },
+                        );
 
-                    window.paint_quad(gpui::fill(rect, theme.axis_label.opacity(0.2)));
-                    window.paint_quad(gpui::outline(rect, theme.axis_label.opacity(0.5), BorderStyle::Solid));
-                })
-                .size_full()
+                        window.paint_quad(gpui::fill(rect, theme.axis_label.opacity(0.2)));
+                        window.paint_quad(gpui::outline(
+                            rect,
+                            theme.axis_label.opacity(0.5),
+                            BorderStyle::Solid,
+                        ));
+                    },
+                )
+                .size_full(),
             )
     }
 }

@@ -1,8 +1,8 @@
-use crate::data_types::{LinePlotConfig, PlotData, PlotDataSource, VecDataSource, PlotPoint};
-use gpui::*;
-use crate::utils::PixelsExt;
-use crate::transform::PlotTransform;
 use super::PlotRenderer;
+use crate::data_types::{LinePlotConfig, PlotData, PlotDataSource, PlotPoint, VecDataSource};
+use crate::transform::PlotTransform;
+use crate::utils::PixelsExt;
+use gpui::*;
 
 /// Line plot type
 pub struct LinePlot {
@@ -37,7 +37,7 @@ impl PlotRenderer for LinePlot {
     ) {
         let (x_min, x_max) = transform.x_scale.domain();
         let max_points = transform.bounds.size.width.as_f32() as usize * 2;
-        
+
         let mut first = true;
         let mut builder = PathBuilder::stroke(px(self.config.line_width));
 

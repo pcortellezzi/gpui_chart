@@ -1,8 +1,8 @@
 // Data structures for the charting library
 
+use d3rs::scale::{LinearScale, Scale};
 use gpui::Hsla;
 use serde::{Deserialize, Serialize};
-use d3rs::scale::{LinearScale, Scale};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct LinePlotConfig {
@@ -106,10 +106,33 @@ impl Default for StepLinePlotConfig {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Annotation {
-    VLine { x: f64, color: Hsla, width: f32, label: Option<String> },
-    HLine { y: f64, color: Hsla, width: f32, label: Option<String> },
-    Rect { x_min: f64, x_max: f64, y_min: f64, y_max: f64, color: Hsla, fill: bool },
-    Text { x: f64, y: f64, text: String, color: Hsla, font_size: f32 },
+    VLine {
+        x: f64,
+        color: Hsla,
+        width: f32,
+        label: Option<String>,
+    },
+    HLine {
+        y: f64,
+        color: Hsla,
+        width: f32,
+        label: Option<String>,
+    },
+    Rect {
+        x_min: f64,
+        x_max: f64,
+        y_min: f64,
+        y_max: f64,
+        color: Hsla,
+        fill: bool,
+    },
+    Text {
+        x: f64,
+        y: f64,
+        text: String,
+        color: Hsla,
+        font_size: f32,
+    },
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -119,11 +142,11 @@ pub struct HeatmapCell {
     pub width: f64,
     pub height: f64,
     pub color: Hsla,
-    pub text: Option<String>, 
+    pub text: Option<String>,
 }
 
 // Axis management types
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub struct AxisId(pub usize);
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -142,6 +165,61 @@ pub struct ChartAxis<T> {
     pub size: gpui::Pixels,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub enum LegendPosition {
+    #[default]
+    TopLeft,
+    TopRight,
+    BottomLeft,
+    BottomRight,
+    TopCenter,
+    BottomCenter,
+    Custom(gpui::Point<gpui::Pixels>),
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub enum Orientation {
+    #[default]
+    Vertical,
+    Horizontal,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct LegendConfig {
+    pub enabled: bool,
+    pub position: LegendPosition,
+    pub orientation: Orientation,
+}
+
+impl Default for LegendConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            position: LegendPosition::TopLeft,
+            orientation: Orientation::Vertical,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct InertiaConfig {
+    pub enabled: bool,
+    pub friction: f64,
+    pub sensitivity: f64,
+    pub stop_threshold: std::time::Duration,
+}
+
+impl Default for InertiaConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            friction: 0.80,
+            sensitivity: 1.0,
+            stop_threshold: std::time::Duration::from_millis(150),
+        }
+    }
+}
+
 /// État pour un axe unique (X ou Y).
 #[derive(Clone, Debug, Default, PartialEq, PartialOrd)]
 pub struct AxisRange {
@@ -155,7 +233,13 @@ pub struct AxisRange {
 
 impl AxisRange {
     pub fn new(min: f64, max: f64) -> Self {
-        Self { min, max, cached_ticks: vec![], last_tick_domain: (0.0, 0.0), ..Default::default() }
+        Self {
+            min,
+            max,
+            cached_ticks: vec![],
+            last_tick_domain: (0.0, 0.0),
+            ..Default::default()
+        }
     }
 
     pub fn span(&self) -> f64 {
@@ -164,8 +248,8 @@ impl AxisRange {
 
     pub fn ticks(&mut self, count: usize) -> &[f64] {
         let (min, max) = self.clamped_bounds();
-        let domain_changed = (min - self.last_tick_domain.0).abs() > (max - min) * 0.001 
-                          || (max - self.last_tick_domain.1).abs() > (max - min) * 0.001;
+        let domain_changed = (min - self.last_tick_domain.0).abs() > (max - min) * 0.001
+            || (max - self.last_tick_domain.1).abs() > (max - min) * 0.001;
 
         if domain_changed || self.cached_ticks.is_empty() {
             self.cached_ticks = LinearScale::new()
@@ -186,12 +270,20 @@ impl AxisRange {
         let mut c_min = self.min;
         let mut c_max = self.max;
         if let Some(l) = self.min_limit {
-            if c_min < l { c_min = l; }
-            if c_max < l { c_max = l; }
+            if c_min < l {
+                c_min = l;
+            }
+            if c_max < l {
+                c_max = l;
+            }
         }
         if let Some(l) = self.max_limit {
-            if c_max > l { c_max = l; }
-            if c_min > l { c_min = l; }
+            if c_max > l {
+                c_max = l;
+            }
+            if c_min > l {
+                c_min = l;
+            }
         }
         (c_min, c_max)
     }
@@ -242,14 +334,12 @@ impl AxisRange {
                 self.max = max_l;
                 self.min = max_l - current_span;
             }
-        } else {
-            if self.min > min_l {
-                self.min = min_l;
-                self.max = min_l + current_span;
-            } else if self.max < max_l {
-                self.max = max_l;
-                self.min = max_l - current_span;
-            }
+        } else if self.min > min_l {
+            self.min = min_l;
+            self.max = min_l + current_span;
+        } else if self.max < max_l {
+            self.max = max_l;
+            self.min = max_l - current_span;
         }
     }
 }
@@ -268,12 +358,16 @@ pub struct AxisDomain {
 }
 
 impl AxisDomain {
-    pub fn width(&self) -> f64 { self.x_max - self.x_min }
-    pub fn height(&self) -> f64 { self.y_max - self.y_min }
+    pub fn width(&self) -> f64 {
+        self.x_max - self.x_min
+    }
+    pub fn height(&self) -> f64 {
+        self.y_max - self.y_min
+    }
 }
 
 /// État partagé entre plusieurs graphiques (Crosshair, etc.).
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Debug, Default)]
 pub struct SharedPlotState {
     pub hover_x: Option<f64>, // Coordonnée X en unités de données
     pub mouse_pos: Option<gpui::Point<gpui::Pixels>>, // Position écran globale
@@ -282,11 +376,53 @@ pub struct SharedPlotState {
     pub debug_mode: bool,
     pub theme: crate::theme::ChartTheme,
     pub render_version: u64,
+
+    pub box_zoom_start: Option<gpui::Point<gpui::Pixels>>,
+    pub box_zoom_current: Option<gpui::Point<gpui::Pixels>>,
+
+    /// Temps pris par le paint pour chaque pane (ID -> nanosecondes)
+    pub pane_paint_times:
+        std::sync::Arc<parking_lot::RwLock<std::collections::HashMap<String, u64>>>,
 }
 
 impl SharedPlotState {
     pub fn request_render(&mut self) {
         self.render_version = self.render_version.wrapping_add(1);
+    }
+
+    pub fn total_paint_nanos(&self) -> u64 {
+        self.pane_paint_times.read().values().sum()
+    }
+}
+
+impl PartialEq for SharedPlotState {
+    fn eq(&self, other: &Self) -> bool {
+        self.hover_x == other.hover_x
+            && self.mouse_pos == other.mouse_pos
+            && self.active_chart_id == other.active_chart_id
+            && self.is_dragging == other.is_dragging
+            && self.debug_mode == other.debug_mode
+            && self.theme == other.theme
+            && self.render_version == other.render_version
+            && self.box_zoom_start == other.box_zoom_start
+            && self.box_zoom_current == other.box_zoom_current
+    }
+}
+
+impl Clone for SharedPlotState {
+    fn clone(&self) -> Self {
+        Self {
+            hover_x: self.hover_x,
+            mouse_pos: self.mouse_pos,
+            active_chart_id: self.active_chart_id,
+            is_dragging: self.is_dragging,
+            debug_mode: self.debug_mode,
+            theme: self.theme.clone(),
+            render_version: self.render_version,
+            box_zoom_start: self.box_zoom_start,
+            box_zoom_current: self.box_zoom_current,
+            pane_paint_times: self.pane_paint_times.clone(),
+        }
     }
 }
 
@@ -337,7 +473,12 @@ pub trait PlotDataSource: Send + Sync {
 
     /// Iterate over aggregated data for LOD rendering.
     /// max_points: The target maximum number of points to return.
-    fn iter_aggregated(&self, x_min: f64, x_max: f64, _max_points: usize) -> Box<dyn Iterator<Item = PlotData> + '_> {
+    fn iter_aggregated(
+        &self,
+        x_min: f64,
+        x_max: f64,
+        _max_points: usize,
+    ) -> Box<dyn Iterator<Item = PlotData> + '_> {
         // Default implementation falls back to iter_range if max_points is huge or not implemented
         self.iter_range(x_min, x_max)
     }
@@ -353,8 +494,10 @@ pub trait PlotDataSource: Send + Sync {
 
     /// Total number of points
     fn len(&self) -> usize;
-    
-    fn is_empty(&self) -> bool { self.len() == 0 }
+
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 use std::collections::VecDeque;
@@ -364,8 +507,8 @@ pub struct StreamingDataSource {
     data: VecDeque<PlotData>,
     capacity: usize,
     bounds_cache: VecDeque<AxisDomain>, // Each element represents a chunk of CHUNK_SIZE points
-    current_chunk_count: usize, // Points in the first chunk
-    points_in_last_chunk: usize, // Points in the last chunk
+    current_chunk_count: usize,         // Points in the first chunk
+    points_in_last_chunk: usize,        // Points in the last chunk
     suggested_spacing: f64,
 }
 
@@ -385,11 +528,17 @@ impl StreamingDataSource {
 
     fn update_suggested_spacing(&mut self, new_x: f64) {
         if let Some(last) = self.data.back() {
-            let last_x = match last { PlotData::Point(p) => p.x, PlotData::Ohlcv(o) => o.time };
+            let last_x = match last {
+                PlotData::Point(p) => p.x,
+                PlotData::Ohlcv(o) => o.time,
+            };
             let s = (new_x - last_x).abs();
             if s > f64::EPSILON {
-                if self.suggested_spacing == 1.0 { self.suggested_spacing = s; }
-                else { self.suggested_spacing = self.suggested_spacing * 0.95 + s * 0.05; }
+                if self.suggested_spacing == 1.0 {
+                    self.suggested_spacing = s;
+                } else {
+                    self.suggested_spacing = self.suggested_spacing * 0.95 + s * 0.05;
+                }
             }
         }
     }
@@ -400,40 +549,55 @@ impl StreamingDataSource {
         self.bounds_cache.clear();
         self.current_chunk_count = 0;
         self.points_in_last_chunk = 0;
-        
+
         let mut count = 0;
         let mut domain = AxisDomain {
-            x_min: f64::INFINITY, x_max: f64::NEG_INFINITY,
-            y_min: f64::INFINITY, y_max: f64::NEG_INFINITY,
+            x_min: f64::INFINITY,
+            x_max: f64::NEG_INFINITY,
+            y_min: f64::INFINITY,
+            y_max: f64::NEG_INFINITY,
             ..Default::default()
         };
 
         for p in self.data.iter() {
-            let x = match p { PlotData::Point(pt) => pt.x, PlotData::Ohlcv(o) => o.time };
+            let x = match p {
+                PlotData::Point(pt) => pt.x,
+                PlotData::Ohlcv(o) => o.time,
+            };
             if let Some(lx) = last_x {
                 let s = (x - lx).abs();
-                if s > f64::EPSILON && s < min_spacing { min_spacing = s; }
+                if s > f64::EPSILON && s < min_spacing {
+                    min_spacing = s;
+                }
             }
             last_x = Some(x);
 
             match p {
                 PlotData::Point(pt) => {
-                    domain.x_min = domain.x_min.min(pt.x); domain.x_max = domain.x_max.max(pt.x);
-                    domain.y_min = domain.y_min.min(pt.y); domain.y_max = domain.y_max.max(pt.y);
+                    domain.x_min = domain.x_min.min(pt.x);
+                    domain.x_max = domain.x_max.max(pt.x);
+                    domain.y_min = domain.y_min.min(pt.y);
+                    domain.y_max = domain.y_max.max(pt.y);
                 }
                 PlotData::Ohlcv(o) => {
-                    domain.x_min = domain.x_min.min(o.time); domain.x_max = domain.x_max.max(o.time + o.span);
-                    domain.y_min = domain.y_min.min(o.low); domain.y_max = domain.y_max.max(o.high);
+                    domain.x_min = domain.x_min.min(o.time);
+                    domain.x_max = domain.x_max.max(o.time + o.span);
+                    domain.y_min = domain.y_min.min(o.low);
+                    domain.y_max = domain.y_max.max(o.high);
                 }
             }
-            
+
             count += 1;
             if count == CHUNK_SIZE {
-                if self.bounds_cache.is_empty() { self.current_chunk_count = CHUNK_SIZE; }
+                if self.bounds_cache.is_empty() {
+                    self.current_chunk_count = CHUNK_SIZE;
+                }
                 self.bounds_cache.push_back(domain);
                 domain = AxisDomain {
-                    x_min: f64::INFINITY, x_max: f64::NEG_INFINITY,
-                    y_min: f64::INFINITY, y_max: f64::NEG_INFINITY,
+                    x_min: f64::INFINITY,
+                    x_max: f64::NEG_INFINITY,
+                    y_min: f64::INFINITY,
+                    y_max: f64::NEG_INFINITY,
                     ..Default::default()
                 };
                 count = 0;
@@ -441,22 +605,37 @@ impl StreamingDataSource {
         }
 
         if count > 0 {
-            if self.bounds_cache.is_empty() { self.current_chunk_count = count; }
+            if self.bounds_cache.is_empty() {
+                self.current_chunk_count = count;
+            }
             self.bounds_cache.push_back(domain);
             self.points_in_last_chunk = count;
         } else if !self.bounds_cache.is_empty() {
             self.points_in_last_chunk = CHUNK_SIZE;
         }
 
-        self.suggested_spacing = if min_spacing == f64::INFINITY { 1.0 } else { min_spacing };
+        self.suggested_spacing = if min_spacing == f64::INFINITY {
+            1.0
+        } else {
+            min_spacing
+        };
     }
 }
 
 impl PlotDataSource for StreamingDataSource {
-    fn len(&self) -> usize { self.data.len() }
-    fn suggested_x_spacing(&self) -> f64 { self.suggested_spacing }
+    fn len(&self) -> usize {
+        self.data.len()
+    }
+    fn suggested_x_spacing(&self) -> f64 {
+        self.suggested_spacing
+    }
 
-    fn iter_aggregated(&self, x_min: f64, x_max: f64, max_points: usize) -> Box<dyn Iterator<Item = PlotData> + '_> {
+    fn iter_aggregated(
+        &self,
+        x_min: f64,
+        x_max: f64,
+        max_points: usize,
+    ) -> Box<dyn Iterator<Item = PlotData> + '_> {
         let raw_iter = self.iter_range(x_min, x_max);
         let count = self.len(); // Approximation or we can count in iter_range
 
@@ -465,7 +644,7 @@ impl PlotDataSource for StreamingDataSource {
             return raw_iter;
         }
 
-        // We don't know the exact count in the range without iterating, 
+        // We don't know the exact count in the range without iterating,
         // but we can estimate or collect. For streaming, collecting a range is usually fine.
         let data: Vec<PlotData> = raw_iter.collect();
         if data.len() <= max_points {
@@ -480,7 +659,9 @@ impl PlotDataSource for StreamingDataSource {
         for chunk in data.chunks(bin_size) {
             if let Some((p1, p2)) = VecDataSource::aggregate_chunk_min_max(chunk) {
                 aggregated.push(p1);
-                if let Some(p) = p2 { aggregated.push(p); }
+                if let Some(p) = p2 {
+                    aggregated.push(p);
+                }
             }
         }
 
@@ -488,17 +669,28 @@ impl PlotDataSource for StreamingDataSource {
     }
 
     fn get_bounds(&self) -> Option<(f64, f64, f64, f64)> {
-        if self.bounds_cache.is_empty() { return None; }
-        let mut b = (f64::INFINITY, f64::NEG_INFINITY, f64::INFINITY, f64::NEG_INFINITY);
+        if self.bounds_cache.is_empty() {
+            return None;
+        }
+        let mut b = (
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+        );
         for d in &self.bounds_cache {
-            b.0 = b.0.min(d.x_min); b.1 = b.1.max(d.x_max);
-            b.2 = b.2.min(d.y_min); b.3 = b.3.max(d.y_max);
+            b.0 = b.0.min(d.x_min);
+            b.1 = b.1.max(d.x_max);
+            b.2 = b.2.min(d.y_min);
+            b.3 = b.3.max(d.y_max);
         }
         Some(b)
     }
 
     fn get_y_range(&self, x_min: f64, x_max: f64) -> Option<(f64, f64)> {
-        if self.data.is_empty() { return None; }
+        if self.data.is_empty() {
+            return None;
+        }
         let mut y_min = f64::INFINITY;
         let mut y_max = f64::NEG_INFINITY;
         let mut found = false;
@@ -507,26 +699,35 @@ impl PlotDataSource for StreamingDataSource {
         let mut current_data_start = 0;
 
         for (i, chunk) in self.bounds_cache.iter().enumerate() {
-            if chunk.x_max < x_min || chunk.x_min > x_max { 
+            if chunk.x_max < x_min || chunk.x_min > x_max {
                 current_data_start += if i == 0 { first_chunk_size } else { CHUNK_SIZE };
-                continue; 
+                continue;
             }
-            
+
             if chunk.x_min >= x_min && chunk.x_max <= x_max {
-                y_min = y_min.min(chunk.y_min); 
+                y_min = y_min.min(chunk.y_min);
                 y_max = y_max.max(chunk.y_max);
                 found = true;
                 current_data_start += if i == 0 { first_chunk_size } else { CHUNK_SIZE };
             } else {
                 let count = if i == 0 { first_chunk_size } else { CHUNK_SIZE };
                 let end = current_data_start + count;
-                
+
                 for p in self.data.range(current_data_start..end) {
-                    let x = match p { PlotData::Point(pt) => pt.x, PlotData::Ohlcv(o) => o.time };
+                    let x = match p {
+                        PlotData::Point(pt) => pt.x,
+                        PlotData::Ohlcv(o) => o.time,
+                    };
                     if x >= x_min && x <= x_max {
                         match p {
-                            PlotData::Point(pt) => { y_min = y_min.min(pt.y); y_max = y_max.max(pt.y); }
-                            PlotData::Ohlcv(o) => { y_min = y_min.min(o.low); y_max = y_max.max(o.high); }
+                            PlotData::Point(pt) => {
+                                y_min = y_min.min(pt.y);
+                                y_max = y_max.max(pt.y);
+                            }
+                            PlotData::Ohlcv(o) => {
+                                y_min = y_min.min(o.low);
+                                y_max = y_max.max(o.high);
+                            }
                         }
                         found = true;
                     }
@@ -535,12 +736,16 @@ impl PlotDataSource for StreamingDataSource {
             }
         }
 
-        if found { Some((y_min, y_max)) } else { None }
+        if found {
+            Some((y_min, y_max))
+        } else {
+            None
+        }
     }
 
     fn iter_range(&self, x_min: f64, x_max: f64) -> Box<dyn Iterator<Item = PlotData> + '_> {
         let (s1, s2) = self.data.as_slices();
-        
+
         let get_x = |p: &PlotData| match p {
             PlotData::Point(pt) => pt.x,
             PlotData::Ohlcv(o) => o.time,
@@ -548,23 +753,28 @@ impl PlotDataSource for StreamingDataSource {
 
         let start1 = s1.partition_point(|p| get_x(p) < x_min);
         let end1 = s1.partition_point(|p| get_x(p) <= x_max);
-        
+
         let start2 = s2.partition_point(|p| get_x(p) < x_min);
         let end2 = s2.partition_point(|p| get_x(p) <= x_max);
 
         Box::new(
-            s1[start1..end1].iter().cloned()
-                .chain(s2[start2..end2].iter().cloned())
+            s1[start1..end1]
+                .iter()
+                .cloned()
+                .chain(s2[start2..end2].iter().cloned()),
         )
     }
 
     fn add_data(&mut self, data: PlotData) {
-        let x = match &data { PlotData::Point(p) => p.x, PlotData::Ohlcv(o) => o.time };
+        let x = match &data {
+            PlotData::Point(p) => p.x,
+            PlotData::Ohlcv(o) => o.time,
+        };
         self.update_suggested_spacing(x);
 
         if self.data.len() >= self.capacity {
             self.data.pop_front();
-            
+
             // Handle eviction from cache
             if self.current_chunk_count > 0 {
                 self.current_chunk_count -= 1;
@@ -573,21 +783,23 @@ impl PlotDataSource for StreamingDataSource {
                     self.bounds_cache.pop_front();
                     // The next chunk (if any) becomes the current first chunk
                     if !self.bounds_cache.is_empty() {
-                         self.current_chunk_count = CHUNK_SIZE; // It was a full chunk
+                        self.current_chunk_count = CHUNK_SIZE; // It was a full chunk
                     }
                 } else {
                     // The first chunk has changed, we must recompute its bounds
                     // It corresponds to data[0..self.current_chunk_count]
                     if let Some(first_chunk_bounds) = self.bounds_cache.front_mut() {
                         *first_chunk_bounds = AxisDomain {
-                            x_min: f64::INFINITY, x_max: f64::NEG_INFINITY,
-                            y_min: f64::INFINITY, y_max: f64::NEG_INFINITY,
+                            x_min: f64::INFINITY,
+                            x_max: f64::NEG_INFINITY,
+                            y_min: f64::INFINITY,
+                            y_max: f64::NEG_INFINITY,
                             ..Default::default()
                         };
                         // Recompute bounds for the remaining points in this chunk
                         for i in 0..self.current_chunk_count {
                             let p = &self.data[i];
-                             match p {
+                            match p {
                                 PlotData::Point(pt) => {
                                     first_chunk_bounds.x_min = first_chunk_bounds.x_min.min(pt.x);
                                     first_chunk_bounds.x_max = first_chunk_bounds.x_max.max(pt.x);
@@ -596,7 +808,8 @@ impl PlotDataSource for StreamingDataSource {
                                 }
                                 PlotData::Ohlcv(o) => {
                                     first_chunk_bounds.x_min = first_chunk_bounds.x_min.min(o.time);
-                                    first_chunk_bounds.x_max = first_chunk_bounds.x_max.max(o.time + o.span);
+                                    first_chunk_bounds.x_max =
+                                        first_chunk_bounds.x_max.max(o.time + o.span);
                                     first_chunk_bounds.y_min = first_chunk_bounds.y_min.min(o.low);
                                     first_chunk_bounds.y_max = first_chunk_bounds.y_max.max(o.high);
                                 }
@@ -608,31 +821,50 @@ impl PlotDataSource for StreamingDataSource {
         }
 
         self.data.push_back(data.clone());
-        
+
         if self.points_in_last_chunk == CHUNK_SIZE || self.bounds_cache.is_empty() {
             let mut domain = AxisDomain {
-                x_min: x, x_max: x, y_min: f64::INFINITY, y_max: f64::NEG_INFINITY, ..Default::default()
+                x_min: x,
+                x_max: x,
+                y_min: f64::INFINITY,
+                y_max: f64::NEG_INFINITY,
+                ..Default::default()
             };
             match data {
-                PlotData::Point(pt) => { domain.y_min = pt.y; domain.y_max = pt.y; }
-                PlotData::Ohlcv(o) => { domain.x_max = o.time + o.span; domain.y_min = o.low; domain.y_max = o.high; }
+                PlotData::Point(pt) => {
+                    domain.y_min = pt.y;
+                    domain.y_max = pt.y;
+                }
+                PlotData::Ohlcv(o) => {
+                    domain.x_max = o.time + o.span;
+                    domain.y_min = o.low;
+                    domain.y_max = o.high;
+                }
             }
             self.bounds_cache.push_back(domain);
             self.points_in_last_chunk = 1;
-            if self.bounds_cache.len() == 1 { self.current_chunk_count = 1; }
+            if self.bounds_cache.len() == 1 {
+                self.current_chunk_count = 1;
+            }
         } else if let Some(last) = self.bounds_cache.back_mut() {
             match data {
-                PlotData::Point(pt) => { 
-                    last.x_min = last.x_min.min(pt.x); last.x_max = last.x_max.max(pt.x);
-                    last.y_min = last.y_min.min(pt.y); last.y_max = last.y_max.max(pt.y);
+                PlotData::Point(pt) => {
+                    last.x_min = last.x_min.min(pt.x);
+                    last.x_max = last.x_max.max(pt.x);
+                    last.y_min = last.y_min.min(pt.y);
+                    last.y_max = last.y_max.max(pt.y);
                 }
                 PlotData::Ohlcv(o) => {
-                    last.x_min = last.x_min.min(o.time); last.x_max = last.x_max.max(o.time + o.span);
-                    last.y_min = last.y_min.min(o.low); last.y_max = last.y_max.max(o.high);
+                    last.x_min = last.x_min.min(o.time);
+                    last.x_max = last.x_max.max(o.time + o.span);
+                    last.y_min = last.y_min.min(o.low);
+                    last.y_max = last.y_max.max(o.high);
                 }
             }
             self.points_in_last_chunk += 1;
-            if self.bounds_cache.len() == 1 { self.current_chunk_count += 1; }
+            if self.bounds_cache.len() == 1 {
+                self.current_chunk_count += 1;
+            }
         }
     }
 
@@ -640,7 +872,9 @@ impl PlotDataSource for StreamingDataSource {
         self.data = VecDeque::from(data);
         if self.data.len() > self.capacity {
             let to_remove = self.data.len() - self.capacity;
-            for _ in 0..to_remove { self.data.pop_front(); }
+            for _ in 0..to_remove {
+                self.data.pop_front();
+            }
         }
         self.rebuild_cache();
     }
@@ -650,17 +884,17 @@ impl PlotDataSource for StreamingDataSource {
 pub struct VecDataSource {
     data: Vec<PlotData>,
     lod_levels: Vec<Vec<PlotData>>, // Pre-computed LOD levels: [0] = /2, [1] = /4, etc.
-    bounds_cache: Vec<AxisDomain>, // Reusing AxisDomain for chunk bounds
+    bounds_cache: Vec<AxisDomain>,  // Reusing AxisDomain for chunk bounds
     suggested_spacing: f64,
 }
 
 impl VecDataSource {
     pub fn new(data: Vec<PlotData>) -> Self {
-        let mut inst = Self { 
-            data, 
-            lod_levels: Vec::new(), 
-            bounds_cache: Vec::new(), 
-            suggested_spacing: 1.0 
+        let mut inst = Self {
+            data,
+            lod_levels: Vec::new(),
+            bounds_cache: Vec::new(),
+            suggested_spacing: 1.0,
         };
         inst.rebuild_cache();
         inst.build_lod_pyramid();
@@ -668,19 +902,25 @@ impl VecDataSource {
     }
 
     fn aggregate_chunk_min_max(chunk: &[PlotData]) -> Option<(PlotData, Option<PlotData>)> {
-        if chunk.is_empty() { return None; }
-        
+        if chunk.is_empty() {
+            return None;
+        }
+
         if let PlotData::Point(_) = chunk[0] {
             let mut min_pt: Option<PlotPoint> = None;
             let mut max_pt: Option<PlotPoint> = None;
-            
+
             for p in chunk {
                 if let PlotData::Point(pt) = p {
-                    if min_pt.is_none() || pt.y < min_pt.unwrap().y { min_pt = Some(*pt); }
-                    if max_pt.is_none() || pt.y > max_pt.unwrap().y { max_pt = Some(*pt); }
+                    if min_pt.is_none() || pt.y < min_pt.unwrap().y {
+                        min_pt = Some(*pt);
+                    }
+                    if max_pt.is_none() || pt.y > max_pt.unwrap().y {
+                        max_pt = Some(*pt);
+                    }
                 }
             }
-            
+
             let p_min = min_pt.unwrap();
             let p_max = max_pt.unwrap();
 
@@ -700,24 +940,26 @@ impl VecDataSource {
     }
 
     fn aggregate_chunk(chunk: &[PlotData]) -> Option<PlotData> {
-        if chunk.is_empty() { return None; }
-        
+        if chunk.is_empty() {
+            return None;
+        }
+
         if let PlotData::Point(_) = chunk[0] {
-            // For the pyramid (one point per bin), use the point furthest from the mean 
-            // or just the midpoint of min/max to stay stable. 
+            // For the pyramid (one point per bin), use the point furthest from the mean
+            // or just the midpoint of min/max to stay stable.
             // To be consistent with 2-point decimation, we'll return the midpoint X and average Y
             // for the pyramid levels, but the dynamic path will use real Min/Max.
             let mut sum_y = 0.0;
             let mut sum_x = 0.0;
             let len = chunk.len() as f64;
-            
+
             for p in chunk {
                 if let PlotData::Point(pt) = p {
                     sum_x += pt.x;
                     sum_y += pt.y;
                 }
             }
-            
+
             Some(PlotData::Point(PlotPoint {
                 x: sum_x / len,
                 y: sum_y / len,
@@ -734,11 +976,11 @@ impl VecDataSource {
 
             for (i, p) in chunk.iter().enumerate() {
                 if let PlotData::Ohlcv(o) = p {
-                    if i == 0 { 
-                        open = o.open; 
+                    if i == 0 {
+                        open = o.open;
                         first_time = o.time;
                     }
-                    if i == chunk.len() - 1 { 
+                    if i == chunk.len() - 1 {
                         close = o.close;
                         last_time_end = o.time + o.span;
                     }
@@ -764,20 +1006,26 @@ impl VecDataSource {
 
     fn build_lod_pyramid(&mut self) {
         self.lod_levels.clear();
-        if self.data.len() < 2000 { return; }
+        if self.data.len() < 2000 {
+            return;
+        }
 
         let mut next_level_capacity = self.data.len() / 2;
         // Build levels until we reach a small enough size (e.g. 100 points)
         while next_level_capacity >= 100 {
             let mut level = Vec::with_capacity(next_level_capacity);
-            let source_to_read = if self.lod_levels.is_empty() { &self.data } else { self.lod_levels.last().unwrap() };
-            
+            let source_to_read = if self.lod_levels.is_empty() {
+                &self.data
+            } else {
+                self.lod_levels.last().unwrap()
+            };
+
             for chunk in source_to_read.chunks(2) {
                 if let Some(agg) = Self::aggregate_chunk(chunk) {
                     level.push(agg);
                 }
             }
-            
+
             next_level_capacity = level.len() / 2;
             self.lod_levels.push(level);
         }
@@ -790,32 +1038,44 @@ impl VecDataSource {
 
         for chunk in self.data.chunks(CHUNK_SIZE) {
             let mut domain = AxisDomain {
-                x_min: f64::INFINITY, x_max: f64::NEG_INFINITY,
-                y_min: f64::INFINITY, y_max: f64::NEG_INFINITY,
+                x_min: f64::INFINITY,
+                x_max: f64::NEG_INFINITY,
+                y_min: f64::INFINITY,
+                y_max: f64::NEG_INFINITY,
                 ..Default::default()
             };
             for p in chunk {
                 let x = self.get_x(p);
                 if let Some(lx) = last_x {
                     let s = (x - lx).abs();
-                    if s > f64::EPSILON && s < min_spacing { min_spacing = s; }
+                    if s > f64::EPSILON && s < min_spacing {
+                        min_spacing = s;
+                    }
                 }
                 last_x = Some(x);
 
                 match p {
                     PlotData::Point(pt) => {
-                        domain.x_min = domain.x_min.min(pt.x); domain.x_max = domain.x_max.max(pt.x);
-                        domain.y_min = domain.y_min.min(pt.y); domain.y_max = domain.y_max.max(pt.y);
+                        domain.x_min = domain.x_min.min(pt.x);
+                        domain.x_max = domain.x_max.max(pt.x);
+                        domain.y_min = domain.y_min.min(pt.y);
+                        domain.y_max = domain.y_max.max(pt.y);
                     }
                     PlotData::Ohlcv(o) => {
-                        domain.x_min = domain.x_min.min(o.time); domain.x_max = domain.x_max.max(o.time + o.span);
-                        domain.y_min = domain.y_min.min(o.low); domain.y_max = domain.y_max.max(o.high);
+                        domain.x_min = domain.x_min.min(o.time);
+                        domain.x_max = domain.x_max.max(o.time + o.span);
+                        domain.y_min = domain.y_min.min(o.low);
+                        domain.y_max = domain.y_max.max(o.high);
                     }
                 }
             }
             self.bounds_cache.push(domain);
         }
-        self.suggested_spacing = if min_spacing == f64::INFINITY { 1.0 } else { min_spacing };
+        self.suggested_spacing = if min_spacing == f64::INFINITY {
+            1.0
+        } else {
+            min_spacing
+        };
     }
 
     fn get_x(&self, data: &PlotData) -> f64 {
@@ -827,33 +1087,50 @@ impl VecDataSource {
 }
 
 impl PlotDataSource for VecDataSource {
-    fn len(&self) -> usize { self.data.len() }
+    fn len(&self) -> usize {
+        self.data.len()
+    }
 
     fn suggested_x_spacing(&self) -> f64 {
         self.suggested_spacing
     }
 
     fn get_bounds(&self) -> Option<(f64, f64, f64, f64)> {
-        if self.bounds_cache.is_empty() { return None; }
-        let mut b = (f64::INFINITY, f64::NEG_INFINITY, f64::INFINITY, f64::NEG_INFINITY);
+        if self.bounds_cache.is_empty() {
+            return None;
+        }
+        let mut b = (
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+        );
         for d in &self.bounds_cache {
-            b.0 = b.0.min(d.x_min); b.1 = b.1.max(d.x_max);
-            b.2 = b.2.min(d.y_min); b.3 = b.3.max(d.y_max);
+            b.0 = b.0.min(d.x_min);
+            b.1 = b.1.max(d.x_max);
+            b.2 = b.2.min(d.y_min);
+            b.3 = b.3.max(d.y_max);
         }
         Some(b)
     }
 
     fn get_y_range(&self, x_min: f64, x_max: f64) -> Option<(f64, f64)> {
-        if self.data.is_empty() { return None; }
+        if self.data.is_empty() {
+            return None;
+        }
         let mut y_min = f64::INFINITY;
         let mut y_max = f64::NEG_INFINITY;
         let mut found = false;
 
         for (i, chunk) in self.bounds_cache.iter().enumerate() {
-            if chunk.x_max < x_min || chunk.x_min > x_max { continue; }
+            if chunk.x_max < x_min || chunk.x_min > x_max {
+                continue;
+            }
             if chunk.x_min >= x_min && chunk.x_max <= x_max {
-                y_min = y_min.min(chunk.y_min); y_max = y_max.max(chunk.y_max);
-                found = true; continue;
+                y_min = y_min.min(chunk.y_min);
+                y_max = y_max.max(chunk.y_max);
+                found = true;
+                continue;
             }
             let start = i * CHUNK_SIZE;
             let end = (start + CHUNK_SIZE).min(self.data.len());
@@ -861,42 +1138,57 @@ impl PlotDataSource for VecDataSource {
                 let x = self.get_x(p);
                 if x >= x_min && x <= x_max {
                     match p {
-                        PlotData::Point(pt) => { y_min = y_min.min(pt.y); y_max = y_max.max(pt.y); }
-                        PlotData::Ohlcv(o) => { y_min = y_min.min(o.low); y_max = y_max.max(o.high); }
+                        PlotData::Point(pt) => {
+                            y_min = y_min.min(pt.y);
+                            y_max = y_max.max(pt.y);
+                        }
+                        PlotData::Ohlcv(o) => {
+                            y_min = y_min.min(o.low);
+                            y_max = y_max.max(o.high);
+                        }
                     }
                     found = true;
                 }
             }
         }
-        if found { Some((y_min, y_max)) } else { None }
+        if found {
+            Some((y_min, y_max))
+        } else {
+            None
+        }
     }
 
     fn iter_range(&self, x_min: f64, x_max: f64) -> Box<dyn Iterator<Item = PlotData> + '_> {
         // Find range via binary search (assumes sorted by X)
         let start_idx = self.data.partition_point(|p| self.get_x(p) < x_min);
         let end_idx = self.data.partition_point(|p| self.get_x(p) <= x_max);
-        
+
         let start = start_idx.saturating_sub(1);
         let end = (end_idx + 1).min(self.data.len());
-        
+
         Box::new(self.data[start..end].iter().cloned())
     }
 
-    fn iter_aggregated(&self, x_min: f64, x_max: f64, max_points: usize) -> Box<dyn Iterator<Item = PlotData> + '_> {
+    fn iter_aggregated(
+        &self,
+        x_min: f64,
+        x_max: f64,
+        max_points: usize,
+    ) -> Box<dyn Iterator<Item = PlotData> + '_> {
         // 1. Identify raw range
         let start_idx = self.data.partition_point(|p| self.get_x(p) < x_min);
         let end_idx = self.data.partition_point(|p| self.get_x(p) <= x_max);
         let count = end_idx - start_idx;
 
         if count <= max_points {
-             let start = start_idx.saturating_sub(1);
-             let end = (end_idx + 1).min(self.data.len());
-             return Box::new(self.data[start..end].iter().cloned());
+            let start = start_idx.saturating_sub(1);
+            let end = (end_idx + 1).min(self.data.len());
+            return Box::new(self.data[start..end].iter().cloned());
         }
 
         // 2. Select LOD level
         let ratio = count as f64 / max_points as f64;
-        
+
         // lod_levels[0] is ratio 2. lod_levels[1] is ratio 4.
         // We want 2^(level+1) >= ratio.
         // log2(ratio) <= level + 1  => level >= log2(ratio) - 1.
@@ -904,24 +1196,24 @@ impl PlotDataSource for VecDataSource {
 
         if level_idx < self.lod_levels.len() {
             let level_data = &self.lod_levels[level_idx];
-            
+
             // Binary search on the aggregated level for precision
             let l_start = level_data.partition_point(|p| self.get_x(p) < x_min);
             let l_end = level_data.partition_point(|p| self.get_x(p) <= x_max);
-            
+
             // Add padding for continuity
             let start = l_start.saturating_sub(1);
             let end = (l_end + 1).min(level_data.len());
-            
+
             return Box::new(level_data[start..end].iter().cloned());
         } else if !self.lod_levels.is_empty() {
-             // Fallback to highest compression
-             let level_data = self.lod_levels.last().unwrap();
-             let l_start = level_data.partition_point(|p| self.get_x(p) < x_min);
-             let l_end = level_data.partition_point(|p| self.get_x(p) <= x_max);
-             let start = l_start.saturating_sub(1);
-             let end = (l_end + 1).min(level_data.len());
-             return Box::new(level_data[start..end].iter().cloned());
+            // Fallback to highest compression
+            let level_data = self.lod_levels.last().unwrap();
+            let l_start = level_data.partition_point(|p| self.get_x(p) < x_min);
+            let l_end = level_data.partition_point(|p| self.get_x(p) <= x_max);
+            let start = l_start.saturating_sub(1);
+            let end = (l_end + 1).min(level_data.len());
+            return Box::new(level_data[start..end].iter().cloned());
         }
 
         // 3. Fallback to dynamic binning if no pyramid (or ratio too high but pyramid empty/small)
@@ -932,16 +1224,20 @@ impl PlotDataSource for VecDataSource {
         for chunk in self.data[start_idx..end_idx].chunks(bin_size) {
             if let Some((p1, p2)) = Self::aggregate_chunk_min_max(chunk) {
                 aggregated.push(p1);
-                if let Some(p) = p2 { aggregated.push(p); }
+                if let Some(p) = p2 {
+                    aggregated.push(p);
+                }
             }
         }
-        
+
         Box::new(aggregated.into_iter())
     }
 
     fn add_data(&mut self, data: PlotData) {
         self.data.push(data);
-        if self.data.len() % CHUNK_SIZE == 1 { self.rebuild_cache(); } 
+        if self.data.len() % CHUNK_SIZE == 1 {
+            self.rebuild_cache();
+        }
         // Note: We don't rebuild pyramid on every add for perf reasons.
         // Ideally should append to levels incrementally, but for VecDataSource (static) it's rare.
     }
@@ -956,13 +1252,17 @@ impl PlotDataSource for VecDataSource {
 #[derive(Clone)]
 pub struct Series {
     pub id: String,
-    pub plot: std::sync::Arc<parking_lot::RwLock<dyn crate::plot_types::PlotRenderer + Send + Sync>>,
+    pub plot:
+        std::sync::Arc<parking_lot::RwLock<dyn crate::plot_types::PlotRenderer + Send + Sync>>,
     pub y_axis_id: AxisId,
     pub x_axis_id: AxisId,
 }
 
 impl Series {
-    pub fn new(id: impl Into<String>, plot: impl crate::plot_types::PlotRenderer + 'static) -> Self {
+    pub fn new(
+        id: impl Into<String>,
+        plot: impl crate::plot_types::PlotRenderer + 'static,
+    ) -> Self {
         Self {
             id: id.into(),
             plot: std::sync::Arc::new(parking_lot::RwLock::new(plot)),

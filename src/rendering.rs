@@ -1,11 +1,11 @@
 // Rendering functions for the chart
 #![allow(clippy::collapsible_if)]
 
-use crate::data_types::{AxisDomain, Series, AxisEdge};
+use crate::data_types::{AxisDomain, AxisEdge, Series};
 use crate::scales::ChartScale;
 use crate::transform::PlotTransform;
-use gpui::*;
 use crate::utils::PixelsExt;
+use gpui::*;
 
 /// Stats about the last paint operation.
 #[derive(Debug, Clone, Default)]
@@ -26,16 +26,25 @@ pub fn paint_plot(
     let start = std::time::Instant::now();
     let width_px = bounds.size.width.as_f32();
     let height_px = bounds.size.height.as_f32();
-    
+
     for series in series {
-        let x_domain = x_domains.get(series.x_axis_id.0).copied().unwrap_or((0.0, 1.0));
+        let x_domain = x_domains
+            .get(series.x_axis_id.0)
+            .copied()
+            .unwrap_or((0.0, 1.0));
         let x_scale = ChartScale::new_linear(x_domain, (0.0, width_px));
-        
-        let y_domain = y_domains.get(series.y_axis_id.0).copied().unwrap_or((0.0, 1.0));
+
+        let y_domain = y_domains
+            .get(series.y_axis_id.0)
+            .copied()
+            .unwrap_or((0.0, 1.0));
         let y_scale = ChartScale::new_linear(y_domain, (height_px, 0.0));
-        
+
         let transform = PlotTransform::new(x_scale, y_scale, bounds);
-        series.plot.read().render(window, &transform, &series.id, _cx);
+        series
+            .plot
+            .read()
+            .render(window, &transform, &series.id, _cx);
     }
 
     PaintStats {
@@ -74,14 +83,25 @@ pub fn paint_grid(
     let x_span = x_domain.x_max - x_domain.x_min;
 
     for tick_x in x_ticks {
-        if let Some(l) = x_domain.x_min_limit { if *tick_x < l { continue; } }
-        if let Some(l) = x_domain.x_max_limit { if *tick_x > l { continue; } }
+        if let Some(l) = x_domain.x_min_limit {
+            if *tick_x < l {
+                continue;
+            }
+        }
+        if let Some(l) = x_domain.x_max_limit {
+            if *tick_x > l {
+                continue;
+            }
+        }
 
         let x_pct = (*tick_x - x_domain.x_min) / x_span;
         if (0.0..=1.0).contains(&x_pct) {
             let pixel_x = origin_x + x_scale.map(*tick_x);
             vertical_builder.move_to(Point::new(px(pixel_x), px(origin_y + 0.5)));
-            vertical_builder.line_to(Point::new(px(pixel_x), px(origin_y + bounds.size.height.as_f32() - 0.5)));
+            vertical_builder.line_to(Point::new(
+                px(pixel_x),
+                px(origin_y + bounds.size.height.as_f32() - 0.5),
+            ));
             has_vertical = true;
         }
     }
@@ -95,14 +115,26 @@ pub fn paint_grid(
     let mut has_horizontal = false;
 
     for tick_y in &primary_y_axis.ticks {
-        if let Some(l) = primary_y_axis.limits.0 { if *tick_y < l { continue; } }
-        if let Some(l) = primary_y_axis.limits.1 { if *tick_y > l { continue; } }
+        if let Some(l) = primary_y_axis.limits.0 {
+            if *tick_y < l {
+                continue;
+            }
+        }
+        if let Some(l) = primary_y_axis.limits.1 {
+            if *tick_y > l {
+                continue;
+            }
+        }
 
-        let y_pct = (*tick_y - primary_y_axis.domain.1) / (primary_y_axis.domain.0 - primary_y_axis.domain.1);
+        let y_pct = (*tick_y - primary_y_axis.domain.1)
+            / (primary_y_axis.domain.0 - primary_y_axis.domain.1);
         if (0.0..=1.0).contains(&y_pct) {
             let pixel_y = origin_y + primary_y_axis.scale.map(*tick_y);
             horizontal_builder.move_to(Point::new(px(origin_x + 0.5), px(pixel_y)));
-            horizontal_builder.line_to(Point::new(px(origin_x + bounds.size.width.as_f32() - 0.5), px(pixel_y)));
+            horizontal_builder.line_to(Point::new(
+                px(origin_x + bounds.size.width.as_f32() - 0.5),
+                px(pixel_y),
+            ));
             has_horizontal = true;
         }
     }

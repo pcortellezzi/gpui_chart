@@ -1,6 +1,6 @@
-use d3rs::scale::{LinearScale, Scale as D3Scale};
-use d3rs::scale::LogScale;
 use chrono::{TimeZone, Utc};
+use d3rs::scale::LogScale;
+use d3rs::scale::{LinearScale, Scale as D3Scale};
 
 #[derive(Clone)]
 pub enum ChartScale {
@@ -68,7 +68,7 @@ impl ChartScale {
                 return dt.format("%H:%M").to_string();
             }
         }
-        
+
         if value.abs() < 0.001 && value.abs() > 0.0 {
             format!("{:.4}", value)
         } else if value.abs() > 1000.0 {
@@ -86,15 +86,23 @@ impl ChartScale {
             d_max += 0.5;
         }
         match self {
-            Self::Linear(s) => { s.domain(d_min, d_max); },
-            Self::Log(s) => { s.domain(d_min, d_max); },
+            Self::Linear(s) => {
+                s.domain(d_min, d_max);
+            }
+            Self::Log(s) => {
+                s.domain(d_min, d_max);
+            }
         }
     }
 
     pub fn update_range(&mut self, min: f32, max: f32) {
         match self {
-            Self::Linear(s) => { s.range(min as f64, max as f64); },
-            Self::Log(s) => { s.range(min as f64, max as f64); },
+            Self::Linear(s) => {
+                s.range(min as f64, max as f64);
+            }
+            Self::Log(s) => {
+                s.range(min as f64, max as f64);
+            }
         }
     }
 }

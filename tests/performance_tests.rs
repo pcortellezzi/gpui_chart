@@ -1,4 +1,4 @@
-use gpui_chart::data_types::{PlotPoint, ColorOp, PlotDataSource, VecDataSource, PlotData};
+use gpui_chart::data_types::{ColorOp, PlotData, PlotDataSource, PlotPoint, VecDataSource};
 use std::time::Instant;
 
 #[test]
@@ -30,8 +30,17 @@ fn test_vec_datasource_performance() {
     let start_iter = Instant::now();
     let count_iter = source.iter_range(40000.0, 41000.0).count();
     let duration_iter = start_iter.elapsed();
-    println!("Iterate over {} visible points: {:?}", count_iter, duration_iter);
+    println!(
+        "Iterate over {} visible points: {:?}",
+        count_iter, duration_iter
+    );
 
-    assert!(duration_range.as_micros() < 500, "Auto-fit should be very fast thanks to cache");
-    assert!(duration_iter.as_micros() < 500, "Culling iteration should be sub-millisecond");
+    assert!(
+        duration_range.as_micros() < 500,
+        "Auto-fit should be very fast thanks to cache"
+    );
+    assert!(
+        duration_iter.as_micros() < 500,
+        "Culling iteration should be sub-millisecond"
+    );
 }

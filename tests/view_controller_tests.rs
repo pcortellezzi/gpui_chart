@@ -1,5 +1,5 @@
-use gpui_chart::view_controller::ViewController;
 use gpui_chart::data_types::AxisRange;
+use gpui_chart::view_controller::ViewController;
 
 #[test]
 fn test_pan_axis_x() {
@@ -67,7 +67,7 @@ fn test_move_to_center() {
 #[test]
 fn test_move_to_center_clamped() {
     let mut range = AxisRange::new(40.0, 60.0); // span 20
-    // Move to 10, but clamp to [0, 100]
+                                                // Move to 10, but clamp to [0, 100]
     ViewController::move_to_center(&mut range, 5.0, Some((0.0, 100.0)));
     assert_eq!(range.min, 0.0);
     assert_eq!(range.max, 20.0);

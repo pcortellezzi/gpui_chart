@@ -1,8 +1,8 @@
-use crate::data_types::{AreaPlotConfig, PlotData, PlotDataSource, VecDataSource, PlotPoint};
-use gpui::*;
-use crate::utils::PixelsExt;
-use crate::transform::PlotTransform;
 use super::PlotRenderer;
+use crate::data_types::{AreaPlotConfig, PlotData, PlotDataSource, PlotPoint, VecDataSource};
+use crate::transform::PlotTransform;
+use crate::utils::PixelsExt;
+use gpui::*;
 
 /// Area plot type
 pub struct AreaPlot {
@@ -49,7 +49,7 @@ impl PlotRenderer for AreaPlot {
 
         let mut fill_builder = PathBuilder::fill();
         let mut line_builder = PathBuilder::stroke(px(self.config.line_width));
-        
+
         let mut first_pt: Option<Point<Pixels>> = None;
         let mut last_pt: Option<Point<Pixels>> = None;
 
