@@ -36,6 +36,7 @@ impl PlotRenderer for BarPlot {
         window: &mut Window,
         transform: &PlotTransform,
         _series_id: &str,
+        _cx: &mut App,
     ) {
         let (x_min, x_max) = transform.x_scale.domain();
         
@@ -73,28 +74,41 @@ impl PlotRenderer for BarPlot {
         
         // Ensure we don't make bars WIDER than the original data would allow if zoomed in
         let spacing = effective_spacing.max(self.source.suggested_x_spacing());
-        let bar_width_data = spacing * self.config.bar_width_pct as f64;
-        let half_width = bar_width_data / 2.0;
+        
+        // Anti-aliasing logic: 
+        // 1. If we are using aggregated data (LOD), we force 100% width to avoid switching artifacts.
+        // 2. If gaps are too thin (< 1.2px), we remove them to avoid moire.
+        let is_aggregated = spacing > self.source.suggested_x_spacing() * 1.1;
+        let spacing_px = (transform.x_scale.map(x_min + spacing) - transform.x_scale.map(x_min)).abs();
+        let gap_px = spacing_px * (1.0 - self.config.bar_width_pct);
+        
+        let effective_pct = if is_aggregated || gap_px < 1.2 { 1.0 } else { self.config.bar_width_pct as f64 };
 
         for point in points {
-            let x_left = point.x - half_width;
-            let x_right = point.x + half_width;
+            // Edge-based snapping: calculate edges in data space, then snap both to pixels.
+            // This ensures adjacent bars touch perfectly without gaps or 1px overlaps.
+            let x_start_data = point.x - spacing / 2.0;
+            let x_end_data = x_start_data + spacing * effective_pct;
+            
+            let px_start = transform.x_data_to_screen(x_start_data).as_f32().round();
+            let px_end = transform.x_data_to_screen(x_end_data).as_f32().round();
+            
+            let rect_x = px_start;
+            let rect_w = (px_end - px_start).max(1.0);
             
             // Optimization: Clip strictly outside
-            if x_right < x_min || x_left > x_max { continue; }
+            if rect_x + rect_w < 0.0 || rect_x > transform.bounds.size.width.as_f32() { continue; }
 
-            let p_top_left = transform.data_to_screen(Point::new(x_left, point.y));
-            let p_bottom_right = transform.data_to_screen(Point::new(x_right, self.baseline));
-            
-            let rect_x = p_top_left.x;
-            let rect_w = (p_bottom_right.x - p_top_left.x).max(px(1.0));
+            // Calculate Y
+            let p_top_left = transform.data_to_screen(Point::new(point.x, point.y));
+            let p_bottom_right = transform.data_to_screen(Point::new(point.x, self.baseline));
             
             let rect_y = p_top_left.y.min(p_bottom_right.y);
             let rect_h = (p_bottom_right.y - p_top_left.y).abs().max(px(1.0));
 
             let rect = Bounds::new(
-                Point::new(rect_x, rect_y),
-                Size::new(rect_w, rect_h),
+                Point::new(px(rect_x), rect_y),
+                Size::new(px(rect_w), rect_h),
             );
 
             window.paint_quad(fill(rect, self.config.color));

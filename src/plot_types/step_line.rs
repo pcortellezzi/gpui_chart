@@ -33,46 +33,40 @@ impl PlotRenderer for StepLinePlot {
         window: &mut Window,
         transform: &PlotTransform,
         _series_id: &str,
+        _cx: &mut App,
     ) {
         let (x_min, x_max) = transform.x_scale.domain();
-        let visible_iter = self.source.iter_range(x_min, x_max);
+        let max_points = transform.bounds.size.width.as_f32() as usize * 2;
+        let visible_iter = self.source.iter_aggregated(x_min, x_max, max_points);
 
         let mut builder = PathBuilder::stroke(px(self.config.line_width));
         let mut prev_pt: Option<Point<Pixels>> = None;
-        let mut last_px_x = f64::MIN;
-        let mut first = true;
 
         for data in visible_iter {
             if let PlotData::Point(p_curr) = data {
                 let s_curr = transform.data_to_screen(Point::new(p_curr.x, p_curr.y));
-                let px_x = s_curr.x.as_f64();
 
-                // Decimation: only process if we moved at least half a pixel
-                if first || (px_x - last_px_x).abs() >= 0.5 {
-                    if let Some(s_prev) = prev_pt {
-                        match self.config.mode {
-                            StepMode::Post => {
-                                builder.line_to(Point::new(s_curr.x, s_prev.y));
-                                builder.line_to(s_curr);
-                            }
-                            StepMode::Pre => {
-                                builder.line_to(Point::new(s_prev.x, s_curr.y));
-                                builder.line_to(s_curr);
-                            }
-                            StepMode::Mid => {
-                                let mid_x = (s_prev.x + s_curr.x) / 2.0;
-                                builder.line_to(Point::new(mid_x, s_prev.y));
-                                builder.line_to(Point::new(mid_x, s_curr.y));
-                                builder.line_to(s_curr);
-                            }
+                if let Some(s_prev) = prev_pt {
+                    match self.config.mode {
+                        StepMode::Post => {
+                            builder.line_to(Point::new(s_curr.x, s_prev.y));
+                            builder.line_to(s_curr);
                         }
-                    } else {
-                        builder.move_to(s_curr);
+                        StepMode::Pre => {
+                            builder.line_to(Point::new(s_prev.x, s_curr.y));
+                            builder.line_to(s_curr);
+                        }
+                        StepMode::Mid => {
+                            let mid_x = (s_prev.x + s_curr.x) / 2.0;
+                            builder.line_to(Point::new(mid_x, s_prev.y));
+                            builder.line_to(Point::new(mid_x, s_curr.y));
+                            builder.line_to(s_curr);
+                        }
                     }
-                    prev_pt = Some(s_curr);
-                    last_px_x = px_x;
-                    first = false;
+                } else {
+                    builder.move_to(s_curr);
                 }
+                prev_pt = Some(s_curr);
             }
         }
 

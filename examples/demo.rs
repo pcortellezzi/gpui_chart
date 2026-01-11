@@ -26,7 +26,11 @@ impl DemoApp {
         let shared_plot_state = cx.new(|_cx| SharedPlotState::default());
 
         // 2. Ranges
-        let price_y = cx.new(|_cx| AxisRange::new(0.0, 200.0));
+        let price_y = cx.new(|_cx| {
+            let mut r = AxisRange::new(0.0, 200.0);
+            r.min_limit = Some(0.0);
+            r
+        });
         let volume_y = cx.new(|_cx| AxisRange::new(0.0, 1000.0));
         let indicator_y = cx.new(|_cx| AxisRange::new(0.0, 100.0));
 

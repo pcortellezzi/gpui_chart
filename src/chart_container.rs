@@ -392,6 +392,28 @@ impl ChartContainer {
                 self.handle_axis_drag(&drag_info, delta, cx);
                 self.last_mouse_pos = Some(event.position);
             }
+        } else {
+            // Crosshair Visibility Logic
+            let mut inside_any_pane = false;
+            for pane_config in &self.panes {
+                let pane = pane_config.pane.read(cx);
+                let bounds = *pane.bounds.borrow();
+                if bounds.contains(&event.position) {
+                    inside_any_pane = true;
+                    break;
+                }
+            }
+
+            if !inside_any_pane {
+                let state = self.shared_state.read(cx);
+                if !state.is_dragging && state.mouse_pos.is_some() {
+                    self.shared_state.update(cx, |s, _| { 
+                        s.mouse_pos = None; 
+                        s.hover_x = None; // Reset hover value too
+                        s.request_render(); 
+                    });
+                }
+            }
         }
     }
 
@@ -411,7 +433,7 @@ impl ChartContainer {
                         ViewController::pan_axis(r, delta_val.as_f32(), total_size.as_f32(), info.is_y);
                     }
                     MouseButton::Middle => {
-                        let dy = if info.is_y { -delta.y.as_f32() } else { delta.x.as_f32() };
+                        let dy = if info.is_y { delta.y.as_f32() } else { -delta.x.as_f32() };
                         let factor = ViewController::compute_zoom_factor(dy, 100.0);
                         ViewController::zoom_axis_at(r, info.pivot_pct, factor);
                     }
@@ -481,6 +503,11 @@ impl Render for ChartContainer {
                     x_pos,
                     axis.label.clone(),
                     &theme,
+                    {
+                        let key = key.clone();
+                        let lab = last_render_axis_bounds.clone();
+                        move |bounds| { lab.borrow_mut().insert(key.clone(), bounds); }
+                    }
                 )
                 .on_mouse_down(MouseButton::Right, cx.listener(move |this, _, _, cx| {
                     this.flip_axis_edge(Some(pane_idx), axis_idx, cx);
@@ -518,10 +545,6 @@ impl Render for ChartContainer {
                         shared_state.update(cx, |s, _cx| s.request_render());
                     }
                 })
-                .child({
-                    let key = key.clone(); let lab = last_render_axis_bounds.clone();
-                    canvas(|_, _, _| {}, move |bounds, (), _, _| { lab.borrow_mut().insert(key, bounds); }).size_full().absolute()
-                })
                 .into_any_element();
 
                 if is_left { left_y_axis_elements.push(el); } else { right_y_axis_elements.push(el); }
@@ -544,6 +567,11 @@ impl Render for ChartContainer {
                 self.gutter_right,
                 x_axis.label.clone(),
                 &theme,
+                {
+                    let key = key.clone();
+                    let lab = last_render_axis_bounds.clone();
+                    move |bounds| { lab.borrow_mut().insert(key.clone(), bounds); }
+                }
             )
             .on_mouse_down(MouseButton::Right, cx.listener(move |this, _, _, cx| {
                 this.flip_axis_edge(None, axis_idx, cx);
@@ -571,22 +599,17 @@ impl Render for ChartContainer {
                     }
                 })
             })
-            .on_scroll_wheel({
-                let axis_entity = axis_entity.clone();
-                let shared_state = self.shared_state.clone();
-                move |event, _, cx| {
-                    let dy = match event.delta { ScrollDelta::Pixels(p) => p.y.as_f32(), ScrollDelta::Lines(p) => p.y as f32 * 20.0 };
-                    let factor = (1.0f64 - dy as f64 * 0.01).clamp(0.1, 10.0);
-                    axis_entity.update(cx, |r, _cx| { ViewController::zoom_axis_at(r, 0.5, factor); });
-                    shared_state.update(cx, |s, _cx| s.request_render());
-                }
-            })
-            .child({
-                let key = key.clone(); let lab = last_render_axis_bounds.clone();
-                canvas(|_, _, _| {}, move |bounds, (), _, _| { lab.borrow_mut().insert(key, bounds); }).size_full().absolute()
-            });
-
-            let axis_div = match x_axis.edge {
+                            .on_scroll_wheel({
+                                let axis_entity = axis_entity.clone();
+                                let shared_state = self.shared_state.clone();
+                                move |event, _, cx| {
+                                    let dy = match event.delta { ScrollDelta::Pixels(p) => p.y.as_f32(), ScrollDelta::Lines(p) => p.y as f32 * 20.0 };
+                                    let factor = (1.0f64 - dy as f64 * 0.01).clamp(0.1, 10.0);
+                                    axis_entity.update(cx, |r, _cx| { ViewController::zoom_axis_at(r, 0.5, factor); });
+                                    shared_state.update(cx, |s, _cx| s.request_render());
+                                }
+                            });
+                        let axis_div = match x_axis.edge {
                 AxisEdge::Top => { let pos = top_cursor; top_cursor += x_axis.size; el.top(pos) }
                 AxisEdge::Bottom => { let pos = bot_cursor; bot_cursor += x_axis.size; el.bottom(pos) }
                 _ => el,
@@ -599,15 +622,20 @@ impl Render for ChartContainer {
         let mut tags = Vec::new();
         if let (Some(pos), Some(hx)) = (mouse_pos, hover_x) {
             let container_origin = container_bounds_rc.borrow().origin;
-            for (i, x_a) in self.x_axes.iter().enumerate() {
-                let key = AxisKey::X(i).to_string();
-                if let Some(b) = last_render_axis_bounds.borrow().get(&key) {
-                    let r = x_a.entity.read(cx); let scale = crate::scales::ChartScale::new_linear(r.clamped_bounds(), (0.0, b.size.width.as_f32()));
-                    let sx = b.origin.x - container_origin.x + px(scale.map(hx));
-                    tags.push(div().absolute().top(b.origin.y - container_origin.y).left(sx).ml(px(-40.0)).w(px(80.0)).h(x_a.size)
-                        .child(crate::rendering::create_axis_tag(scale.format_tick(hx), px(40.0), true, &theme)).into_any_element());
-                }
-            }
+                        for (i, x_a) in self.x_axes.iter().enumerate() {
+                            let key = AxisKey::X(i).to_string();
+                            if let Some(b) = last_render_axis_bounds.borrow().get(&key) {
+                                let r = x_a.entity.read(cx); 
+                                                    // Bounds 'b' are now the inner canvas bounds, so they exclude gutters. No manual adjustment needed.
+                                                    let scale = crate::scales::ChartScale::new_linear(r.clamped_bounds(), (0.0, b.size.width.as_f32()));
+                                                    let sx = b.origin.x - container_origin.x + px(scale.map(hx));
+                                                    // Nudge top by -1px to align border with axis border
+                                                    tags.push(div().absolute().top(b.origin.y - container_origin.y - px(1.0)).left(sx).ml(px(-40.0)).w(px(80.0)).h(x_a.size)
+                                                        .child(crate::rendering::create_axis_tag(scale.format_tick(hx), px(40.0), true, &theme)).into_any_element());
+                                                }
+                                
+                        }
+            
             for (p_idx, pc) in self.panes.iter().enumerate() {
                 for (a_idx, y_a) in pc.y_axes.iter().enumerate() {
                     let key = AxisKey::Y(p_idx, a_idx).to_string();

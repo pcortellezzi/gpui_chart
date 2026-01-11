@@ -41,8 +41,10 @@ impl PlotRenderer for AreaPlot {
         window: &mut Window,
         transform: &PlotTransform,
         _series_id: &str,
+        _cx: &mut App,
     ) {
         let (x_min, x_max) = transform.x_scale.domain();
+        let max_points = transform.bounds.size.width.as_f32() as usize * 2;
         let baseline_y = transform.y_data_to_screen(self.baseline);
 
         let mut fill_builder = PathBuilder::fill();
@@ -50,28 +52,21 @@ impl PlotRenderer for AreaPlot {
         
         let mut first_pt: Option<Point<Pixels>> = None;
         let mut last_pt: Option<Point<Pixels>> = None;
-        let mut last_px_x = f64::MIN;
-        let mut has_data = false;
 
-        for data in self.source.iter_range(x_min, x_max) {
+        for data in self.source.iter_aggregated(x_min, x_max, max_points) {
             if let PlotData::Point(point) = data {
                 let screen_point = transform.data_to_screen(Point::new(point.x, point.y));
-                let px_x = screen_point.x.as_f64();
 
-                if !has_data || (px_x - last_px_x).abs() >= 0.5 {
-                    if first_pt.is_none() {
-                        fill_builder.move_to(Point::new(screen_point.x, baseline_y));
-                        fill_builder.line_to(screen_point);
-                        line_builder.move_to(screen_point);
-                        first_pt = Some(screen_point);
-                    } else {
-                        fill_builder.line_to(screen_point);
-                        line_builder.line_to(screen_point);
-                    }
-                    last_pt = Some(screen_point);
-                    last_px_x = px_x;
-                    has_data = true;
+                if first_pt.is_none() {
+                    fill_builder.move_to(Point::new(screen_point.x, baseline_y));
+                    fill_builder.line_to(screen_point);
+                    line_builder.move_to(screen_point);
+                    first_pt = Some(screen_point);
+                } else {
+                    fill_builder.line_to(screen_point);
+                    line_builder.line_to(screen_point);
                 }
+                last_pt = Some(screen_point);
             }
         }
 

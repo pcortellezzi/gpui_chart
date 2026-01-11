@@ -20,6 +20,7 @@ impl PlotRenderer for AnnotationPlot {
         window: &mut Window,
         transform: &PlotTransform,
         _series_id: &str,
+        cx: &mut App,
     ) {
         let bounds = transform.bounds;
         let origin = bounds.origin;
@@ -43,11 +44,26 @@ impl PlotRenderer for AnnotationPlot {
                             window.paint_path(path, *color);
                         }
 
-                        if let Some(_text) = label {
+                        if let Some(text) = label {
+                            // Render label near the top
+                            let font_size = px(10.0);
+                            let run = TextRun {
+                                len: text.len(),
+                                font: TextStyle::default().font(),
+                                color: *color,
+                                background_color: None,
+                                underline: None,
+                                strikethrough: None,
+                            };
+                            if let Ok(lines) = window.text_system().shape_text(text.clone().into(), font_size, &[run], None, None) {
+                                for line in lines {
+                                    let _ = line.paint(p1 + point(px(2.0), px(2.0)), font_size, TextAlign::Left, None, window, cx);
+                                }
+                            }
                         }
                     }
                 }
-                Annotation::HLine { y, color, width, label: _ } => {
+                Annotation::HLine { y, color, width, label } => {
                      let screen_y = transform.y_data_to_screen(*y);
 
                      if screen_y >= origin.y - px(*width) && screen_y <= origin.y + size.height + px(*width) {
@@ -60,6 +76,23 @@ impl PlotRenderer for AnnotationPlot {
 
                         if let Ok(path) = builder.build() {
                             window.paint_path(path, *color);
+                        }
+                        
+                        if let Some(text) = label {
+                            let font_size = px(10.0);
+                            let run = TextRun {
+                                len: text.len(),
+                                font: TextStyle::default().font(),
+                                color: *color,
+                                background_color: None,
+                                underline: None,
+                                strikethrough: None,
+                            };
+                            if let Ok(lines) = window.text_system().shape_text(text.clone().into(), font_size, &[run], None, None) {
+                                for line in lines {
+                                    let _ = line.paint(p1 + point(px(2.0), px(-12.0)), font_size, TextAlign::Left, None, window, cx);
+                                }
+                            }
                         }
                      }
                 }
@@ -75,8 +108,24 @@ impl PlotRenderer for AnnotationPlot {
                         window.paint_quad(gpui::outline(rect, *color, gpui::BorderStyle::Solid));
                     }
                 }
-                Annotation::Text { x, y, text: _, color: _, font_size: _ } => {
-                    let _pos = transform.data_to_screen(Point::new(*x, *y));
+                Annotation::Text { x, y, text, color, font_size } => {
+                    let pos = transform.data_to_screen(Point::new(*x, *y));
+                    let font_size_px = px(*font_size);
+                    let run = TextRun {
+                        len: text.len(),
+                        font: TextStyle::default().font(),
+                        color: *color,
+                        background_color: None,
+                        underline: None,
+                        strikethrough: None,
+                    };
+                    if let Ok(lines) = window.text_system().shape_text(text.clone().into(), font_size_px, &[run], None, None) {
+                        let mut origin = pos;
+                        for line in lines {
+                            let _ = line.paint(origin, font_size_px, TextAlign::Left, None, window, cx);
+                            origin.y += font_size_px;
+                        }
+                    }
                 }
             }
         }

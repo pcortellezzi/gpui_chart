@@ -33,26 +33,23 @@ impl PlotRenderer for LinePlot {
         window: &mut Window,
         transform: &PlotTransform,
         _series_id: &str,
+        _cx: &mut App,
     ) {
         let (x_min, x_max) = transform.x_scale.domain();
+        let max_points = transform.bounds.size.width.as_f32() as usize * 2;
         
         let mut first = true;
-        let mut last_px_x = f64::MIN;
         let mut builder = PathBuilder::stroke(px(self.config.line_width));
 
-        for data in self.source.iter_range(x_min, x_max) {
+        for data in self.source.iter_aggregated(x_min, x_max, max_points) {
             if let PlotData::Point(point) = data {
                 let screen_point = transform.data_to_screen(Point::new(point.x, point.y));
-                let px_x = screen_point.x.as_f64();
 
-                if first || (px_x - last_px_x).abs() >= 0.5 {
-                    if first {
-                        builder.move_to(screen_point);
-                        first = false;
-                    } else {
-                        builder.line_to(screen_point);
-                    }
-                    last_px_x = px_x;
+                if first {
+                    builder.move_to(screen_point);
+                    first = false;
+                } else {
+                    builder.line_to(screen_point);
                 }
             }
         }

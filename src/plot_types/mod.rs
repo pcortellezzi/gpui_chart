@@ -26,6 +26,7 @@ pub trait PlotRenderer: Send + Sync {
         window: &mut Window,
         transform: &PlotTransform,
         series_id: &str,
+        cx: &mut App,
     );
 
     /// Get min/max bounds for auto-fitting (x_min, x_max, y_min, y_max)

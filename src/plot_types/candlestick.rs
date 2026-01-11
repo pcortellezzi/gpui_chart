@@ -34,6 +34,7 @@ impl PlotRenderer for CandlestickPlot {
         window: &mut Window,
         transform: &PlotTransform,
         _series_id: &str,
+        _cx: &mut App,
     ) {
         let bounds = transform.bounds;
         let width_px = bounds.size.width.as_f32();

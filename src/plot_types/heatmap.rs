@@ -2,6 +2,7 @@
 
 use crate::data_types::{HeatmapCell};
 use gpui::*;
+use crate::transform::PlotTransform;
 use super::PlotRenderer;
 
 /// Heatmap plot type
@@ -20,8 +21,9 @@ impl PlotRenderer for HeatmapPlot {
     fn render(
         &self,
         window: &mut Window,
-        transform: &crate::transform::PlotTransform,
+        transform: &PlotTransform,
         _series_id: &str,
+        _cx: &mut App,
     ) {
         let bounds = transform.bounds;
         let origin = bounds.origin;

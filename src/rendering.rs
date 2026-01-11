@@ -35,7 +35,7 @@ pub fn paint_plot(
         let y_scale = ChartScale::new_linear(y_domain, (height_px, 0.0));
         
         let transform = PlotTransform::new(x_scale, y_scale, bounds);
-        series.plot.read().render(window, &transform, &series.id);
+        series.plot.read().render(window, &transform, &series.id, _cx);
     }
 
     PaintStats {
@@ -127,8 +127,9 @@ pub fn create_axis_tag(
             .bottom(px(0.0))
             .ml(px(-40.0))
             .w(px(80.0))
-            .h(px(20.0))
+            .h_full()
             .bg(theme.tag_background)
+            .rounded_sm()
             .text_color(theme.tag_text)
             .text_size(px(12.0))
             .flex()

@@ -456,6 +456,37 @@ impl PlotDataSource for StreamingDataSource {
     fn len(&self) -> usize { self.data.len() }
     fn suggested_x_spacing(&self) -> f64 { self.suggested_spacing }
 
+    fn iter_aggregated(&self, x_min: f64, x_max: f64, max_points: usize) -> Box<dyn Iterator<Item = PlotData> + '_> {
+        let raw_iter = self.iter_range(x_min, x_max);
+        let count = self.len(); // Approximation or we can count in iter_range
+
+        // If data is small enough, return raw
+        if count <= max_points {
+            return raw_iter;
+        }
+
+        // We don't know the exact count in the range without iterating, 
+        // but we can estimate or collect. For streaming, collecting a range is usually fine.
+        let data: Vec<PlotData> = raw_iter.collect();
+        if data.len() <= max_points {
+            return Box::new(data.into_iter());
+        }
+
+        // Perform Min/Max decimation (2 points per bin)
+        let target_bins = max_points / 2;
+        let bin_size = (data.len() as f64 / target_bins.max(1) as f64).ceil() as usize;
+        let mut aggregated = Vec::with_capacity(max_points);
+
+        for chunk in data.chunks(bin_size) {
+            if let Some((p1, p2)) = VecDataSource::aggregate_chunk_min_max(chunk) {
+                aggregated.push(p1);
+                if let Some(p) = p2 { aggregated.push(p); }
+            }
+        }
+
+        Box::new(aggregated.into_iter())
+    }
+
     fn get_bounds(&self) -> Option<(f64, f64, f64, f64)> {
         if self.bounds_cache.is_empty() { return None; }
         let mut b = (f64::INFINITY, f64::NEG_INFINITY, f64::INFINITY, f64::NEG_INFINITY);
@@ -636,10 +667,46 @@ impl VecDataSource {
         inst
     }
 
+    fn aggregate_chunk_min_max(chunk: &[PlotData]) -> Option<(PlotData, Option<PlotData>)> {
+        if chunk.is_empty() { return None; }
+        
+        if let PlotData::Point(_) = chunk[0] {
+            let mut min_pt: Option<PlotPoint> = None;
+            let mut max_pt: Option<PlotPoint> = None;
+            
+            for p in chunk {
+                if let PlotData::Point(pt) = p {
+                    if min_pt.is_none() || pt.y < min_pt.unwrap().y { min_pt = Some(*pt); }
+                    if max_pt.is_none() || pt.y > max_pt.unwrap().y { max_pt = Some(*pt); }
+                }
+            }
+            
+            let p_min = min_pt.unwrap();
+            let p_max = max_pt.unwrap();
+
+            if p_min == p_max {
+                Some((PlotData::Point(p_min), None))
+            } else if p_min.x < p_max.x {
+                Some((PlotData::Point(p_min), Some(PlotData::Point(p_max))))
+            } else {
+                Some((PlotData::Point(p_max), Some(PlotData::Point(p_min))))
+            }
+        } else if let PlotData::Ohlcv(_) = chunk[0] {
+            // OHLCV already encapsulates extremes, return a single aggregated OHLCV
+            Self::aggregate_chunk(chunk).map(|a| (a, None))
+        } else {
+            None
+        }
+    }
+
     fn aggregate_chunk(chunk: &[PlotData]) -> Option<PlotData> {
         if chunk.is_empty() { return None; }
         
         if let PlotData::Point(_) = chunk[0] {
+            // For the pyramid (one point per bin), use the point furthest from the mean 
+            // or just the midpoint of min/max to stay stable. 
+            // To be consistent with 2-point decimation, we'll return the midpoint X and average Y
+            // for the pyramid levels, but the dynamic path will use real Min/Max.
             let mut sum_y = 0.0;
             let mut sum_x = 0.0;
             let len = chunk.len() as f64;
@@ -858,13 +925,14 @@ impl PlotDataSource for VecDataSource {
         }
 
         // 3. Fallback to dynamic binning if no pyramid (or ratio too high but pyramid empty/small)
-        // (This part is the previous implementation logic, kept as fallback)
-        let bin_size = (count as f64 / max_points as f64).ceil() as usize;
+        let target_bins = max_points / 2;
+        let bin_size = (count as f64 / target_bins.max(1) as f64).ceil() as usize;
         let mut aggregated = Vec::with_capacity(max_points);
 
         for chunk in self.data[start_idx..end_idx].chunks(bin_size) {
-            if let Some(agg) = Self::aggregate_chunk(chunk) {
-                aggregated.push(agg);
+            if let Some((p1, p2)) = Self::aggregate_chunk_min_max(chunk) {
+                aggregated.push(p1);
+                if let Some(p) = p2 { aggregated.push(p); }
             }
         }
         
