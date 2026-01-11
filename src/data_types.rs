@@ -293,12 +293,14 @@ impl AxisRange {
         let new_span = self.span() * factor;
         self.min = pivot_data - new_span * pivot_pct;
         self.max = self.min + new_span;
+        self.cached_ticks.clear();
     }
 
     /// Panoramique avec clamping optionnel (géré manuellement si besoin).
     pub fn pan(&mut self, delta_data: f64) {
         self.min += delta_data;
         self.max += delta_data;
+        self.cached_ticks.clear();
     }
 
     /// Applique les limites de manière intelligente pour préserver le pivot.
@@ -319,6 +321,7 @@ impl AxisRange {
                     self.min = l - s;
                 }
             }
+            self.cached_ticks.clear();
             return;
         };
 
@@ -341,6 +344,7 @@ impl AxisRange {
             self.max = max_l;
             self.min = max_l - current_span;
         }
+        self.cached_ticks.clear();
     }
 }
 
