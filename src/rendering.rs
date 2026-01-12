@@ -1,4 +1,4 @@
-// Rendering functions for the chart
+//! Rendering functions for the chart
 #![allow(clippy::collapsible_if)]
 
 use crate::data_types::{AxisDomain, Series, SharedPlotState};
@@ -56,7 +56,7 @@ pub struct YAxisRenderInfo {
     pub limits: (Option<f64>, Option<f64>),
 }
 
-// Paints the grid lines on the canvas.
+/// Paints the grid lines on the canvas.
 pub fn paint_grid(
     window: &mut Window,
     bounds: Bounds<Pixels>,

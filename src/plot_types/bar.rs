@@ -47,15 +47,6 @@ impl PlotRenderer for BarPlot {
 
         let visible_iter = self.source.iter_aggregated(x_min, x_max, max_points);
 
-        // We need to estimate the width of the bars based on the density of data returned.
-        // If we are aggregated, the spacing is larger than source.suggested_x_spacing().
-        // Let's rely on the effective spacing of the returned data?
-        // Hard to do with a single pass iterator.
-        // Heuristic: If we requested aggregation, assume we got roughly max_points or less.
-        // Ideally the data source would tell us the "bin width".
-        // Fallback: use the original spacing, but this might result in thin bars.
-        // Better: Calculate local spacing.
-
         let mut points: Vec<PlotPoint> = Vec::with_capacity(max_points);
         for data in visible_iter {
             if let PlotData::Point(point) = data {

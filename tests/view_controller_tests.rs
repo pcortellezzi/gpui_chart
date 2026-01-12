@@ -4,7 +4,7 @@ use gpui_chart::view_controller::ViewController;
 #[test]
 fn test_pan_axis_x() {
     let mut range = AxisRange::new(0.0, 100.0);
-    // Déplacement de 10 pixels vers la droite sur 100 pixels total
+    // Move 10 pixels to the right on 100 pixels total
     // ratio = 100 / 100 = 1.0. delta_data = -10.0
     ViewController::pan_axis(&mut range, 10.0, 100.0, false);
     assert_eq!(range.min, -10.0);
@@ -14,7 +14,7 @@ fn test_pan_axis_x() {
 #[test]
 fn test_pan_axis_y() {
     let mut range = AxisRange::new(0.0, 100.0);
-    // Déplacement de 10 pixels vers le bas (positif en GPUI)
+    // Move 10 pixels down (positive in GPUI)
     // ratio = 100 / 100 = 1.0. delta_data = 10.0
     ViewController::pan_axis(&mut range, 10.0, 100.0, true);
     assert_eq!(range.min, 10.0);
@@ -24,7 +24,7 @@ fn test_pan_axis_y() {
 #[test]
 fn test_zoom_axis_at() {
     let mut range = AxisRange::new(0.0, 100.0);
-    // Zoom x2 (factor 0.5) au centre (0.5)
+    // Zoom x2 (factor 0.5) at center (0.5)
     ViewController::zoom_axis_at(&mut range, 0.5, 0.5);
     assert_eq!(range.min, 25.0);
     assert_eq!(range.max, 75.0);
@@ -33,7 +33,7 @@ fn test_zoom_axis_at() {
 #[test]
 fn test_resize_panes() {
     let mut weights = vec![1.0, 1.0];
-    // Descendre le splitter de 100px sur 400px total -> +0.5 de poids
+    // Lower the splitter by 100px on 400px total -> +0.5 weight
     ViewController::resize_panes(&mut weights, 0, 100.0, 400.0);
     assert_eq!(weights[0], 1.5);
     assert_eq!(weights[1], 0.5);
@@ -42,11 +42,11 @@ fn test_resize_panes() {
 #[test]
 fn test_resize_panes_limit() {
     let mut weights = vec![1.0, 1.0];
-    // Essayer de réduire le second panneau en dessous du minimum
+    // Try to reduce the second pane below minimum
     ViewController::resize_panes(&mut weights, 0, 1000.0, 400.0);
     assert!(weights[1] >= 0.05);
-    // Somme des poids doit rester constante
-    assert!((weights[0] + weights[1] - 2.0).abs() < 1e-6);
+    // Sum of weights must remain constant
+    assert!((weights[0] + weights[1] - 2.0f32).abs() < 1e-6);
 }
 
 #[test]

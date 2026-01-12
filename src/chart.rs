@@ -29,7 +29,7 @@ pub struct PaneState {
     pub series: Vec<Series>,
     pub hidden_series: HashSet<String>,
 
-    // États d'interaction locaux
+    /// Local interaction states
     pub drag_start: Option<Point<Pixels>>,
     pub initial_drag_start: Option<Point<Pixels>>,
     pub drag_button: Option<MouseButton>,
@@ -163,7 +163,7 @@ impl Chart {
             return;
         }
 
-        // 1. Trouver et extraire la série (clone nécessaire car on modifie self.panes)
+        // 1. Find and extract the series (clone needed as we modify self.panes)
         let mut series_to_move = None;
         if let Some(src_pane) = self.panes.get_mut(from_idx) {
             if let Some(pos) = src_pane.series.iter().position(|s| s.id == series_id) {
@@ -171,7 +171,7 @@ impl Chart {
             }
         }
 
-        // 2. Insérer dans la destination
+        // 2. Insert into destination
         if let Some(series) = series_to_move {
             if let Some(dst_pane) = self.panes.get_mut(to_idx) {
                 dst_pane.series.push(series);
@@ -189,7 +189,7 @@ impl Chart {
     ) {
         if let Some(ps) = self.panes.get_mut(pane_idx) {
             let mut current_y = 0;
-            // Trouver l'axe actuel
+            // Find current axis
             if let Some(s) = ps.series.iter().find(|s| s.id == series_id) {
                 current_y = s.y_axis_id.0;
             }

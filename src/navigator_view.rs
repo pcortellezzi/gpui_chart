@@ -26,7 +26,7 @@ impl Default for NavigatorConfig {
     }
 }
 
-/// Une vue miniature pour naviguer dans les données.
+/// A miniature view to navigate the data.
 pub struct NavigatorView {
     pub x_axis: Entity<AxisRange>,
     pub y_axis: Entity<AxisRange>,

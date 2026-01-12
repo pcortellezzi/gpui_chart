@@ -1,4 +1,4 @@
-// Transform helper for coordinate projection
+//! Transform helper for coordinate projection
 
 use crate::scales::ChartScale;
 use crate::utils::PixelsExt;

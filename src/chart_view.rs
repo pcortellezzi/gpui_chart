@@ -887,7 +887,7 @@ impl Render for ChartView {
 
         let chart_handle = self.chart.clone();
 
-        // On clone les données nécessaires pour libérer l'emprunt de cx le plus tôt possible
+        // Clone necessary data to drop cx borrow as soon as possible
         let (panes, x_axes, theme, shared_state_handle) = {
             let chart = chart_handle.read(cx);
             (
@@ -1662,5 +1662,3 @@ impl Render for ChartView {
             .children(debug_overlay)
     }
 }
-
-

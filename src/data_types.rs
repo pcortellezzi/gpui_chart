@@ -68,7 +68,8 @@ impl Default for AreaPlotConfig {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BarPlotConfig {
     pub color: Hsla,
-    pub bar_width_pct: f32, // 0.0 to 1.0 relative to data spacing
+    /// 0.0 to 1.0 relative to data spacing
+    pub bar_width_pct: f32,
 }
 
 impl Default for BarPlotConfig {
@@ -82,9 +83,12 @@ impl Default for BarPlotConfig {
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
 pub enum StepMode {
-    Pre,  // Step occurs before the point
-    Mid,  // Step occurs halfway between points
-    Post, // Step occurs after the point
+    /// Step occurs before the point
+    Pre,
+    /// Step occurs halfway between points
+    Mid,
+    /// Step occurs after the point
+    Post,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -145,7 +149,7 @@ pub struct HeatmapCell {
     pub text: Option<String>,
 }
 
-// Axis management types
+/// Axis management types
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub struct AxisId(pub usize);
 
@@ -161,7 +165,7 @@ pub enum AxisEdge {
 pub struct ChartAxis<T> {
     pub axis: gpui::Entity<T>,
     pub edge: AxisEdge,
-    // Size in pixels (width for vertical axes, height for horizontal)
+    /// Size in pixels (width for vertical axes, height for horizontal)
     pub size: gpui::Pixels,
 }
 
@@ -220,7 +224,7 @@ impl Default for InertiaConfig {
     }
 }
 
-/// État pour un axe unique (X ou Y).
+/// State for a single axis (X or Y).
 #[derive(Clone, Debug, Default, PartialEq, PartialOrd)]
 pub struct AxisRange {
     pub min: f64,
@@ -265,7 +269,7 @@ impl AxisRange {
         let _ = self.ticks(count);
     }
 
-    /// Retourne les bornes clampées pour le rendu.
+    /// Returns the clamped bounds for rendering.
     pub fn clamped_bounds(&self) -> (f64, f64) {
         let mut c_min = self.min;
         let mut c_max = self.max;
@@ -288,7 +292,7 @@ impl AxisRange {
         (c_min, c_max)
     }
 
-    /// Zoom pur sans contraintes pour préserver le point pivot.
+    /// Pure zoom without constraints to preserve the pivot point.
     pub fn zoom_at(&mut self, pivot_data: f64, pivot_pct: f64, factor: f64) {
         let new_span = self.span() * factor;
         self.min = pivot_data - new_span * pivot_pct;
@@ -296,17 +300,17 @@ impl AxisRange {
         self.cached_ticks.clear();
     }
 
-    /// Panoramique avec clamping optionnel (géré manuellement si besoin).
+    /// Pan with optional clamping (handled manually if needed).
     pub fn pan(&mut self, delta_data: f64) {
         self.min += delta_data;
         self.max += delta_data;
         self.cached_ticks.clear();
     }
 
-    /// Applique les limites de manière intelligente pour préserver le pivot.
+    /// Applies limits intelligently to preserve the pivot.
     pub fn clamp(&mut self) {
         let (Some(min_l), Some(max_l)) = (self.min_limit, self.max_limit) else {
-            // Cas où une seule ou aucune limite est présente : clamping simple
+            // Case where only one or no limit is present: simple clamping
             if let Some(l) = self.min_limit {
                 if self.min < l {
                     let s = self.span();
@@ -325,7 +329,7 @@ impl AxisRange {
             return;
         };
 
-        // Cas des deux limites : gestion intelligente du span
+        // Case of two limits: intelligent span management
         let limit_span = max_l - min_l;
         let current_span = self.span();
 
@@ -348,7 +352,7 @@ impl AxisRange {
     }
 }
 
-/// État consolidé pour une vue de graphique.
+/// Consolidated state for a chart view.
 #[derive(Clone, Debug, Default)]
 pub struct AxisDomain {
     pub x_min: f64,
@@ -370,12 +374,15 @@ impl AxisDomain {
     }
 }
 
-/// État partagé entre plusieurs graphiques (Crosshair, etc.).
+/// Shared state between multiple charts (Crosshair, etc.).
 #[derive(Debug, Default)]
 pub struct SharedPlotState {
-    pub hover_x: Option<f64>, // Coordonnée X en unités de données
-    pub mouse_pos: Option<gpui::Point<gpui::Pixels>>, // Position écran globale
-    pub active_chart_id: Option<gpui::EntityId>, // ID du graphique actuellement survolé
+    /// X coordinate in data units
+    pub hover_x: Option<f64>,
+    /// Global screen position
+    pub mouse_pos: Option<gpui::Point<gpui::Pixels>>,
+    /// ID of the chart currently hovered
+    pub active_chart_id: Option<gpui::EntityId>,
     pub is_dragging: bool,
     pub debug_mode: bool,
     pub theme: crate::theme::ChartTheme,
@@ -384,7 +391,7 @@ pub struct SharedPlotState {
     pub box_zoom_start: Option<gpui::Point<gpui::Pixels>>,
     pub box_zoom_current: Option<gpui::Point<gpui::Pixels>>,
 
-    /// Temps pris par le paint pour chaque pane (ID -> nanosecondes)
+    /// Time taken by paint for each pane (ID -> nanoseconds)
     pub pane_paint_times:
         std::sync::Arc<parking_lot::RwLock<std::collections::HashMap<String, u64>>>,
 }
@@ -887,8 +894,10 @@ impl PlotDataSource for StreamingDataSource {
 /// Default implementation using a simple Vec with chunked bounds cache.
 pub struct VecDataSource {
     data: Vec<PlotData>,
-    lod_levels: Vec<Vec<PlotData>>, // Pre-computed LOD levels: [0] = /2, [1] = /4, etc.
-    bounds_cache: Vec<AxisDomain>,  // Reusing AxisDomain for chunk bounds
+    /// Pre-computed LOD levels: [0] = /2, [1] = /4, etc.
+    lod_levels: Vec<Vec<PlotData>>,
+    /// Reusing AxisDomain for chunk bounds
+    bounds_cache: Vec<AxisDomain>,
     suggested_spacing: f64,
 }
 
@@ -1242,7 +1251,7 @@ impl PlotDataSource for VecDataSource {
         if self.data.len() % CHUNK_SIZE == 1 {
             self.rebuild_cache();
         }
-        // Note: We don't rebuild pyramid on every add for perf reasons.
+        // Note: We don't rebuild pyramid on every add for performance reasons.
         // Ideally should append to levels incrementally, but for VecDataSource (static) it's rare.
     }
 

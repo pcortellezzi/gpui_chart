@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use gpui_chart::scales::ChartScale;
-    use gpui_chart::data_types::{AxisRange, VecDataSource, PlotDataSource, PlotData};
+    use gpui_chart::data_types::{AxisRange, VecDataSource, PlotDataSource};
 
     #[test]
     fn test_scale_zero_domain() {

@@ -1,4 +1,4 @@
-// Plot types module
+//! Plot types module
 
 pub mod annotation;
 pub mod area;

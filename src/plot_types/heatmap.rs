@@ -1,4 +1,4 @@
-// Heatmap plot implementation
+//! Heatmap plot implementation
 
 use super::PlotRenderer;
 use crate::data_types::HeatmapCell;
@@ -32,9 +32,6 @@ impl PlotRenderer for HeatmapPlot {
 
         for cell in &self.cells {
             // Determine cell bounds in screen coordinates
-            // Assuming x,y are center or top-left?
-            // "Heatmap" usually implies a grid.
-            // Let's assume x,y are the center of the cell or the starting corner.
             // Standard: x,y is center. width/height are data units.
 
             let half_w = cell.width / 2.0;

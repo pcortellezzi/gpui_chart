@@ -148,7 +148,6 @@ impl AxisRenderer {
                     bounds.origin + point(px(8.0), px(0.0))
                 };
 
-                // For Y axis title, we used TextAlign::Center before?
                 // Y: TextAlign::Center. X: TextAlign::Left.
                 let align = if is_vertical {
                     TextAlign::Center

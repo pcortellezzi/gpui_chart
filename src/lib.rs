@@ -1,13 +1,12 @@
 #![recursion_limit = "512"]
 
-// Internal modules (implementation details)
+/// Internal modules (implementation details)
 mod axis_renderer;
 mod gutter_manager;
 mod rendering;
 mod utils;
-mod view_controller;
 
-// Public modules (exposed to the user)
+/// Public modules (exposed to the user)
 pub mod chart;
 pub mod chart_view;
 pub mod data_types;
@@ -16,6 +15,7 @@ pub mod plot_types;
 pub mod scales;
 pub mod theme;
 pub mod transform;
+pub mod view_controller;
 
 // Re-exports for convenience
 pub use chart::{AxisState, Chart, PaneState};
