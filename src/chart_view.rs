@@ -1542,14 +1542,21 @@ impl Render for ChartView {
             (shared_state.box_zoom_start, shared_state.box_zoom_current)
         {
             let container_origin = self.bounds.borrow().origin;
-            let rect = Bounds::from_corners(start - container_origin, current - container_origin);
+            let start_local = start - container_origin;
+            let current_local = current - container_origin;
+
+            let x = start_local.x.min(current_local.x);
+            let y = start_local.y.min(current_local.y);
+            let width = (start_local.x - current_local.x).abs();
+            let height = (start_local.y - current_local.y).abs();
+
             box_zoom_element = Some(
                 div()
                     .absolute()
-                    .top(rect.origin.y)
-                    .left(rect.origin.x)
-                    .w(rect.size.width)
-                    .h(rect.size.height)
+                    .top(y)
+                    .left(x)
+                    .w(width)
+                    .h(height)
                     .bg(theme.accent.opacity(0.1))
                     .border_1()
                     .border_color(theme.accent.opacity(0.5)),
