@@ -914,6 +914,7 @@ impl Render for ChartView {
             let shared_state_handle = shared_state_handle.clone();
             cx.on_next_frame(window, move |_, _, cx| {
                 shared_state_handle.update(cx, |s, _| s.request_render());
+                cx.notify();
             });
         }
 
