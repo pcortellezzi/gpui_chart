@@ -18,6 +18,12 @@ eyre = "0.6"
 gpui-d3rs = "0.1.10"
 chrono = "0.4"
 chrono-tz = "0.10.4"
+polars = { version = "0.51.0", optional = true, features = ["lazy", "search_sorted", "dtype-full", "dynamic_group_by"] }
+polars-ops = { version = "0.51.0", optional = true, features = ["search_sorted"] }
+
+[features]
+default = []
+polars = ["dep:polars", "dep:polars-ops"]
 
 [dev-dependencies]
 gpui = { version = "0.2.2", features = ["test-support"] }

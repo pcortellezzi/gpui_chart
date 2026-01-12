@@ -5,6 +5,7 @@ mod axis_renderer;
 mod gutter_manager;
 mod rendering;
 mod utils;
+mod aggregation;
 
 /// Public modules (exposed to the user)
 pub mod chart;
@@ -12,6 +13,8 @@ pub mod chart_view;
 pub mod data_types;
 pub mod navigator_view;
 pub mod plot_types;
+#[cfg(feature = "polars")]
+pub mod polars_source;
 pub mod scales;
 pub mod theme;
 pub mod transform;

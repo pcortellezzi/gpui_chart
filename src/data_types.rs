@@ -469,10 +469,21 @@ pub enum PlotData {
     Ohlcv(Ohlcv),
 }
 
-/// Trait abstraction for data providers.
-/// This allows using Polars, RingBuffers, or simple Vecs as backends.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AggregationMode {
+    MinMax, // 2 points par bin
+    #[default]
+    M4,     // 4 points par bin (First, Min, Max, Last)
+}
+
+/// Trait for data sources that provide points for the chart.
 pub trait PlotDataSource: Send + Sync {
-    /// Total bounds of the data (x_min, x_max, y_min, y_max)
+    /// Get the preferred aggregation mode.
+    fn aggregation_mode(&self) -> AggregationMode {
+        AggregationMode::M4
+    }
+
+    /// Returns the bounds of the data as (x_min, x_max, y_min, y_max)
     fn get_bounds(&self) -> Option<(f64, f64, f64, f64)>;
 
     /// Y-range within a specific X-window (for auto-scaling Y)
@@ -488,10 +499,10 @@ pub trait PlotDataSource: Send + Sync {
         &self,
         x_min: f64,
         x_max: f64,
-        _max_points: usize,
+        max_points: usize,
     ) -> Box<dyn Iterator<Item = PlotData> + '_> {
-        // Default implementation falls back to iter_range if max_points is huge or not implemented
-        self.iter_range(x_min, x_max)
+        let data: Vec<PlotData> = self.iter_range(x_min, x_max).collect();
+        Box::new(crate::aggregation::decimate_min_max_slice(&data, max_points).into_iter())
     }
 
     /// Add a single data point
@@ -639,44 +650,6 @@ impl PlotDataSource for StreamingDataSource {
     }
     fn suggested_x_spacing(&self) -> f64 {
         self.suggested_spacing
-    }
-
-    fn iter_aggregated(
-        &self,
-        x_min: f64,
-        x_max: f64,
-        max_points: usize,
-    ) -> Box<dyn Iterator<Item = PlotData> + '_> {
-        let raw_iter = self.iter_range(x_min, x_max);
-        let count = self.len(); // Approximation or we can count in iter_range
-
-        // If data is small enough, return raw
-        if count <= max_points {
-            return raw_iter;
-        }
-
-        // We don't know the exact count in the range without iterating,
-        // but we can estimate or collect. For streaming, collecting a range is usually fine.
-        let data: Vec<PlotData> = raw_iter.collect();
-        if data.len() <= max_points {
-            return Box::new(data.into_iter());
-        }
-
-        // Perform Min/Max decimation (2 points per bin)
-        let target_bins = max_points / 2;
-        let bin_size = (data.len() as f64 / target_bins.max(1) as f64).ceil() as usize;
-        let mut aggregated = Vec::with_capacity(max_points);
-
-        for chunk in data.chunks(bin_size) {
-            if let Some((p1, p2)) = VecDataSource::aggregate_chunk_min_max(chunk) {
-                aggregated.push(p1);
-                if let Some(p) = p2 {
-                    aggregated.push(p);
-                }
-            }
-        }
-
-        Box::new(aggregated.into_iter())
     }
 
     fn get_bounds(&self) -> Option<(f64, f64, f64, f64)> {
@@ -914,109 +887,6 @@ impl VecDataSource {
         inst
     }
 
-    fn aggregate_chunk_min_max(chunk: &[PlotData]) -> Option<(PlotData, Option<PlotData>)> {
-        if chunk.is_empty() {
-            return None;
-        }
-
-        if let PlotData::Point(_) = chunk[0] {
-            let mut min_pt: Option<PlotPoint> = None;
-            let mut max_pt: Option<PlotPoint> = None;
-
-            for p in chunk {
-                if let PlotData::Point(pt) = p {
-                    if min_pt.is_none() || pt.y < min_pt.unwrap().y {
-                        min_pt = Some(*pt);
-                    }
-                    if max_pt.is_none() || pt.y > max_pt.unwrap().y {
-                        max_pt = Some(*pt);
-                    }
-                }
-            }
-
-            let p_min = min_pt.unwrap();
-            let p_max = max_pt.unwrap();
-
-            if p_min == p_max {
-                Some((PlotData::Point(p_min), None))
-            } else if p_min.x < p_max.x {
-                Some((PlotData::Point(p_min), Some(PlotData::Point(p_max))))
-            } else {
-                Some((PlotData::Point(p_max), Some(PlotData::Point(p_min))))
-            }
-        } else if let PlotData::Ohlcv(_) = chunk[0] {
-            // OHLCV already encapsulates extremes, return a single aggregated OHLCV
-            Self::aggregate_chunk(chunk).map(|a| (a, None))
-        } else {
-            None
-        }
-    }
-
-    fn aggregate_chunk(chunk: &[PlotData]) -> Option<PlotData> {
-        if chunk.is_empty() {
-            return None;
-        }
-
-        if let PlotData::Point(_) = chunk[0] {
-            // For the pyramid (one point per bin), use the point furthest from the mean
-            // or just the midpoint of min/max to stay stable.
-            // To be consistent with 2-point decimation, we'll return the midpoint X and average Y
-            // for the pyramid levels, but the dynamic path will use real Min/Max.
-            let mut sum_y = 0.0;
-            let mut sum_x = 0.0;
-            let len = chunk.len() as f64;
-
-            for p in chunk {
-                if let PlotData::Point(pt) = p {
-                    sum_x += pt.x;
-                    sum_y += pt.y;
-                }
-            }
-
-            Some(PlotData::Point(PlotPoint {
-                x: sum_x / len,
-                y: sum_y / len,
-                color_op: ColorOp::None,
-            }))
-        } else if let PlotData::Ohlcv(_) = chunk[0] {
-            let mut open = 0.0;
-            let mut close = 0.0;
-            let mut high = f64::NEG_INFINITY;
-            let mut low = f64::INFINITY;
-            let mut volume = 0.0;
-            let mut first_time = 0.0;
-            let mut last_time_end = 0.0;
-
-            for (i, p) in chunk.iter().enumerate() {
-                if let PlotData::Ohlcv(o) = p {
-                    if i == 0 {
-                        open = o.open;
-                        first_time = o.time;
-                    }
-                    if i == chunk.len() - 1 {
-                        close = o.close;
-                        last_time_end = o.time + o.span;
-                    }
-                    high = high.max(o.high);
-                    low = low.min(o.low);
-                    volume += o.volume;
-                }
-            }
-
-            Some(PlotData::Ohlcv(Ohlcv {
-                time: first_time,
-                span: last_time_end - first_time,
-                open,
-                high,
-                low,
-                close,
-                volume,
-            }))
-        } else {
-            None
-        }
-    }
-
     fn build_lod_pyramid(&mut self) {
         self.lod_levels.clear();
         if self.data.len() < 2000 {
@@ -1034,7 +904,7 @@ impl VecDataSource {
             };
 
             for chunk in source_to_read.chunks(2) {
-                if let Some(agg) = Self::aggregate_chunk(chunk) {
+                if let Some(agg) = crate::aggregation::aggregate_chunk(chunk) {
                     level.push(agg);
                 }
             }
@@ -1230,20 +1100,8 @@ impl PlotDataSource for VecDataSource {
         }
 
         // 3. Fallback to dynamic binning if no pyramid (or ratio too high but pyramid empty/small)
-        let target_bins = max_points / 2;
-        let bin_size = (count as f64 / target_bins.max(1) as f64).ceil() as usize;
-        let mut aggregated = Vec::with_capacity(max_points);
-
-        for chunk in self.data[start_idx..end_idx].chunks(bin_size) {
-            if let Some((p1, p2)) = Self::aggregate_chunk_min_max(chunk) {
-                aggregated.push(p1);
-                if let Some(p) = p2 {
-                    aggregated.push(p);
-                }
-            }
-        }
-
-        Box::new(aggregated.into_iter())
+        let data = &self.data[start_idx..end_idx];
+        Box::new(crate::aggregation::decimate_min_max_slice(data, max_points).into_iter())
     }
 
     fn add_data(&mut self, data: PlotData) {
