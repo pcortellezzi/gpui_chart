@@ -82,6 +82,8 @@ impl Focusable for ChartView {
 impl ChartView {
     pub fn new(chart: Entity<Chart>, cx: &mut Context<Self>) -> Self {
         cx.observe(&chart, |_, _, cx| cx.notify()).detach();
+        let shared_state = chart.read(cx).shared_state.clone();
+        cx.observe(&shared_state, |_, _, cx| cx.notify()).detach();
 
         Self {
             chart,
@@ -587,6 +589,7 @@ impl ChartView {
                 }
             }
         });
+        cx.notify();
     }
 
     fn handle_global_mouse_up(
@@ -1348,6 +1351,7 @@ impl Render for ChartView {
                     .w_full()
                     .relative()
                     .group("pane_container")
+                    .cursor(CursorStyle::Crosshair)
                     .child(
                         canvas(
                             move |_, _, _| {},
