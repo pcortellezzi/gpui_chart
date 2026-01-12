@@ -892,7 +892,7 @@ impl ChartView {
 }
 
 impl Render for ChartView {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let start_time = std::time::Instant::now();
 
         let chart_handle = self.chart.clone();
@@ -909,6 +909,14 @@ impl Render for ChartView {
         };
 
         let shared_state = shared_state_handle.read(cx).clone();
+
+        if shared_state.debug_mode {
+            let shared_state_handle = shared_state_handle.clone();
+            cx.on_next_frame(window, move |_, _, cx| {
+                shared_state_handle.update(cx, |s, _| s.request_render());
+            });
+        }
+
         let shared_x_axis = chart_handle.read(cx).shared_x_axis.clone();
 
         self.calculate_gutters(&x_axes, &panes);
