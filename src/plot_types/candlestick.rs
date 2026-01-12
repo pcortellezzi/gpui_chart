@@ -20,6 +20,14 @@ impl CandlestickPlot {
             buffer: parking_lot::Mutex::new(Vec::new()),
         }
     }
+
+    pub fn with_source(source: Box<dyn PlotDataSource>) -> Self {
+        Self {
+            source,
+            config: CandlestickConfig::default(),
+            buffer: parking_lot::Mutex::new(Vec::new()),
+        }
+    }
 }
 
 impl PlotRenderer for CandlestickPlot {
