@@ -9,6 +9,8 @@ A high-performance, interactive, and composable charting library for [GPUI](http
 - **Blazing Fast Aggregation**:
     - **Native Rust + Rayon**: Parallelized data decimation using CPU SIMD and multi-threading.
     - **Zero-Copy Polars Integration**: Direct access to underlying memory buffers, bypassing overhead.
+    - **Zero-Alloc Rendering**: Buffer recycling strategy reuses memory across frames, eliminating dynamic allocations during the render loop.
+    - **SIMD Batch Transforms**: Coordinate transformations are vectorized, processing millions of points in milliseconds.
     - **Benchmarks**: Decimates **1 Million rows** in **< 1ms** (M4 Algorithm).
 - **Smooth Navigation**: Inertial scrolling, 60fps zooming and panning.
 

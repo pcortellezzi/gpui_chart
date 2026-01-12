@@ -43,4 +43,16 @@ impl PlotTransform {
     pub fn y_data_to_screen(&self, y: f64) -> Pixels {
         self.bounds.origin.y + px(self.y_scale.map(y))
     }
+
+    /// Returns (x_scale, x_offset, y_scale, y_offset) for manual SIMD calculation.
+    /// formula: screen_val = data_val * scale + offset
+    pub fn get_scale_coefficients(&self) -> (f32, f32, f32, f32) {
+        let (x_m, x_c) = self.x_scale.get_linear_coeffs();
+        let (y_m, y_c) = self.y_scale.get_linear_coeffs();
+        
+        let x_offset = self.bounds.origin.x.as_f32() + x_c;
+        let y_offset = self.bounds.origin.y.as_f32() + y_c;
+        
+        (x_m, x_offset, y_m, y_offset)
+    }
 }

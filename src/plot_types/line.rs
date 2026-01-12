@@ -2,12 +2,15 @@ use super::PlotRenderer;
 use crate::data_types::{LinePlotConfig, PlotData, PlotDataSource, PlotPoint, VecDataSource};
 use crate::transform::PlotTransform;
 use crate::utils::PixelsExt;
+use crate::simd::batch_transform_points;
 use gpui::*;
 
 /// Line plot type
 pub struct LinePlot {
     pub source: Box<dyn PlotDataSource>,
     pub config: LinePlotConfig,
+    buffer: parking_lot::Mutex<Vec<PlotData>>,
+    screen_buffer: parking_lot::Mutex<Vec<Point<Pixels>>>,
 }
 
 impl LinePlot {
@@ -16,6 +19,8 @@ impl LinePlot {
         Self {
             source: Box::new(VecDataSource::new(plot_data)),
             config: LinePlotConfig::default(),
+            buffer: parking_lot::Mutex::new(Vec::new()),
+            screen_buffer: parking_lot::Mutex::new(Vec::new()),
         }
     }
 
@@ -23,6 +28,8 @@ impl LinePlot {
         Self {
             source,
             config: LinePlotConfig::default(),
+            buffer: parking_lot::Mutex::new(Vec::new()),
+            screen_buffer: parking_lot::Mutex::new(Vec::new()),
         }
     }
 }
@@ -39,19 +46,22 @@ impl PlotRenderer for LinePlot {
         let (x_min, x_max) = transform.x_scale.domain();
         let max_points = transform.bounds.size.width.as_f32() as usize * 2;
 
+        let mut buffer = self.buffer.lock();
+        self.source.get_aggregated_data(x_min, x_max, max_points, &mut buffer);
+
+        let mut screen_buffer = self.screen_buffer.lock();
+        let (xm, xc, ym, yc) = transform.get_scale_coefficients();
+        batch_transform_points(&buffer, xm, xc, ym, yc, &mut screen_buffer);
+
         let mut first = true;
         let mut builder = PathBuilder::stroke(px(self.config.line_width));
 
-        for data in self.source.iter_aggregated(x_min, x_max, max_points) {
-            if let PlotData::Point(point) = data {
-                let screen_point = transform.data_to_screen(Point::new(point.x, point.y));
-
-                if first {
-                    builder.move_to(screen_point);
-                    first = false;
-                } else {
-                    builder.line_to(screen_point);
-                }
+        for pt in screen_buffer.iter() {
+            if first {
+                builder.move_to(*pt);
+                first = false;
+            } else {
+                builder.line_to(*pt);
             }
         }
 

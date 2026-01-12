@@ -15,7 +15,7 @@ fn test_compare_aggregations() {
     let y: Vec<f64> = (0..n).map(|i| (i as f64 * 0.01).sin()).collect();
     
     let df = DataFrame::new(vec![
-        Series::new("x".into(), x).into(),
+        Series::new("x".into(), x.clone()).into(),
         Series::new("y".into(), y).into(),
     ]).unwrap();
 
@@ -51,4 +51,29 @@ fn test_compare_aggregations() {
     assert!(res_minmax.len() <= 2000);
     assert!(res_m4.len() <= 2000);
     assert!(res_lttb.len() <= 2000);
+
+    // OHLCV Benchmark
+    // Construct OHLCV data
+    let open: Vec<f64> = (0..n).map(|i| (i as f64).sin()).collect();
+    let high: Vec<f64> = (0..n).map(|i| (i as f64).sin() + 1.0).collect();
+    let low: Vec<f64> = (0..n).map(|i| (i as f64).sin() - 1.0).collect();
+    let close: Vec<f64> = (0..n).map(|i| (i as f64).cos()).collect();
+
+    let df_ohlcv = DataFrame::new(vec![
+        Series::new("time".into(), x.clone()).into(),
+        Series::new("open".into(), open).into(),
+        Series::new("high".into(), high).into(),
+        Series::new("low".into(), low).into(),
+        Series::new("close".into(), close).into(),
+    ]).unwrap();
+
+    let source_ohlcv = PolarsDataSource::new(df_ohlcv, "time", "close")
+        .with_ohlcv("open", "high", "low", "close");
+    
+    let start = Instant::now();
+    let res_ohlcv: Vec<_> = source_ohlcv.iter_aggregated(0.0, n as f64, 2000).collect();
+    let dur_ohlcv = start.elapsed();
+    println!("OHLCV (1 pt/bin) took:   {:?} (points: {})", dur_ohlcv, res_ohlcv.len());
+    
+    assert!(res_ohlcv.len() <= 2000);
 }

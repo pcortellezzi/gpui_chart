@@ -9,6 +9,7 @@ pub struct BarPlot {
     pub source: Box<dyn PlotDataSource>,
     pub config: BarPlotConfig,
     pub baseline: f64,
+    buffer: parking_lot::Mutex<Vec<PlotData>>,
 }
 
 impl BarPlot {
@@ -18,6 +19,7 @@ impl BarPlot {
             source: Box::new(VecDataSource::new(plot_data)),
             config: BarPlotConfig::default(),
             baseline: 0.0,
+            buffer: parking_lot::Mutex::new(Vec::new()),
         }
     }
 
@@ -26,6 +28,7 @@ impl BarPlot {
             source,
             config: BarPlotConfig::default(),
             baseline: 0.0,
+            buffer: parking_lot::Mutex::new(Vec::new()),
         }
     }
 }
@@ -45,22 +48,19 @@ impl PlotRenderer for BarPlot {
         let screen_width = transform.bounds.size.width.as_f32() as usize;
         let max_points = screen_width.clamp(1, 2000); // Cap at 2000 for safety
 
-        let visible_iter = self.source.iter_aggregated(x_min, x_max, max_points);
-
-        let mut points: Vec<PlotPoint> = Vec::with_capacity(max_points);
-        for data in visible_iter {
-            if let PlotData::Point(point) = data {
-                points.push(point);
-            }
-        }
-
-        if points.is_empty() {
+        let mut buffer = self.buffer.lock();
+        self.source.get_aggregated_data(x_min, x_max, max_points, &mut buffer);
+        
+        if buffer.is_empty() {
             return;
         }
 
         // Calculate dynamic spacing if we have enough points
-        let effective_spacing = if points.len() > 1 {
-            (points.last().unwrap().x - points.first().unwrap().x) / (points.len() - 1) as f64
+        let first_x = if let Some(PlotData::Point(p)) = buffer.first() { p.x } else { 0.0 };
+        let last_x = if let Some(PlotData::Point(p)) = buffer.last() { p.x } else { 0.0 };
+        
+        let effective_spacing = if buffer.len() > 1 {
+            (last_x - first_x) / (buffer.len() - 1) as f64
         } else {
             self.source.suggested_x_spacing()
         };
@@ -82,36 +82,38 @@ impl PlotRenderer for BarPlot {
             self.config.bar_width_pct as f64
         };
 
-        for point in points {
-            // Edge-based snapping: calculate edges in data space, then snap both to pixels.
-            // This ensures adjacent bars touch perfectly without gaps or 1px overlaps.
-            let x_start_data = point.x - spacing / 2.0;
-            let x_end_data = x_start_data + spacing * effective_pct;
+        for data in buffer.iter() {
+            if let PlotData::Point(point) = data {
+                // Edge-based snapping: calculate edges in data space, then snap both to pixels.
+                // This ensures adjacent bars touch perfectly without gaps or 1px overlaps.
+                let x_start_data = point.x - spacing / 2.0;
+                let x_end_data = x_start_data + spacing * effective_pct;
 
-            let px_start = transform.x_data_to_screen(x_start_data).as_f32().round();
-            let px_end = transform.x_data_to_screen(x_end_data).as_f32().round();
+                let px_start = transform.x_data_to_screen(x_start_data).as_f32().round();
+                let px_end = transform.x_data_to_screen(x_end_data).as_f32().round();
 
-            let rect_x = px_start;
-            let rect_w = (px_end - px_start).max(1.0);
+                let rect_x = px_start;
+                let rect_w = (px_end - px_start).max(1.0);
 
-            // Optimization: Clip strictly outside
-            if rect_x + rect_w < 0.0 || rect_x > transform.bounds.size.width.as_f32() {
-                continue;
+                // Optimization: Clip strictly outside
+                if rect_x + rect_w < 0.0 || rect_x > transform.bounds.size.width.as_f32() {
+                    continue;
+                }
+
+                // Calculate Y
+                let p_top_left = transform.data_to_screen(Point::new(point.x, point.y));
+                let p_bottom_right = transform.data_to_screen(Point::new(point.x, self.baseline));
+
+                let rect_y = p_top_left.y.min(p_bottom_right.y);
+                let rect_h = (p_bottom_right.y - p_top_left.y).abs().max(px(1.0));
+
+                let rect = Bounds::new(
+                    Point::new(px(rect_x), rect_y),
+                    Size::new(px(rect_w), rect_h),
+                );
+
+                window.paint_quad(fill(rect, self.config.color));
             }
-
-            // Calculate Y
-            let p_top_left = transform.data_to_screen(Point::new(point.x, point.y));
-            let p_bottom_right = transform.data_to_screen(Point::new(point.x, self.baseline));
-
-            let rect_y = p_top_left.y.min(p_bottom_right.y);
-            let rect_h = (p_bottom_right.y - p_top_left.y).abs().max(px(1.0));
-
-            let rect = Bounds::new(
-                Point::new(px(rect_x), rect_y),
-                Size::new(px(rect_w), rect_h),
-            );
-
-            window.paint_quad(fill(rect, self.config.color));
         }
     }
 

@@ -105,4 +105,19 @@ impl ChartScale {
             }
         }
     }
+
+    /// Returns (m, c) such that screen = value * m + c
+    /// Only exact for Linear scales. Log scales return approximation or fallback.
+    pub fn get_linear_coeffs(&self) -> (f32, f32) {
+        let (d_min, d_max) = self.domain();
+        let (r_min, r_max) = self.range();
+        
+        let m = (r_max - r_min) as f64 / (d_max - d_min);
+        let c = r_min as f64 - m * d_min;
+        
+        match self {
+            Self::Linear(_) => (m as f32, c as f32),
+            Self::Log(_) => (1.0, 0.0), // Fallback, manual map needed for log
+        }
+    }
 }

@@ -506,6 +506,20 @@ pub trait PlotDataSource: Send + Sync {
         Box::new(crate::aggregation::decimate_min_max_slice(&data, max_points).into_iter())
     }
 
+    /// Populate a buffer with aggregated data for LOD rendering.
+    /// This avoids allocation by reusing the provided vector.
+    /// Default implementation delegates to iter_aggregated.
+    fn get_aggregated_data(
+        &self,
+        x_min: f64,
+        x_max: f64,
+        max_points: usize,
+        output: &mut Vec<PlotData>,
+    ) {
+        output.clear();
+        output.extend(self.iter_aggregated(x_min, x_max, max_points));
+    }
+
     /// Add a single data point
     fn add_data(&mut self, data: PlotData);
 

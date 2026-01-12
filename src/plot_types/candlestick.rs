@@ -8,6 +8,7 @@ use gpui::*;
 pub struct CandlestickPlot {
     pub source: Box<dyn PlotDataSource>,
     pub config: CandlestickConfig,
+    buffer: parking_lot::Mutex<Vec<PlotData>>,
 }
 
 impl CandlestickPlot {
@@ -16,6 +17,7 @@ impl CandlestickPlot {
         Self {
             source: Box::new(VecDataSource::new(plot_data)),
             config: CandlestickConfig::default(),
+            buffer: parking_lot::Mutex::new(Vec::new()),
         }
     }
 }
@@ -52,7 +54,10 @@ impl PlotRenderer for CandlestickPlot {
         let up_color = self.config.up_body_color;
         let down_color = self.config.down_body_color;
 
-        for data in self.source.iter_aggregated(x_min, x_max, max_points) {
+        let mut buffer = self.buffer.lock();
+        self.source.get_aggregated_data(x_min, x_max, max_points, &mut buffer);
+
+        for data in buffer.iter() {
             if let PlotData::Ohlcv(candle) = data {
                 let is_up = candle.close >= candle.open;
                 let t_start_px = transform.x_data_to_screen(candle.time).as_f32();
@@ -95,3 +100,4 @@ impl PlotRenderer for CandlestickPlot {
         }
     }
 }
+

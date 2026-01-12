@@ -10,6 +10,7 @@ use gpui::*;
 pub struct StepLinePlot {
     pub source: Box<dyn PlotDataSource>,
     pub config: StepLinePlotConfig,
+    buffer: parking_lot::Mutex<Vec<PlotData>>,
 }
 
 impl StepLinePlot {
@@ -18,6 +19,7 @@ impl StepLinePlot {
         Self {
             source: Box::new(VecDataSource::new(plot_data)),
             config: StepLinePlotConfig::default(),
+            buffer: parking_lot::Mutex::new(Vec::new()),
         }
     }
 
@@ -25,6 +27,7 @@ impl StepLinePlot {
         Self {
             source,
             config: StepLinePlotConfig::default(),
+            buffer: parking_lot::Mutex::new(Vec::new()),
         }
     }
 }
@@ -40,12 +43,14 @@ impl PlotRenderer for StepLinePlot {
     ) {
         let (x_min, x_max) = transform.x_scale.domain();
         let max_points = transform.bounds.size.width.as_f32() as usize * 2;
-        let visible_iter = self.source.iter_aggregated(x_min, x_max, max_points);
+        
+        let mut buffer = self.buffer.lock();
+        self.source.get_aggregated_data(x_min, x_max, max_points, &mut buffer);
 
         let mut builder = PathBuilder::stroke(px(self.config.line_width));
         let mut prev_pt: Option<Point<Pixels>> = None;
 
-        for data in visible_iter {
+        for data in buffer.iter() {
             if let PlotData::Point(p_curr) = data {
                 let s_curr = transform.data_to_screen(Point::new(p_curr.x, p_curr.y));
 

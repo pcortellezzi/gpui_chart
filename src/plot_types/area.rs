@@ -9,6 +9,7 @@ pub struct AreaPlot {
     pub source: Box<dyn PlotDataSource>,
     pub config: AreaPlotConfig,
     pub baseline: f64,
+    buffer: parking_lot::Mutex<Vec<PlotData>>,
 }
 
 impl AreaPlot {
@@ -18,6 +19,7 @@ impl AreaPlot {
             source: Box::new(VecDataSource::new(plot_data)),
             config: AreaPlotConfig::default(),
             baseline: 0.0,
+            buffer: parking_lot::Mutex::new(Vec::new()),
         }
     }
 
@@ -26,6 +28,7 @@ impl AreaPlot {
             source,
             config: AreaPlotConfig::default(),
             baseline: 0.0,
+            buffer: parking_lot::Mutex::new(Vec::new()),
         }
     }
 
@@ -54,7 +57,10 @@ impl PlotRenderer for AreaPlot {
         let mut first_pt: Option<Point<Pixels>> = None;
         let mut last_pt: Option<Point<Pixels>> = None;
 
-        for data in self.source.iter_aggregated(x_min, x_max, max_points) {
+        let mut buffer = self.buffer.lock();
+        self.source.get_aggregated_data(x_min, x_max, max_points, &mut buffer);
+
+        for data in buffer.iter() {
             if let PlotData::Point(point) = data {
                 let screen_point = transform.data_to_screen(Point::new(point.x, point.y));
 
