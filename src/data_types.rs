@@ -474,6 +474,7 @@ pub enum AggregationMode {
     MinMax, // 2 points par bin
     #[default]
     M4,     // 4 points par bin (First, Min, Max, Last)
+    LTTB,   // Largest-Triangle-Three-Buckets
 }
 
 /// Trait for data sources that provide points for the chart.

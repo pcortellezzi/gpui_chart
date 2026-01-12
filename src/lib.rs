@@ -5,9 +5,9 @@ mod axis_renderer;
 mod gutter_manager;
 mod rendering;
 mod utils;
-mod aggregation;
 
 /// Public modules (exposed to the user)
+pub mod aggregation;
 pub mod chart;
 pub mod chart_view;
 pub mod data_types;

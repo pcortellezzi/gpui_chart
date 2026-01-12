@@ -9,7 +9,7 @@ use std::time::Instant;
 
 #[test]
 #[cfg(feature = "polars")]
-fn test_compare_minmax_vs_m4() {
+fn test_compare_aggregations() {
     let n = 1_000_000;
     let x: Vec<f64> = (0..n).map(|i| i as f64).collect();
     let y: Vec<f64> = (0..n).map(|i| (i as f64 * 0.01).sin()).collect();
@@ -22,8 +22,11 @@ fn test_compare_minmax_vs_m4() {
     let source_minmax = PolarsDataSource::new(df.clone(), "x", "y")
         .with_aggregation_mode(AggregationMode::MinMax);
     
-    let source_m4 = PolarsDataSource::new(df, "x", "y")
+    let source_m4 = PolarsDataSource::new(df.clone(), "x", "y")
         .with_aggregation_mode(AggregationMode::M4);
+
+    let source_lttb = PolarsDataSource::new(df, "x", "y")
+        .with_aggregation_mode(AggregationMode::LTTB);
     
     println!("\n--- Aggregation Benchmark (1M rows) ---");
 
@@ -39,6 +42,13 @@ fn test_compare_minmax_vs_m4() {
     let dur_m4 = start.elapsed();
     println!("M4 (4 pts/bin) took:     {:?} (points: {})", dur_m4, res_m4.len());
 
+    // LTTB Benchmark
+    let start = Instant::now();
+    let res_lttb: Vec<_> = source_lttb.iter_aggregated(0.0, n as f64, 2000).collect();
+    let dur_lttb = start.elapsed();
+    println!("LTTB (Variable) took:    {:?} (points: {})", dur_lttb, res_lttb.len());
+
     assert!(res_minmax.len() <= 2000);
     assert!(res_m4.len() <= 2000);
+    assert!(res_lttb.len() <= 2000);
 }

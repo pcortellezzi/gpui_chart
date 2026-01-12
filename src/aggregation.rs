@@ -1,5 +1,291 @@
 use crate::data_types::{ColorOp, Ohlcv, PlotData, PlotPoint};
 
+use rayon::prelude::*;
+
+/// Decimates parallel arrays (Structure of Arrays) using M4 and Rayon.
+/// Highly optimized for huge datasets coming from columnar stores like Polars.
+pub fn decimate_m4_arrays_par(
+    x: &[f64],
+    y: &[f64],
+    max_points: usize,
+) -> Vec<PlotData> {
+    if x.is_empty() || y.is_empty() || x.len() != y.len() {
+        return vec![];
+    }
+    
+    if x.len() <= max_points {
+        return x.iter().zip(y.iter()).map(|(x_val, y_val)| {
+            PlotData::Point(PlotPoint { x: *x_val, y: *y_val, color_op: ColorOp::None })
+        }).collect();
+    }
+
+    // M4 targets 4 points per bin
+    let target_bins = max_points / 4;
+    let bin_size = (x.len() as f64 / target_bins.max(1) as f64).ceil() as usize;
+    
+    // Process chunks in parallel
+    let mut chunks: Vec<Vec<PlotData>> = x.par_chunks(bin_size)
+        .zip(y.par_chunks(bin_size))
+        .map(|(x_chunk, y_chunk)| {
+            if x_chunk.is_empty() {
+                return vec![];
+            }
+
+            // We need absolute indices relative to the chunk start for sorting,
+            // but we only have slices here.
+            // 4 points: First, Min, Max, Last.
+            
+            let first_idx = 0;
+            let last_idx = x_chunk.len() - 1;
+            
+            let mut min_idx = 0;
+            let mut max_idx = 0;
+            let mut min_y = y_chunk[0];
+            let mut max_y = min_y;
+
+            // Handle NaN start
+            let start_search = if min_y.is_nan() {
+                let mut found = false;
+                let mut idx = 0;
+                for (i, val) in y_chunk.iter().enumerate().skip(1) {
+                    if !val.is_nan() {
+                        min_y = *val;
+                        max_y = *val;
+                        min_idx = i;
+                        max_idx = i;
+                        idx = i;
+                        found = true;
+                        break;
+                    }
+                }
+                if found { idx + 1 } else { x_chunk.len() }
+            } else {
+                1
+            };
+
+            for (i, val) in y_chunk.iter().enumerate().skip(start_search) {
+                if val.is_nan() { continue; }
+                if *val < min_y {
+                    min_y = *val;
+                    min_idx = i;
+                }
+                if *val > max_y {
+                    max_y = *val;
+                    max_idx = i;
+                }
+            }
+            
+            let mut indices = vec![first_idx, min_idx, max_idx, last_idx];
+            indices.sort_unstable();
+            indices.dedup();
+            
+            let mut result = Vec::with_capacity(4);
+            for idx in indices {
+                result.push(PlotData::Point(PlotPoint {
+                    x: x_chunk[idx],
+                    y: y_chunk[idx],
+                    color_op: ColorOp::None,
+                }));
+            }
+            result
+        })
+        .collect();
+
+    // Flatten results
+    let mut aggregated = Vec::with_capacity(max_points);
+    for chunk in chunks.drain(..) {
+        aggregated.extend(chunk);
+    }
+    
+    // Ensure strict limit
+    if aggregated.len() > max_points {
+        aggregated.truncate(max_points);
+    }
+
+    aggregated
+}
+
+/// Decimates parallel arrays using Min/Max and Rayon.
+pub fn decimate_min_max_arrays_par(
+    x: &[f64],
+    y: &[f64],
+    max_points: usize,
+) -> Vec<PlotData> {
+    if x.is_empty() || y.is_empty() || x.len() != y.len() {
+        return vec![];
+    }
+    
+    if x.len() <= max_points {
+        return x.iter().zip(y.iter()).map(|(x_val, y_val)| {
+            PlotData::Point(PlotPoint { x: *x_val, y: *y_val, color_op: ColorOp::None })
+        }).collect();
+    }
+
+    // Min/Max returns 2 points per bin.
+    let target_bins = max_points / 2;
+    let bin_size = (x.len() as f64 / target_bins.max(1) as f64).ceil() as usize;
+
+    let mut chunks: Vec<Vec<PlotData>> = x.par_chunks(bin_size)
+        .zip(y.par_chunks(bin_size))
+        .map(|(x_chunk, y_chunk)| {
+            if x_chunk.is_empty() {
+                return vec![];
+            }
+
+            let mut min_idx = 0;
+            let mut max_idx = 0;
+            let mut min_y = y_chunk[0];
+            let mut max_y = min_y;
+
+            // Handle NaN start
+            let start_search = if min_y.is_nan() {
+                let mut found = false;
+                let mut idx = 0;
+                for (i, val) in y_chunk.iter().enumerate().skip(1) {
+                    if !val.is_nan() {
+                        min_y = *val;
+                        max_y = *val;
+                        min_idx = i;
+                        max_idx = i;
+                        idx = i;
+                        found = true;
+                        break;
+                    }
+                }
+                if found { idx + 1 } else { x_chunk.len() }
+            } else {
+                1
+            };
+
+            for (i, val) in y_chunk.iter().enumerate().skip(start_search) {
+                if val.is_nan() { continue; }
+                if *val < min_y {
+                    min_y = *val;
+                    min_idx = i;
+                }
+                if *val > max_y {
+                    max_y = *val;
+                    max_idx = i;
+                }
+            }
+
+            let mut result = Vec::with_capacity(2);
+            if min_idx == max_idx {
+                result.push(PlotData::Point(PlotPoint {
+                    x: x_chunk[min_idx],
+                    y: y_chunk[min_idx],
+                    color_op: ColorOp::None,
+                }));
+            } else {
+                let p1_x = x_chunk[min_idx];
+                let p1_y = y_chunk[min_idx];
+                let p2_x = x_chunk[max_idx];
+                let p2_y = y_chunk[max_idx];
+                
+                if p1_x <= p2_x {
+                    result.push(PlotData::Point(PlotPoint { x: p1_x, y: p1_y, color_op: ColorOp::None }));
+                    result.push(PlotData::Point(PlotPoint { x: p2_x, y: p2_y, color_op: ColorOp::None }));
+                } else {
+                    result.push(PlotData::Point(PlotPoint { x: p2_x, y: p2_y, color_op: ColorOp::None }));
+                    result.push(PlotData::Point(PlotPoint { x: p1_x, y: p1_y, color_op: ColorOp::None }));
+                }
+            }
+            result
+        })
+        .collect();
+
+    let mut aggregated = Vec::with_capacity(max_points);
+    for chunk in chunks.drain(..) {
+        aggregated.extend(chunk);
+    }
+
+    if aggregated.len() > max_points {
+        aggregated.truncate(max_points);
+    }
+    aggregated
+}
+
+/// Decimates arrays using LTTB (Sequential but optimized for arrays).
+pub fn decimate_lttb_arrays(
+    x: &[f64],
+    y: &[f64],
+    max_points: usize,
+) -> Vec<PlotData> {
+    if x.len() <= max_points || max_points < 3 {
+         return x.iter().zip(y.iter()).map(|(x_val, y_val)| {
+            PlotData::Point(PlotPoint { x: *x_val, y: *y_val, color_op: ColorOp::None })
+        }).collect();
+    }
+
+    let mut sampled = Vec::with_capacity(max_points);
+    let bucket_size = (x.len() - 2) as f64 / (max_points - 2) as f64;
+    
+    // 1. First point
+    let mut a_idx = 0;
+    sampled.push(PlotData::Point(PlotPoint { x: x[0], y: y[0], color_op: ColorOp::None }));
+
+    for i in 0..(max_points - 2) {
+        let bucket_start = 1 + (i as f64 * bucket_size).floor() as usize;
+        let bucket_end = 1 + ((i + 1) as f64 * bucket_size).floor() as usize;
+        
+        let next_bucket_start = bucket_end;
+        let next_bucket_end = (1 + ((i + 2) as f64 * bucket_size).floor() as usize).min(x.len() - 1);
+
+        // Average for next bucket
+        let mut avg_x = 0.0;
+        let mut avg_y = 0.0;
+        let mut avg_count = 0;
+        
+        for j in next_bucket_start..next_bucket_end {
+            let val_x = x[j];
+            let val_y = y[j];
+            if !val_x.is_nan() && !val_y.is_nan() {
+                avg_x += val_x;
+                avg_y += val_y;
+                avg_count += 1;
+            }
+        }
+        
+        if avg_count > 0 {
+            avg_x /= avg_count as f64;
+            avg_y /= avg_count as f64;
+        } else {
+             // Fallback
+             let idx = next_bucket_start.min(x.len() - 1);
+             avg_x = x[idx];
+             avg_y = y[idx];
+        }
+
+        let p_a_x = x[a_idx];
+        let p_a_y = y[a_idx];
+
+        let mut max_area = -1.0;
+        let mut next_a_idx = bucket_start;
+
+        for j in bucket_start..bucket_end {
+            let p_b_x = x[j];
+            let p_b_y = y[j];
+            
+            if p_b_x.is_nan() || p_b_y.is_nan() { continue; }
+
+            let area = (p_a_x * (p_b_y - avg_y) + p_b_x * (avg_y - p_a_y) + avg_x * (p_a_y - p_b_y)).abs();
+            
+            if area > max_area {
+                max_area = area;
+                next_a_idx = j;
+            }
+        }
+        
+        a_idx = next_a_idx;
+        sampled.push(PlotData::Point(PlotPoint { x: x[a_idx], y: y[a_idx], color_op: ColorOp::None }));
+    }
+
+    // Last point
+    sampled.push(PlotData::Point(PlotPoint { x: x[x.len() - 1], y: y[y.len() - 1], color_op: ColorOp::None }));
+
+    sampled
+}
+
 /// Decimates a slice of PlotData using the Min/Max algorithm.
 /// This is the standard entry point for most data sources.
 pub fn decimate_min_max_slice(data: &[PlotData], max_points: usize) -> Vec<PlotData> {
@@ -54,6 +340,26 @@ pub fn decimate_m4_slice(data: &[PlotData], max_points: usize) -> Vec<PlotData> 
     )
 }
 
+/// Decimates a slice of PlotData using the LTTB algorithm.
+/// LTTB preserves visual shape better than Min/Max for line charts.
+pub fn decimate_lttb_slice(data: &[PlotData], max_points: usize) -> Vec<PlotData> {
+    if data.is_empty() {
+        return vec![];
+    }
+    // Fallback for OHLCV
+    if let PlotData::Ohlcv(_) = data[0] {
+        return decimate_min_max_slice(data, max_points);
+    }
+
+    decimate_lttb_generic(
+        data,
+        max_points,
+        |p| match p { PlotData::Point(pt) => pt.x, _ => 0.0 },
+        |p| match p { PlotData::Point(pt) => pt.y, _ => 0.0 },
+        |p| p.clone()
+    )
+}
+
 /// Generic Min/Max aggregator.
 /// Takes any slice and returns a decimated Vec of PlotData.
 pub fn decimate_min_max_generic<T, FX, FY, FC>(
@@ -87,8 +393,32 @@ where
         let mut min_y = get_y(&chunk[0]);
         let mut max_y = min_y;
 
-        for (i, item) in chunk.iter().enumerate().skip(1) {
+        // If the first point is NaN, try to find the first non-NaN point to initialize min/max
+        let start_search_idx = if min_y.is_nan() {
+            let mut found = false;
+            let mut first_non_nan = 0;
+            for (i, item) in chunk.iter().enumerate().skip(1) {
+                let y = get_y(item);
+                if !y.is_nan() {
+                    min_y = y;
+                    max_y = y;
+                    min_idx = i;
+                    max_idx = i;
+                    first_non_nan = i;
+                    found = true;
+                    break;
+                }
+            }
+            if found { first_non_nan + 1 } else { chunk.len() }
+        } else {
+            1
+        };
+
+        for (i, item) in chunk.iter().enumerate().skip(start_search_idx) {
             let y = get_y(item);
+            if y.is_nan() {
+                continue;
+            }
             if y < min_y {
                 min_y = y;
                 min_idx = i;
@@ -158,8 +488,32 @@ where
         let mut min_y = get_y(&chunk[0]);
         let mut max_y = min_y;
 
-        for (i, item) in chunk.iter().enumerate().skip(1) {
+        // If the first point is NaN, try to find the first non-NaN point to initialize min/max
+        let start_search_idx = if min_y.is_nan() {
+            let mut found = false;
+            let mut first_non_nan = 0;
+            for (i, item) in chunk.iter().enumerate().skip(1) {
+                let y = get_y(item);
+                if !y.is_nan() {
+                    min_y = y;
+                    max_y = y;
+                    min_idx = i;
+                    max_idx = i;
+                    first_non_nan = i;
+                    found = true;
+                    break;
+                }
+            }
+            if found { first_non_nan + 1 } else { chunk.len() }
+        } else {
+            1
+        };
+
+        for (i, item) in chunk.iter().enumerate().skip(start_search_idx) {
             let y = get_y(item);
+            if y.is_nan() {
+                continue;
+            }
             if y < min_y {
                 min_y = y;
                 min_idx = i;
@@ -187,6 +541,93 @@ where
     }
 
     aggregated
+}
+
+/// Generic LTTB aggregator.
+pub fn decimate_lttb_generic<T, FX, FY, FC>(
+    data: &[T],
+    max_points: usize,
+    get_x: FX,
+    get_y: FY,
+    create_point: FC,
+) -> Vec<PlotData>
+where
+    FX: Fn(&T) -> f64,
+    FY: Fn(&T) -> f64,
+    FC: Fn(&T) -> PlotData,
+{
+    if data.len() <= max_points || max_points < 3 {
+         return data.iter().map(create_point).collect();
+    }
+
+    let mut sampled = Vec::with_capacity(max_points);
+    
+    // Bucket size. Exclude start and end points.
+    let bucket_size = (data.len() - 2) as f64 / (max_points - 2) as f64;
+    
+    // 1. First point
+    let mut a_idx = 0;
+    sampled.push(create_point(&data[a_idx]));
+
+    for i in 0..(max_points - 2) {
+        // Current bucket range
+        let bucket_start = 1 + (i as f64 * bucket_size).floor() as usize;
+        let bucket_end = 1 + ((i + 1) as f64 * bucket_size).floor() as usize;
+        
+        // Next bucket range (for average)
+        let next_bucket_start = bucket_end;
+        let next_bucket_end = (1 + ((i + 2) as f64 * bucket_size).floor() as usize).min(data.len() - 1);
+
+        // Calculate average of next bucket
+        let mut avg_x = 0.0;
+        let mut avg_y = 0.0;
+        let mut avg_count = 0;
+        
+        for j in next_bucket_start..next_bucket_end {
+            avg_x += get_x(&data[j]);
+            avg_y += get_y(&data[j]);
+            avg_count += 1;
+        }
+        
+        if avg_count > 0 {
+            avg_x /= avg_count as f64;
+            avg_y /= avg_count as f64;
+        } else {
+            // Fallback if next bucket is empty
+             avg_x = get_x(&data[next_bucket_start.min(data.len() - 1)]);
+             avg_y = get_y(&data[next_bucket_start.min(data.len() - 1)]);
+        }
+
+        // Point A
+        let p_a_x = get_x(&data[a_idx]);
+        let p_a_y = get_y(&data[a_idx]);
+
+        // Find best point B in current bucket
+        let mut max_area = -1.0;
+        let mut next_a_idx = bucket_start; // Default
+
+        for j in bucket_start..bucket_end {
+            let p_b_x = get_x(&data[j]);
+            let p_b_y = get_y(&data[j]);
+            
+            // Triangle Area = 0.5 * |Ax(By - Cy) + Bx(Cy - Ay) + Cx(Ay - By)|
+            // We can ignore 0.5 for comparison
+            let area = (p_a_x * (p_b_y - avg_y) + p_b_x * (avg_y - p_a_y) + avg_x * (p_a_y - p_b_y)).abs();
+            
+            if area > max_area {
+                max_area = area;
+                next_a_idx = j;
+            }
+        }
+        
+        a_idx = next_a_idx;
+        sampled.push(create_point(&data[a_idx]));
+    }
+
+    // Last point
+    sampled.push(create_point(&data[data.len() - 1]));
+
+    sampled
 }
 
 /// Aggregates a chunk into a single point (Mean for Points, OHLCV-Merge for OHLCV).

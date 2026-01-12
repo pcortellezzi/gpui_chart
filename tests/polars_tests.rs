@@ -32,9 +32,9 @@ fn test_polars_datasource_basic() {
 #[test]
 #[cfg(feature = "polars")]
 fn test_polars_datasource_aggregation() {
-    // Create 1000 points
+    // Create 1000 points (Sine wave to avoid deduplication of collinear points)
     let x: Vec<f64> = (0..1000).map(|i| i as f64).collect();
-    let y: Vec<f64> = (0..1000).map(|i| i as f64).collect();
+    let y: Vec<f64> = (0..1000).map(|i| (i as f64 * 0.1).sin()).collect();
     
     let df = DataFrame::new(vec![
         Series::new("x".into(), x).into(),
@@ -46,10 +46,11 @@ fn test_polars_datasource_aggregation() {
     // Aggregate to 100 points
     let decimated: Vec<PlotData> = source.iter_aggregated(0.0, 1000.0, 100).collect();
     
-    // Min/Max decimation returns 2 points per bin. 
-    // For 1000 points into 50 bins (max_points=100), we expect exactly 100 points if they are distinct.
+    // M4 decimation returns up to 4 points per bin.
+    // 1000 points / 25 bins = 40 points per bin.
+    // Sine wave should trigger min/max distinct from first/last most of the time.
     assert!(decimated.len() <= 100);
-    assert!(decimated.len() >= 90); 
+    assert!(decimated.len() >= 80); 
 }
 
 #[test]
@@ -73,9 +74,10 @@ fn test_polars_performance_1m_rows() {
     let duration = start.elapsed();
     
     println!("Decimation of 1M rows to 2000 points took: {:?}", duration);
-    assert_eq!(decimated.len(), 2000);
+    // Allow slight variance in exact count due to parallel chunking
+    assert!(decimated.len() <= 2000);
+    assert!(decimated.len() >= 1900);
     
-    // Target is < 2ms for aggregation logic
-    // In debug mode it might be slower, but 100ms is a safe upper bound for CI.
-    assert!(duration.as_millis() < 100, "Decimation should be fast");
+    // Target is < 10ms for aggregation logic (Native Rust + Rayon)
+    assert!(duration.as_millis() < 20, "Decimation should be extremely fast (<20ms)");
 }

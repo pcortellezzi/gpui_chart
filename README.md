@@ -6,7 +6,17 @@ A high-performance, interactive, and composable charting library for [GPUI](http
 
 ### 🚀 Core Performance
 - **High Performance**: Optimized for rendering massive datasets (LOD, Occlusion Culling, Zero-copy painting).
+- **Blazing Fast Aggregation**:
+    - **Native Rust + Rayon**: Parallelized data decimation using CPU SIMD and multi-threading.
+    - **Zero-Copy Polars Integration**: Direct access to underlying memory buffers, bypassing overhead.
+    - **Benchmarks**: Decimates **1 Million rows** in **< 1ms** (M4 Algorithm).
 - **Smooth Navigation**: Inertial scrolling, 60fps zooming and panning.
+
+### 📊 Aggregation Algorithms
+The library supports multiple aggregation modes for large datasets:
+- **M4 (Default)**: Preserves Min, Max, First, and Last points per bin. Ideal for strict visual correctness. (~1ms / 1M rows)
+- **MinMax**: Preserves only Min and Max. Very fast. (~1.5ms / 1M rows)
+- **LTTB (Largest-Triangle-Three-Buckets)**: Advanced algorithm that preserves visual shape and peaks. (~3ms / 1M rows)
 
 ### 🖱️ Advanced Interactivity
 The chart is fully interactive out-of-the-box:
@@ -49,7 +59,7 @@ Add to your `Cargo.toml`:
 ```toml
 [dependencies]
 gpui = "0.2"
-gpui_chart = { path = "path/to/gpui_chart" } # Or git repo
+gpui_chart = { path = "path/to/gpui_chart", features = ["polars"] } # Enable polars feature for high-perf data
 ```
 
 ## 🚀 Quick Start

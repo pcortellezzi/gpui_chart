@@ -128,15 +128,33 @@ impl PlotDataSource for PolarsDataSource {
         let end = (end_idx + 1).min(self.df.height());
         let sliced = self.df.slice(start as i64, end - start);
         
-        let x_col = sliced.column(&self.x_col).ok().unwrap().as_series().unwrap().f64().ok().unwrap();
-        let y_col = sliced.column(&self.y_col).ok().unwrap().as_series().unwrap().f64().ok().unwrap();
+        let x_col = match sliced.column(&self.x_col).ok().and_then(|c| c.as_series()).and_then(|s| s.f64().ok()) {
+            Some(c) => c,
+            None => return Box::new(std::iter::empty()),
+        };
+        let y_col = match sliced.column(&self.y_col).ok().and_then(|c| c.as_series()).and_then(|s| s.f64().ok()) {
+            Some(c) => c,
+            None => return Box::new(std::iter::empty()),
+        };
 
         let mut result = Vec::with_capacity(sliced.height());
         if let (Some(o_n), Some(h_n), Some(l_n), Some(c_n)) = (&self.open_col, &self.high_col, &self.low_col, &self.close_col) {
-            let o_col = sliced.column(o_n).ok().unwrap().as_series().unwrap().f64().ok().unwrap();
-            let h_col = sliced.column(h_n).ok().unwrap().as_series().unwrap().f64().ok().unwrap();
-            let l_col = sliced.column(l_n).ok().unwrap().as_series().unwrap().f64().ok().unwrap();
-            let c_col = sliced.column(c_n).ok().unwrap().as_series().unwrap().f64().ok().unwrap();
+            let o_col = match sliced.column(o_n).ok().and_then(|c| c.as_series()).and_then(|s| s.f64().ok()) {
+                Some(c) => c,
+                None => return Box::new(std::iter::empty()),
+            };
+            let h_col = match sliced.column(h_n).ok().and_then(|c| c.as_series()).and_then(|s| s.f64().ok()) {
+                Some(c) => c,
+                None => return Box::new(std::iter::empty()),
+            };
+            let l_col = match sliced.column(l_n).ok().and_then(|c| c.as_series()).and_then(|s| s.f64().ok()) {
+                Some(c) => c,
+                None => return Box::new(std::iter::empty()),
+            };
+            let c_col = match sliced.column(c_n).ok().and_then(|c| c.as_series()).and_then(|s| s.f64().ok()) {
+                Some(c) => c,
+                None => return Box::new(std::iter::empty()),
+            };
             for i in 0..sliced.height() {
                 result.push(PlotData::Ohlcv(Ohlcv {
                     time: x_col.get(i).unwrap_or(0.0),
@@ -173,6 +191,56 @@ impl PlotDataSource for PolarsDataSource {
             return self.iter_range(x_min, x_max);
         }
 
+        // Optimized Zero-Copy Path for Points (M4, MinMax, LTTB)
+        // This avoids Polars LazyFrame overhead by working directly on contiguous memory slices.
+        // Parallelized with Rayon for M4 and MinMax.
+        if (matches!(self.mode, crate::data_types::AggregationMode::M4) 
+            || matches!(self.mode, crate::data_types::AggregationMode::MinMax)
+            || matches!(self.mode, crate::data_types::AggregationMode::LTTB))
+           && self.open_col.is_none() // Only for standard XY plots, not OHLCV
+        {
+             // 1. Extract the slice of data corresponding to the range
+             let start = start_idx as i64;
+             let len = count;
+             let sliced = self.df.slice(start, len);
+             
+             // 2. Try to get contiguous slices.
+             if let (Ok(x_col), Ok(y_col)) = (sliced.column(&self.x_col), sliced.column(&self.y_col)) {
+                 if let (Some(x_series), Some(y_series)) = (
+                     x_col.as_series().and_then(|s| s.f64().ok()),
+                     y_col.as_series().and_then(|s| s.f64().ok())
+                 ) {
+                     
+                     // Get X data
+                     let x_owned: Vec<f64>;
+                     let x_slice = if let Ok(s) = x_series.cont_slice() {
+                         s
+                     } else {
+                         x_owned = x_series.to_vec().into_iter().map(|v| v.unwrap_or(f64::NAN)).collect();
+                         &x_owned
+                     };
+
+                     // Get Y data
+                     let y_owned: Vec<f64>;
+                     let y_slice = if let Ok(s) = y_series.cont_slice() {
+                         s
+                     } else {
+                         y_owned = y_series.to_vec().into_iter().map(|v| v.unwrap_or(f64::NAN)).collect();
+                         &y_owned
+                     };
+                     
+                     // 3. Dispatch to optimized algorithms
+                     let aggregated = match self.mode {
+                        crate::data_types::AggregationMode::M4 => crate::aggregation::decimate_m4_arrays_par(x_slice, y_slice, max_points),
+                        crate::data_types::AggregationMode::MinMax => crate::aggregation::decimate_min_max_arrays_par(x_slice, y_slice, max_points),
+                        crate::data_types::AggregationMode::LTTB => crate::aggregation::decimate_lttb_arrays(x_slice, y_slice, max_points),
+                     };
+
+                     return Box::new(aggregated.into_iter());
+                 }
+             }
+        }
+
         let mut lf = self.df.slice(start_idx as i64, count).lazy();
 
         if let (Some(o_n), Some(h_n), Some(l_n), Some(c_n)) = (&self.open_col, &self.high_col, &self.low_col, &self.close_col) {
@@ -192,12 +260,30 @@ impl PlotDataSource for PolarsDataSource {
                 col(&self.x_col).first().alias(&self.x_col),
             ]).sort(["bin_id"], Default::default());
 
-            let df = agg_lf.collect().unwrap();
-            let x_c = df.column(&self.x_col).unwrap().f64().unwrap();
-            let o_c = df.column(o_n).unwrap().f64().unwrap();
-            let h_c = df.column(h_n).unwrap().f64().unwrap();
-            let l_c = df.column(l_n).unwrap().f64().unwrap();
-            let c_c = df.column(c_n).unwrap().f64().unwrap();
+            let df = match agg_lf.collect() {
+                Ok(df) => df,
+                Err(_) => return Box::new(std::iter::empty()),
+            };
+            let x_c = match df.column(&self.x_col).ok().and_then(|c| c.as_series()).and_then(|s| s.f64().ok()) {
+                Some(c) => c,
+                None => return Box::new(std::iter::empty()),
+            };
+            let o_c = match df.column(o_n).ok().and_then(|c| c.as_series()).and_then(|s| s.f64().ok()) {
+                Some(c) => c,
+                None => return Box::new(std::iter::empty()),
+            };
+            let h_c = match df.column(h_n).ok().and_then(|c| c.as_series()).and_then(|s| s.f64().ok()) {
+                Some(c) => c,
+                None => return Box::new(std::iter::empty()),
+            };
+            let l_c = match df.column(l_n).ok().and_then(|c| c.as_series()).and_then(|s| s.f64().ok()) {
+                Some(c) => c,
+                None => return Box::new(std::iter::empty()),
+            };
+            let c_c = match df.column(c_n).ok().and_then(|c| c.as_series()).and_then(|s| s.f64().ok()) {
+                Some(c) => c,
+                None => return Box::new(std::iter::empty()),
+            };
 
             let result: Vec<_> = x_c.iter()
                 .zip(o_c.iter())
@@ -223,6 +309,7 @@ impl PlotDataSource for PolarsDataSource {
         let (target_bins, m4_mode) = match self.mode {
             crate::data_types::AggregationMode::M4 => ((max_points / 4).max(1), true),
             crate::data_types::AggregationMode::MinMax => ((max_points / 2).max(1), false),
+            crate::data_types::AggregationMode::LTTB => unreachable!("LTTB is handled above"),
         };
 
         let bin_size = (count as f64 / target_bins as f64).ceil() as i64;
@@ -271,9 +358,18 @@ impl PlotDataSource for PolarsDataSource {
             .explode(cols([&self.x_col, &self.y_col]))
             .sort(["bin_id", &self.x_col], Default::default());
 
-        let df = m4_lf.collect().unwrap();
-        let x_c = df.column(&self.x_col).unwrap().f64().unwrap();
-        let y_c = df.column(&self.y_col).unwrap().f64().unwrap();
+        let df = match m4_lf.collect() {
+            Ok(df) => df,
+            Err(_) => return Box::new(std::iter::empty()),
+        };
+        let x_c = match df.column(&self.x_col).ok().and_then(|c| c.as_series()).and_then(|s| s.f64().ok()) {
+            Some(c) => c,
+            None => return Box::new(std::iter::empty()),
+        };
+        let y_c = match df.column(&self.y_col).ok().and_then(|c| c.as_series()).and_then(|s| s.f64().ok()) {
+            Some(c) => c,
+            None => return Box::new(std::iter::empty()),
+        };
 
         let result: Vec<_> = x_c.iter()
             .zip(y_c.iter())
@@ -299,7 +395,10 @@ impl PlotDataSource for PolarsDataSource {
         if self.df.height() < 2 {
             return 1.0;
         }
-        let x = self.df.column(&self.x_col).ok().unwrap().as_series().unwrap().f64().ok().unwrap();
+        let x = match self.df.column(&self.x_col).ok().and_then(|c| c.as_series()).and_then(|s| s.f64().ok()) {
+            Some(x) => x,
+            None => return 1.0,
+        };
         if x.len() > 1 {
             (x.get(1).unwrap_or(0.0) - x.get(0).unwrap_or(0.0)).abs()
         } else {
