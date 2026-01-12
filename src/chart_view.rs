@@ -73,6 +73,12 @@ pub struct ChartView {
     focus_handle: FocusHandle,
 }
 
+impl Focusable for ChartView {
+    fn focus_handle(&self, _cx: &App) -> FocusHandle {
+        self.focus_handle.clone()
+    }
+}
+
 impl ChartView {
     pub fn new(chart: Entity<Chart>, cx: &mut Context<Self>) -> Self {
         cx.observe(&chart, |_, _, cx| cx.notify()).detach();
@@ -316,9 +322,10 @@ impl ChartView {
     fn handle_mouse_down(
         &mut self,
         event: &MouseDownEvent,
-        _win: &mut Window,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        window.focus(&self.focus_handle);
         let p_bounds = self.pane_bounds.borrow().clone();
         self.chart.update(cx, |c, cx| {
             for ps in c.panes.iter_mut() {
