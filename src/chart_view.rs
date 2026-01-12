@@ -1600,6 +1600,7 @@ impl Render for ChartView {
         }
 
         div()
+            .id(("chart-view", cx.entity_id()))
             .track_focus(&self.focus_handle)
             .size_full()
             .relative()
