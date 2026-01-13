@@ -1,4 +1,3 @@
-use chrono::{TimeZone, Utc};
 use d3rs::scale::LogScale;
 use d3rs::scale::{LinearScale, Scale as D3Scale};
 
@@ -62,10 +61,36 @@ impl ChartScale {
         }
     }
 
-    pub fn format_tick(&self, value: f64) -> String {
-        if value > 1_000_000_000_000.0 {
-            if let Some(dt) = Utc.timestamp_millis_opt(value as i64).single() {
-                return dt.format("%H:%M").to_string();
+    pub fn format_tick(&self, value: f64, format: &crate::data_types::AxisFormat) -> String {
+        // Use explicit format if provided
+        match format {
+            crate::data_types::AxisFormat::Time => {
+                let (d_min, d_max) = self.domain();
+                let span = (d_max - d_min).abs();
+                
+                // Heuristic for milliseconds detection still useful if user didn't specify unit,
+                // but usually Smart Date Axis expects seconds or milliseconds.
+                // We assume if value > 1e11 it is probably ms/ns if it's a recent date, or seconds if it's far future.
+                // To be safe, let's keep the heuristic for now, or assume the user provides consistent data.
+                // Standard: if > 3e11 (year 11000 in seconds), treat as ms.
+                let span_sec = if value.abs() > 3_000_000_000_000.0 { 
+                     span / 1000.0
+                } else {
+                     span
+                };
+    
+                let fmt = crate::utils::date_formatter::determine_date_format(span_sec);
+                return crate::utils::date_formatter::format_timestamp(value, fmt);
+            }
+            crate::data_types::AxisFormat::Numeric => {
+                // Heuristic fallback (backward compatibility)
+                if value.abs() > 100_000_000_000.0 {
+                    let (d_min, d_max) = self.domain();
+                    let span = (d_max - d_min).abs();
+                    let span_sec = if value.abs() > 3_000_000_000_000.0 { span / 1000.0 } else { span };
+                    let fmt = crate::utils::date_formatter::determine_date_format(span_sec);
+                    return crate::utils::date_formatter::format_timestamp(value, fmt);
+                }
             }
         }
 

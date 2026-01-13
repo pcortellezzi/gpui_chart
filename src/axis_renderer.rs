@@ -1,4 +1,4 @@
-use crate::data_types::{AxisEdge, AxisRange};
+use crate::data_types::{AxisEdge, AxisFormat, AxisRange};
 use crate::scales::ChartScale;
 use crate::theme::ChartTheme;
 use crate::utils::PixelsExt;
@@ -15,6 +15,7 @@ impl AxisRenderer {
         edge: AxisEdge,
         theme: &ChartTheme,
         label: &str,
+        format: &AxisFormat,
         bounds: Bounds<Pixels>,
         window: &mut Window,
         cx: &mut App,
@@ -79,7 +80,7 @@ impl AxisRenderer {
 
         for tick in ticks {
             let tick_px = scale.map(*tick) as f32;
-            let tick_text = scale.format_tick(*tick);
+            let tick_text = scale.format_tick(*tick, format);
 
             let run = TextRun {
                 len: tick_text.len(),
@@ -172,6 +173,7 @@ impl AxisRenderer {
         current_top_pct: f32,
         x_pos: Pixels,
         label: String,
+        format: AxisFormat,
         theme: &ChartTheme,
         on_draw: impl Fn(Bounds<Pixels>) + 'static,
     ) -> Stateful<Div> {
@@ -196,7 +198,7 @@ impl AxisRenderer {
                     |_, _, _| {},
                     move |bounds, (), window: &mut Window, cx| {
                         Self::paint_axis(
-                            &range, true, edge, &theme, &label, bounds, window, cx, &on_draw,
+                            &range, true, edge, &theme, &label, &format, bounds, window, cx, &on_draw,
                         );
                     },
                 )
@@ -212,6 +214,7 @@ impl AxisRenderer {
         gutter_left: Pixels,
         gutter_right: Pixels,
         label: String,
+        format: AxisFormat,
         theme: &ChartTheme,
         on_draw: impl Fn(Bounds<Pixels>) + 'static,
     ) -> Stateful<Div> {
@@ -231,10 +234,6 @@ impl AxisRenderer {
             .border_color(theme.axis_line)
             .cursor(CursorStyle::ResizeLeftRight)
             .flex()
-            .when(!is_top, |d| d.bottom(px(0.0)).border_t_1())
-            .border_color(theme.axis_line)
-            .cursor(CursorStyle::ResizeLeftRight)
-            .flex()
             .flex_row()
             .child(div().w(gutter_left))
             .child(
@@ -243,7 +242,7 @@ impl AxisRenderer {
                         |_, _, _| {},
                         move |bounds, (), window: &mut Window, cx| {
                             Self::paint_axis(
-                                &range, false, edge, &theme, &label, bounds, window, cx, &on_draw,
+                                &range, false, edge, &theme, &label, &format, bounds, window, cx, &on_draw,
                             );
                         },
                     )

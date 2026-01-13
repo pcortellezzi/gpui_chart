@@ -1,6 +1,6 @@
 use gpui::{
     px, AppContext, MouseButton, Point,
-    TestAppContext, VisualContext,
+    TestAppContext,
 };
 use gpui_chart::data_types::{AxisRange, SharedPlotState};
 use gpui_chart::{Chart, ChartView};

@@ -1,5 +1,7 @@
 use gpui::Pixels;
 
+pub mod date_formatter;
+
 pub trait PixelsExt {
     fn as_f32(&self) -> f32;
 }

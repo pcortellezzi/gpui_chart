@@ -127,6 +127,7 @@ impl DemoApp {
                 edge: AxisEdge::Bottom,
                 size: px(25.0),
                 label: "Time".into(),
+                format: gpui_chart::data_types::AxisFormat::Time,
             });
 
             // Pane 1: Price
@@ -141,6 +142,7 @@ impl DemoApp {
                 edge: AxisEdge::Right,
                 size: px(60.0),
                 label: "Price".into(),
+                format: gpui_chart::data_types::AxisFormat::Numeric,
             });
             p1.series
                 .push(Series::new("Price", CandlestickPlot::new(candles.clone())));
@@ -157,6 +159,7 @@ impl DemoApp {
                 edge: AxisEdge::Right,
                 size: px(60.0),
                 label: "Volume".into(),
+                format: gpui_chart::data_types::AxisFormat::Numeric,
             });
             p2.series
                 .push(Series::new("Volume", BarPlot::new(volume_data)));
@@ -176,6 +179,7 @@ impl DemoApp {
                 edge: AxisEdge::Left,
                 size: px(60.0),
                 label: "Indicator".into(),
+                format: gpui_chart::data_types::AxisFormat::Numeric,
             });
             p3.series
                 .push(Series::new("Step", StepLinePlot::new(step_data)));

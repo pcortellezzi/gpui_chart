@@ -1,4 +1,4 @@
-use gpui_chart::data_types::AxisRange;
+use gpui_chart::data_types::{AxisFormat, AxisRange};
 use gpui_chart::scales::ChartScale;
 
 #[test]
@@ -94,7 +94,7 @@ fn test_chart_scale_formatting() {
 
     // Test large numbers (timestamps)
     let ts = 1736500000000.0; // Sometime in 2025
-    let formatted = scale.format_tick(ts);
+    let formatted = scale.format_tick(ts, &AxisFormat::Numeric);
     assert!(
         formatted.contains(":"),
         "Should be formatted as time: {}",
@@ -102,7 +102,7 @@ fn test_chart_scale_formatting() {
     );
 
     // Test small numbers
-    assert_eq!(scale.format_tick(0.000123), "0.0001");
-    assert_eq!(scale.format_tick(123.456), "123.46");
-    assert_eq!(scale.format_tick(1234.56), "1235");
+    assert_eq!(scale.format_tick(0.000123, &AxisFormat::Numeric), "0.0001");
+    assert_eq!(scale.format_tick(123.456, &AxisFormat::Numeric), "123.46");
+    assert_eq!(scale.format_tick(1234.56, &AxisFormat::Numeric), "1235");
 }

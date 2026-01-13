@@ -149,6 +149,19 @@ pub struct HeatmapCell {
     pub text: Option<String>,
 }
 
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
+pub enum AxisFormat {
+    Numeric,
+    Time,
+    // Custom formats can be added later if needed (e.g. fn pointer, but not serializable easily)
+}
+
+impl Default for AxisFormat {
+    fn default() -> Self {
+        Self::Numeric
+    }
+}
+
 /// Axis management types
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
 pub struct AxisId(pub usize);

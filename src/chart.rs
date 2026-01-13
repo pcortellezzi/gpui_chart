@@ -7,7 +7,7 @@
 //! As a GPUI Entity, it can be updated from any context and notifies its observers
 //! (like `ChartView`) of any changes.
 
-use crate::data_types::{AxisEdge, AxisId, AxisRange, SharedPlotState};
+use crate::data_types::{AxisEdge, AxisFormat, AxisId, AxisRange, SharedPlotState};
 use crate::theme::ChartTheme;
 use crate::Series;
 use gpui::*;
@@ -19,6 +19,7 @@ pub struct AxisState {
     pub edge: AxisEdge,
     pub size: Pixels,
     pub label: String,
+    pub format: AxisFormat,
 }
 
 #[derive(Clone)]
@@ -116,6 +117,7 @@ impl Chart {
             edge: AxisEdge::Right,
             size: px(60.0),
             label: "New".to_string(),
+            format: crate::data_types::AxisFormat::Numeric,
         });
 
         if idx >= self.panes.len() {
@@ -212,6 +214,7 @@ impl Chart {
                     edge: AxisEdge::Right,
                     size: px(60.0),
                     label: series_id.to_string(),
+                    format: crate::data_types::AxisFormat::Numeric,
                 });
                 let new_axis_id = AxisId(ps.y_axes.len() - 1);
 
@@ -280,7 +283,23 @@ impl Chart {
         self.notify_render(cx);
     }
 
-    fn notify_render(&self, cx: &mut Context<Self>) {
+    pub fn set_x_axis_format(&mut self, axis_idx: usize, format: crate::data_types::AxisFormat, cx: &mut Context<Self>) {
+        if let Some(axis) = self.x_axes.get_mut(axis_idx) {
+            axis.format = format;
+            self.notify_render(cx);
+        }
+    }
+
+    pub fn set_y_axis_format(&mut self, pane_idx: usize, axis_idx: usize, format: crate::data_types::AxisFormat, cx: &mut Context<Self>) {
+        if let Some(pane) = self.panes.get_mut(pane_idx) {
+            if let Some(axis) = pane.y_axes.get_mut(axis_idx) {
+                axis.format = format;
+                self.notify_render(cx);
+            }
+        }
+    }
+
+    pub fn notify_render(&self, cx: &mut Context<Self>) {
         self.shared_state.update(cx, |s, _| s.request_render());
         cx.notify();
     }

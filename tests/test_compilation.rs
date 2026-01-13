@@ -1,5 +1,4 @@
 use gpui::TestAppContext;
-use gpui::VisualContext;
 
 #[gpui::test]
 fn test_dispatch_exists(cx: &mut TestAppContext) {

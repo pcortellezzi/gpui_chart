@@ -969,6 +969,7 @@ impl Render for ChartView {
                     current_top_pct,
                     x_pos,
                     axis.label.clone(),
+                    axis.format,
                     &theme,
                     {
                         let key = key.clone();
@@ -1120,6 +1121,7 @@ impl Render for ChartView {
                 self.gutter_left,
                 self.gutter_right,
                 x_axis.label.clone(),
+                x_axis.format,
                 &theme,
                 {
                     let key = key.clone();
@@ -1265,7 +1267,7 @@ impl Render for ChartView {
                             .w(px(80.0))
                             .h(x_a.size)
                             .child(crate::rendering::create_axis_tag(
-                                scale.format_tick(hx),
+                                scale.format_tick(hx, &x_a.format),
                                 px(40.0),
                                 true,
                                 &theme,
@@ -1301,7 +1303,7 @@ impl Render for ChartView {
                                     .flex()
                                     .items_center()
                                     .justify_center()
-                                    .child(scale.format_tick(val))
+                                    .child(scale.format_tick(val, &y_a.format))
                                     .into_any_element(),
                             );
                         }

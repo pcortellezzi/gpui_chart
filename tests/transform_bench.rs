@@ -1,6 +1,6 @@
 use gpui_chart::simd::batch_transform_points;
 use gpui_chart::data_types::{PlotData, PlotPoint, ColorOp};
-use gpui::{Point, Pixels, px};
+use gpui::{Point, px};
 use std::time::Instant;
 
 #[test]
