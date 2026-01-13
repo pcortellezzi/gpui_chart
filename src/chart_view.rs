@@ -888,6 +888,7 @@ impl ChartView {
                 s.request_render();
             });
         });
+        cx.notify();
     }
 }
 
