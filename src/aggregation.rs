@@ -221,7 +221,6 @@ pub fn decimate_ohlcv_arrays_par_into(
             let mut agg_high = f64::NEG_INFINITY;
             let mut agg_low = f64::INFINITY;
             let first_time = t_chunk[0];
-            let last_time = t_chunk[t_chunk.len() - 1];
 
             // Find first valid open
             for &v in o_chunk {
@@ -309,10 +308,13 @@ pub fn decimate_min_max_arrays_par_into(
         return;
     }
 
-    // Min/Max returns 2 points per bin.
-    let target_bins = max_points / 2;
-    let bin_size = (x.len() as f64 / target_bins.max(1) as f64).ceil() as usize;
+    // Stable binning for MinMax
+    let range = x[x.len() - 1] - x[0];
+    let stable_bin_size = calculate_stable_bin_size(range, max_points / 2);
+    let avg_items_per_bin = (x.len() as f64 * (stable_bin_size / range)).round() as usize;
+    let bin_size = avg_items_per_bin.max(1);
 
+    // Process chunks in parallel
     let mut chunks: Vec<Vec<PlotData>> = x.par_chunks(bin_size)
         .zip(y.par_chunks(bin_size))
         .map(|(x_chunk, y_chunk)| {
@@ -417,16 +419,24 @@ pub fn decimate_lttb_arrays_into(
         return;
     }
 
-    let bucket_size = (x.len() - 2) as f64 / (max_points - 2) as f64;
+    // Stable bucket count for LTTB
+    let range = x[x.len() - 1] - x[0];
+    let stable_bin_size = calculate_stable_bin_size(range, max_points - 2);
+    let target_bucket_count = (range / stable_bin_size).round() as usize;
+    let target_bucket_count = target_bucket_count.clamp(1, max_points - 2);
+
+    let bucket_size = (x.len() - 2) as f64 / target_bucket_count as f64;
     
     // 1. First point
     let mut a_idx = 0;
     output.push(PlotData::Point(PlotPoint { x: x[0], y: y[0], color_op: ColorOp::None }));
 
-    for i in 0..(max_points - 2) {
+    for i in 0..target_bucket_count {
         let bucket_start = 1 + (i as f64 * bucket_size).floor() as usize;
-        let bucket_end = 1 + ((i + 1) as f64 * bucket_size).floor() as usize;
+        let bucket_end = (1 + ((i + 1) as f64 * bucket_size).floor() as usize).min(x.len() - 1);
         
+        if bucket_start >= bucket_end { continue; }
+
         let next_bucket_start = bucket_end;
         let next_bucket_end = (1 + ((i + 2) as f64 * bucket_size).floor() as usize).min(x.len() - 1);
 
@@ -449,7 +459,6 @@ pub fn decimate_lttb_arrays_into(
             avg_x /= avg_count as f64;
             avg_y /= avg_count as f64;
         } else {
-             // Fallback
              let idx = next_bucket_start.min(x.len() - 1);
              avg_x = x[idx];
              avg_y = y[idx];
@@ -575,9 +584,12 @@ where
         return data.iter().map(create_point).collect();
     }
 
-    // Min/Max returns 2 points per bin.
-    let target_bins = max_points / 2;
-    let bin_size = (data.len() as f64 / target_bins.max(1) as f64).ceil() as usize;
+    // Stable binning
+    let range = get_x(&data[data.len() - 1]) - get_x(&data[0]);
+    let stable_bin_size = calculate_stable_bin_size(range, max_points / 2);
+    let avg_items_per_bin = (data.len() as f64 * (stable_bin_size / range)).round() as usize;
+    let bin_size = avg_items_per_bin.max(1);
+
     let mut aggregated = Vec::with_capacity(max_points);
 
     for chunk in data.chunks(bin_size) {
@@ -655,7 +667,7 @@ where
 pub fn decimate_m4_generic<T, FX, FY, FC>(
     data: &[T],
     max_points: usize,
-    _get_x: FX,
+    get_x: FX,
     get_y: FY,
     create_point: FC,
 ) -> Vec<PlotData>
@@ -668,9 +680,12 @@ where
         return data.iter().map(create_point).collect();
     }
 
-    // M4 returns 4 points per bin.
-    let target_bins = max_points / 4;
-    let bin_size = (data.len() as f64 / target_bins.max(1) as f64).ceil() as usize;
+    // Stable binning
+    let range = get_x(&data[data.len() - 1]) - get_x(&data[0]);
+    let stable_bin_size = calculate_stable_bin_size(range, max_points / 4);
+    let avg_items_per_bin = (data.len() as f64 * (stable_bin_size / range)).round() as usize;
+    let bin_size = avg_items_per_bin.max(1);
+
     let mut aggregated = Vec::with_capacity(max_points);
 
     for chunk in data.chunks(bin_size) {
