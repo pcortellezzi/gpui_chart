@@ -65,13 +65,25 @@ impl PlotRenderer for CandlestickPlot {
         let mut buffer = self.buffer.lock();
         self.source.get_aggregated_data(x_min, x_max, max_points, &mut buffer);
 
+        let count = buffer.len();
+        let avg_px_per_point = if count > 0 {
+             width_px / count as f32
+        } else {
+             width_px
+        };
+
         for data in buffer.iter() {
             if let PlotData::Ohlcv(candle) = data {
                 let is_up = candle.close >= candle.open;
                 let t_start_px = transform.x_data_to_screen(candle.time).as_f32();
-                // Use actual span from data, or fallback to ms_per_px if span is tiny (point data masquerading as candle)
-                let span_px = (candle.span / ms_per_px).max(1.0);
-                let width_px = span_px as f32;
+                
+                // Use actual span from data, or fallback to ms_per_px if span is tiny
+                let theoretical_span_px = (candle.span / ms_per_px).max(1.0) as f32;
+                
+                // Clamp width to prevent giant candles over gaps (e.g. weekends)
+                // We allow up to 1.5x the average width to accommodate minor irregularities,
+                // but cut off anything larger which likely indicates a gap.
+                let width_px = theoretical_span_px.min(avg_px_per_point * 1.5).max(1.0);
 
                 let center_x = t_start_px + width_px / 2.0;
 
