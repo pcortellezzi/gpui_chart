@@ -5,11 +5,6 @@ use crate::data_types::PlotData;
 use gpui::{Point, Pixels, px};
 
 /// Batch transforms a slice of PlotPoints to screen coordinates.
-/// 
-/// x_scale_coeff = screen_width / (x_max - x_min)
-/// x_offset = -x_min * x_scale_coeff + bounds_x
-/// 
-/// result_x = x * x_scale_coeff + x_offset
 pub fn batch_transform_points(
     data: &[PlotData],
     x_scale_coeff: f32,
@@ -20,16 +15,9 @@ pub fn batch_transform_points(
 ) {
     output.clear();
     output.reserve(data.len());
-
-    // We iterate and push. LLVM is smart enough to vectorize this if the body is simple.
-    // However, PlotData is an enum, which might hinder vectorization due to branching.
-    // For pure Line/Scatter plots (PlotData::Point), we can optimize by checking type once per chunk?
-    // Or we assume the caller passes a specialized buffer?
-    // Given our structure, we receive Vec<PlotData>.
     
     for item in data {
         if let PlotData::Point(p) = item {
-            // FMA (Fused Multiply Add) is likely used here.
             let sx = p.x as f32 * x_scale_coeff + x_offset;
             let sy = p.y as f32 * y_scale_coeff + y_offset;
             output.push(Point::new(px(sx), px(sy)));
@@ -38,7 +26,6 @@ pub fn batch_transform_points(
 }
 
 /// Specialized batch transform for raw f64 arrays (even faster, guaranteed SIMD).
-/// Use this if you can extract arrays from PlotData beforehand (e.g. structure of arrays).
 pub fn batch_transform_arrays(
     x: &[f64],
     y: &[f64],
@@ -52,7 +39,6 @@ pub fn batch_transform_arrays(
     output.clear();
     output.reserve(len);
 
-    // Using chunks_exact could help compiler prove safety for SIMD
     let x_chunks = x.chunks_exact(4);
     let y_chunks = y.chunks_exact(4);
     let rem_x = x_chunks.remainder();
@@ -61,13 +47,10 @@ pub fn batch_transform_arrays(
     for (xc, yc) in x_chunks.zip(y_chunks) {
         let x0 = xc[0] as f32 * x_scale_coeff + x_offset;
         let y0 = yc[0] as f32 * y_scale_coeff + y_offset;
-        
         let x1 = xc[1] as f32 * x_scale_coeff + x_offset;
         let y1 = yc[1] as f32 * y_scale_coeff + y_offset;
-        
         let x2 = xc[2] as f32 * x_scale_coeff + x_offset;
         let y2 = yc[2] as f32 * y_scale_coeff + y_offset;
-        
         let x3 = xc[3] as f32 * x_scale_coeff + x_offset;
         let y3 = yc[3] as f32 * y_scale_coeff + y_offset;
 
@@ -82,4 +65,61 @@ pub fn batch_transform_arrays(
         let sy = *vy as f32 * y_scale_coeff + y_offset;
         output.push(Point::new(px(sx), px(sy)));
     }
+}
+
+/// Finds the minimum value in a slice using SIMD auto-vectorization.
+/// Uses f64::min which is more likely to be vectorized.
+pub fn min_f64(data: &[f64]) -> f64 {
+    if data.is_empty() { return f64::NAN; }
+    
+    let chunks = data.chunks_exact(8);
+    let rem = chunks.remainder();
+    
+    let mut min_val = f64::MAX;
+    
+    for c in chunks {
+        let m = c[0].min(c[1]).min(c[2]).min(c[3]).min(c[4]).min(c[5]).min(c[6]).min(c[7]);
+        min_val = min_val.min(m);
+    }
+    
+    for &val in rem {
+        min_val = min_val.min(val);
+    }
+    min_val
+}
+
+/// Finds the maximum value in a slice using SIMD auto-vectorization.
+pub fn max_f64(data: &[f64]) -> f64 {
+    if data.is_empty() { return f64::NAN; }
+    
+    let chunks = data.chunks_exact(8);
+    let rem = chunks.remainder();
+    
+    let mut max_val = f64::MIN;
+    
+    for c in chunks {
+        let m = c[0].max(c[1]).max(c[2]).max(c[3]).max(c[4]).max(c[5]).max(c[6]).max(c[7]);
+        max_val = max_val.max(m);
+    }
+    
+    for &val in rem {
+        max_val = max_val.max(val);
+    }
+    max_val
+}
+
+/// Sums values in a slice using SIMD auto-vectorization.
+pub fn sum_f64(data: &[f64]) -> f64 {
+    let chunks = data.chunks_exact(8);
+    let rem = chunks.remainder();
+    let mut total = 0.0;
+    
+    for c in chunks {
+        total += c[0] + c[1] + c[2] + c[3] + c[4] + c[5] + c[6] + c[7];
+    }
+    
+    for &val in rem {
+        total += val;
+    }
+    total
 }

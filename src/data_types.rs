@@ -4,7 +4,7 @@ use d3rs::scale::{LinearScale, Scale};
 use gpui::Hsla;
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct LinePlotConfig {
     pub color: Hsla,
     pub line_width: f32,
@@ -19,7 +19,7 @@ impl Default for LinePlotConfig {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct CandlestickConfig {
     pub up_wick_color: Hsla,
     pub down_wick_color: Hsla,
@@ -48,7 +48,7 @@ impl Default for CandlestickConfig {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct AreaPlotConfig {
     pub line_color: Hsla,
     pub fill_color: Hsla,
@@ -65,7 +65,7 @@ impl Default for AreaPlotConfig {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct BarPlotConfig {
     pub color: Hsla,
     /// 0.0 to 1.0 relative to data spacing
@@ -81,7 +81,7 @@ impl Default for BarPlotConfig {
     }
 }
 
-#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum StepMode {
     /// Step occurs before the point
     Pre,
@@ -91,7 +91,7 @@ pub enum StepMode {
     Post,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct StepLinePlotConfig {
     pub color: Hsla,
     pub line_width: f32,
@@ -108,7 +108,7 @@ impl Default for StepLinePlotConfig {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Annotation {
     VLine {
         x: f64,
@@ -139,7 +139,7 @@ pub enum Annotation {
     },
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct HeatmapCell {
     pub x: f64,
     pub y: f64,
@@ -457,7 +457,7 @@ impl Clone for SharedPlotState {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Ohlcv {
     pub time: f64,
     pub span: f64,
@@ -468,7 +468,7 @@ pub struct Ohlcv {
     pub volume: f64,
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ColorOp {
     Persistent(Hsla),
     OneShot(Hsla),
@@ -476,14 +476,14 @@ pub enum ColorOp {
     None,
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PlotPoint {
     pub x: f64,
     pub y: f64,
     pub color_op: ColorOp,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum PlotData {
     Point(PlotPoint),
     Ohlcv(Ohlcv),

@@ -3,6 +3,8 @@ use gpui_chart::polars_source::PolarsDataSource;
 #[cfg(feature = "polars")]
 use gpui_chart::data_types::{PlotDataSource, AggregationMode};
 #[cfg(feature = "polars")]
+use gpui_chart::aggregation::decimate_ilttb_arrays_par_into;
+#[cfg(feature = "polars")]
 use polars::prelude::*;
 #[cfg(feature = "polars")]
 use std::time::Instant;
@@ -42,15 +44,26 @@ fn test_compare_aggregations() {
     let dur_m4 = start.elapsed();
     println!("M4 (4 pts/bin) took:     {:?} (points: {})", dur_m4, res_m4.len());
 
-    // LTTB Benchmark
+    // LTTB Benchmark (Sequential)
     let start = Instant::now();
     let res_lttb: Vec<_> = source_lttb.iter_aggregated(0.0, n as f64, 2000).collect();
     let dur_lttb = start.elapsed();
-    println!("LTTB (Variable) took:    {:?} (points: {})", dur_lttb, res_lttb.len());
+    println!("LTTB (Sequential) took:  {:?} (points: {})", dur_lttb, res_lttb.len());
+
+    // ILTTB Benchmark (Parallel)
+    let mut out_buffer = Vec::with_capacity(2000);
+    // We need raw arrays for the par version
+    let x_arr: Vec<f64> = (0..n).map(|i| i as f64).collect();
+    let y_arr: Vec<f64> = (0..n).map(|i| (i as f64 * 0.01).sin()).collect();
+    let start_ilttb = Instant::now();
+    decimate_ilttb_arrays_par_into(&x_arr, &y_arr, 2000, &mut out_buffer);
+    let dur_ilttb = start_ilttb.elapsed();
+    println!("ILTTB (Parallel) took:   {:?} (points: {})", dur_ilttb, out_buffer.len());
 
     assert!(res_minmax.len() <= 2000);
     assert!(res_m4.len() <= 2000);
     assert!(res_lttb.len() <= 2000);
+    assert!(out_buffer.len() <= 2000);
 
     // OHLCV Benchmark
     // Construct OHLCV data

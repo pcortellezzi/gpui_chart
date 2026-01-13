@@ -208,3 +208,39 @@ fn test_lttb_visual_stability() {
         panic!("Expected Points");
     }
 }
+
+#[test]
+fn test_ilttb_parallel_correctness() {
+    let n = 10000;
+    let x: Vec<f64> = (0..n).map(|i| i as f64).collect();
+    let y: Vec<f64> = (0..n).map(|i| {
+        if i == 500 { 1000.0 }
+        else if i == 5000 { -1000.0 }
+        else { (i as f64 * 0.1).sin() }
+    }).collect();
+
+    // 1. Reference: Sequential LTTB
+    let mut res_seq = Vec::new();
+    decimate_lttb_arrays_into(&x, &y, 100, &mut res_seq);
+
+    // 2. Target: Parallel ILTTB
+    let mut res_par = Vec::new();
+    decimate_ilttb_arrays_par_into(&x, &y, 100, &mut res_par);
+
+    // Both must preserve the extreme peaks
+    let has_top_peak_par = res_par.iter().any(|p| match p { PlotData::Point(pt) => pt.y == 1000.0, _ => false });
+    let has_bot_peak_par = res_par.iter().any(|p| match p { PlotData::Point(pt) => pt.y == -1000.0, _ => false });
+    
+    assert!(has_top_peak_par, "Parallel ILTTB missed the top peak");
+    assert!(has_bot_peak_par, "Parallel ILTTB missed the bottom peak");
+
+    // General trend check
+    let mean_y_seq = res_seq.iter().map(|p| match p { PlotData::Point(pt) => pt.y, _ => 0.0 }).sum::<f64>() / res_seq.len() as f64;
+    let mean_y_par = res_par.iter().map(|p| match p { PlotData::Point(pt) => pt.y, _ => 0.0 }).sum::<f64>() / res_par.len() as f64;
+    
+    assert!((mean_y_seq - mean_y_par).abs() < 1.0, "General trend mismatch between Sequential and Parallel LTTB");
+    
+    // First and Last points must be identical
+    assert_eq!(res_seq[0], res_par[0]);
+    assert_eq!(res_seq[res_seq.len()-1], res_par[res_par.len()-1]);
+}
