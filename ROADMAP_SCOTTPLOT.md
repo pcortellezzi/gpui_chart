@@ -17,7 +17,8 @@ ScottPlot offers a wide variety of specialized plots.
 ## 2. Annotations & Decorators
 Visual elements to highlight or explain data.
 
-- [ ] **Rich Tooltips**: Interactive popups on hover displaying precise values or metadata (customizable layout).
+- [x] **Crosshair & Basic Tooltips**: Interactive crosshair displaying precise values on hover.
+- [ ] **Rich Tooltips**: Advanced interactive popups with customizable layouts and metadata.
 - [ ] **Markers & Arrows**: Methods to draw arrows pointing to specific data points with labels.
 - [ ] **Shapes & Polygons**: Arbitrary drawing of rectangles, circles, or polygons in data coordinates.
 - [ ] **Images**: Support for background images or watermarks.
@@ -27,7 +28,7 @@ Visual elements to highlight or explain data.
 Advanced control over scales and labeling.
 
 - [x] **Smart Date/Time Axis**: Automatic switching of formats (Years -> Months -> Days -> Hours -> Minutes) based on zoom level.
-- [ ] **Multiple Axes**: Support for arbitrary numbers of Y-axes (left/right) and X-axes (top/bottom) with independent scaling.
+- [x] **Multiple Axes**: Support for arbitrary numbers of Y-axes (left/right) and X-axes (top/bottom) with independent scaling.
 - [ ] **Logarithmic Scale**: Robust implementation for Log10/Log2/Ln scales.
 - [ ] **Tick Customization**: Rotation of labels, scientific notation (e.g., `1.2e-5`), custom formatters.
 - [ ] **Inverted Axis**: Easy API to flip axes (e.g., Depth charts).
@@ -35,15 +36,23 @@ Advanced control over scales and labeling.
 ## 4. Interaction & UX
 Enhancing user engagement.
 
-- [ ] **Selection / Region of Interest**: Ability to select a range or rectangular region and get a callback with the data inside.
+- [x] **Selection / Box Zoom**: Ability to select a rectangular region to zoom in.
 - [ ] **Draggable Points**: Allow users to drag specific data points (interactive editing).
 - [ ] **ContextMenu**: Built-in right-click menu for common actions (Save, Reset, Toggle Grid).
 
 ## 5. Performance & Data Structures
 Optimizations for specific use cases.
 
-- [ ] **Signal Plot**: Specialized renderer for high-frequency data with fixed sample rate (only `Y` array + `rate`), faster than generic XY.
-- [ ] **Live/Rolling Buffer**: Optimized ring buffer implementation for real-time sensor data (oscilloscope style).
+- [x] **High-Perf Decimation (M4/LTTB)**: Handle millions of points with peak preservation.
+- [ ] **Signal Plot**: Specialized renderer for high-frequency data with fixed sample rate.
+- [x] **Live/Rolling Buffer**: Optimized ring buffer implementation for real-time sensor data (StreamingDataSource).
+
+## 6. Data Integrity & Stability (New)
+Ensuring visual and numerical correctness.
+
+- [x] **Visual Stability (Anti-Jitter)**: Stable binning anchored to fixed coordinates to prevent flickering during panning.
+- [x] **Peak Preservation (Y-Integrity)**: Guaranteed rendering of local minima/maxima even at extreme compression ratios.
+- [x] **Numerical Robustness**: Stability at extreme zoom levels (nanoseconds to millions of units).
 
 ## 6. Output & Export
 Sharing results.
@@ -55,7 +64,7 @@ Sharing results.
 
 ## 🎯 Short-term Priorities (Recommendation)
 
-1.  **Smart Date Axis**: Critical for financial/time-series usage.
-2.  **Tooltips**: Essential for data inspection.
-3.  **Scatter Plot**: Fills the gap for non-ordered scientific data.
-4.  **Export**: Basic PNG export feature.
+1.  **Scatter Plot**: Fills the gap for non-ordered scientific data.
+2.  **Logarithmic Scale**: Essential for scientific and technical charts.
+3.  **Rich Tooltips**: Better layout for multi-series data inspection.
+4.  **Export**: Basic PNG/SVG export feature.

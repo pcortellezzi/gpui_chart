@@ -70,6 +70,8 @@ C'est ici que l'écart avec `egui_plot` se réduit.
 - [x] **Robustesse & Tests d'Interactions** :
     *   Extraire la logique de manipulation des axes dans un `ViewController` découplé de l'UI pour permettre des tests 100% automatisés sans macros GPUI complexes.
     *   Couvrir les cas limites de redimensionnement de panneaux (splitters).
+    *   **NOUVEAU :** Tests de Stabilité Visuelle (Anti-Jitter) et d'Intégrité des Bornes Y (Peak Preservation).
+    *   **NOUVEAU :** Tests de Stress Zoom (précision numérique à l'échelle nanoscopique).
 - [ ] **Échelles Logarithmiques** : Support complet des échelles log dans `ChartScale`.
 - [ ] **Thèmes avancés** : Export des styles vers un fichier de config externe.
 - [ ] **WebGL / WGPU backend** : Pour des performances encore plus extrêmes sur des millions de points.

@@ -128,6 +128,7 @@ impl DemoApp {
                 size: px(25.0),
                 label: "Time".into(),
                 format: gpui_chart::data_types::AxisFormat::Time(gpui_chart::data_types::TimeUnit::Milliseconds),
+                min_label_spacing: px(20.0),
             });
 
             // Pane 1: Price
@@ -143,6 +144,7 @@ impl DemoApp {
                 size: px(60.0),
                 label: "Price".into(),
                 format: gpui_chart::data_types::AxisFormat::Numeric,
+                min_label_spacing: px(20.0),
             });
             p1.series
                 .push(Series::new("Price", CandlestickPlot::new(candles.clone())));
@@ -160,6 +162,7 @@ impl DemoApp {
                 size: px(60.0),
                 label: "Volume".into(),
                 format: gpui_chart::data_types::AxisFormat::Numeric,
+                min_label_spacing: px(20.0),
             });
             p2.series
                 .push(Series::new("Volume", BarPlot::new(volume_data)));
@@ -180,6 +183,7 @@ impl DemoApp {
                 size: px(60.0),
                 label: "Indicator".into(),
                 format: gpui_chart::data_types::AxisFormat::Numeric,
+                min_label_spacing: px(20.0),
             });
             p3.series
                 .push(Series::new("Step", StepLinePlot::new(step_data)));

@@ -3,6 +3,11 @@ use crate::data_types::{ColorOp, Ohlcv, PlotData, PlotPoint};
 use rayon::prelude::*;
 
 /// Calculates a stable bin size (power of 10 or 2) that is just above the ideal resolution.
+/// 
+/// **Stable Binning** prevents "jitter" (scintillation) during panning by ensuring that 
+/// the bin boundaries are anchored to fixed multiples of the bin size (e.g., 1.0, 2.0, 5.0, 10.0).
+/// As the user pans, the data points fall into the same bins instead of being regrouped 
+/// slightly differently every frame.
 fn calculate_stable_bin_size(range: f64, max_points: usize) -> f64 {
     if range <= 0.0 || max_points == 0 {
         return 1.0;
@@ -12,11 +17,11 @@ fn calculate_stable_bin_size(range: f64, max_points: usize) -> f64 {
     let base = 10.0f64.powf(exponent);
     let rel = ideal / base;
 
-    let stable_rel = if rel < 1.2 {
+    let stable_rel = if rel <= 1.0 {
         1.0
-    } else if rel < 2.5 {
+    } else if rel <= 2.0 {
         2.0
-    } else if rel < 7.5 {
+    } else if rel <= 5.0 {
         5.0
     } else {
         10.0
@@ -63,10 +68,10 @@ pub fn decimate_m4_arrays_par_into(
 
     // Use stable binning to prevent jitter during pan
     let range = x[x.len() - 1] - x[0];
-    let stable_bin_size = calculate_stable_bin_size(range, max_points / 4);
+    let stable_bin_size = calculate_stable_bin_size(range, (max_points / 4).max(1));
     
     // Calculate stable index-based bin size based on value range
-    let avg_items_per_bin = (x.len() as f64 * (stable_bin_size / range)).round() as usize;
+    let avg_items_per_bin = (x.len() as f64 * (stable_bin_size / range)).ceil() as usize;
     let bin_size = avg_items_per_bin.max(1);
 
     // Process chunks in parallel
@@ -138,7 +143,7 @@ pub fn decimate_m4_arrays_par_into(
         output.extend(chunk);
     }
     
-    // Ensure strict limit
+    // Ensure strict limit (Safeguard)
     if output.len() > max_points {
         output.truncate(max_points);
     }
@@ -191,11 +196,11 @@ pub fn decimate_ohlcv_arrays_par_into(
 
     // Stable Binning for OHLCV
     let range = time[time.len() - 1] - time[0];
-    let stable_bin_size = calculate_stable_bin_size(range, max_points);
+    let stable_bin_size = calculate_stable_bin_size(range, max_points.max(1));
     
     // Calculate stable index-based bin size
     let avg_frequency = time.len() as f64 / range;
-    let items_per_stable_bin = (stable_bin_size * avg_frequency).round() as usize;
+    let items_per_stable_bin = (stable_bin_size * avg_frequency).ceil() as usize;
     let bin_size = items_per_stable_bin.max(1);
 
     // Process chunks in parallel
@@ -273,6 +278,7 @@ pub fn decimate_ohlcv_arrays_par_into(
         }
     }
     
+    // Safeguard
     if output.len() > max_points {
         output.truncate(max_points);
     }
@@ -310,8 +316,8 @@ pub fn decimate_min_max_arrays_par_into(
 
     // Stable binning for MinMax
     let range = x[x.len() - 1] - x[0];
-    let stable_bin_size = calculate_stable_bin_size(range, max_points / 2);
-    let avg_items_per_bin = (x.len() as f64 * (stable_bin_size / range)).round() as usize;
+    let stable_bin_size = calculate_stable_bin_size(range, (max_points / 2).max(1));
+    let avg_items_per_bin = (x.len() as f64 * (stable_bin_size / range)).ceil() as usize;
     let bin_size = avg_items_per_bin.max(1);
 
     // Process chunks in parallel
@@ -586,8 +592,8 @@ where
 
     // Stable binning
     let range = get_x(&data[data.len() - 1]) - get_x(&data[0]);
-    let stable_bin_size = calculate_stable_bin_size(range, max_points / 2);
-    let avg_items_per_bin = (data.len() as f64 * (stable_bin_size / range)).round() as usize;
+    let stable_bin_size = calculate_stable_bin_size(range, (max_points / 2).max(1));
+    let avg_items_per_bin = (data.len() as f64 * (stable_bin_size / range)).ceil() as usize;
     let bin_size = avg_items_per_bin.max(1);
 
     let mut aggregated = Vec::with_capacity(max_points);
@@ -682,8 +688,8 @@ where
 
     // Stable binning
     let range = get_x(&data[data.len() - 1]) - get_x(&data[0]);
-    let stable_bin_size = calculate_stable_bin_size(range, max_points / 4);
-    let avg_items_per_bin = (data.len() as f64 * (stable_bin_size / range)).round() as usize;
+    let stable_bin_size = calculate_stable_bin_size(range, (max_points / 4).max(1));
+    let avg_items_per_bin = (data.len() as f64 * (stable_bin_size / range)).ceil() as usize;
     let bin_size = avg_items_per_bin.max(1);
 
     let mut aggregated = Vec::with_capacity(max_points);

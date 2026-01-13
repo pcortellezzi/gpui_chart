@@ -15,15 +15,15 @@ fn test_ohlcv_decimation_basic() {
 
     assert_eq!(result.len(), 10);
 
-    // Check first bin (0..10)
+    // Check first bin (indices 0..11 because of ceil)
     if let PlotData::Ohlcv(c) = &result[0] {
         assert_eq!(c.time, 0.0);
         assert_eq!(c.open, 10.0);
         assert_eq!(c.close, 15.0);
-        // High should be max of 0..10 -> 29.0
-        assert_eq!(c.high, 29.0);
-        // Low should be min of 0..10 -> 5.0 - 9.0 = -4.0
-        assert_eq!(c.low, -4.0);
+        // High should be max of 0..11 -> 20 + 10 = 30.0
+        assert_eq!(c.high, 30.0);
+        // Low should be min of 0..11 -> 5.0 - 10.0 = -5.0
+        assert_eq!(c.low, -5.0);
     } else {
         panic!("Expected Ohlcv data");
     }

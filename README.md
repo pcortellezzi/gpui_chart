@@ -11,13 +11,14 @@ A high-performance, interactive, and composable charting library for [GPUI](http
     - **Zero-Copy Polars Integration**: Direct access to underlying memory buffers, bypassing overhead.
     - **Zero-Alloc Rendering**: Buffer recycling strategy reuses memory across frames, eliminating dynamic allocations during the render loop.
     - **SIMD Batch Transforms**: Coordinate transformations are vectorized, processing millions of points in milliseconds.
-    - **Benchmarks**: Decimates **1 Million rows** in **< 1ms** (M4 Algorithm).
+    - **Stable Binning**: Decimation logic uses power-of-10/2 bin sizes to eliminate visual jitter during panning.
+    - **Benchmarks**: Decimates **1 Million rows** in **~0.5ms** (M4 Algorithm) on modern hardware.
 - **Smooth Navigation**: Inertial scrolling, 60fps zooming and panning.
 
 ### 📊 Aggregation Algorithms
 The library supports multiple aggregation modes for large datasets:
-- **M4 (Default)**: Preserves Min, Max, First, and Last points per bin. Ideal for strict visual correctness. (~1ms / 1M rows)
-- **MinMax**: Preserves only Min and Max. Very fast. (~1.5ms / 1M rows)
+- **M4 (Default)**: Preserves Min, Max, First, and Last points per bin. Guaranteed **Peak Preservation** (no Y-axis pumping). (~0.5ms / 1M rows)
+- **MinMax**: Preserves only Min and Max. Very fast. (~0.7ms / 1M rows)
 - **LTTB (Largest-Triangle-Three-Buckets)**: Advanced algorithm that preserves visual shape and peaks. (~3ms / 1M rows)
 
 ### 📈 Axis & Formatting

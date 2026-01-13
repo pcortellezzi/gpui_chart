@@ -1,10 +1,11 @@
 use gpui_chart::aggregation::*;
-use gpui_chart::data_types::{PlotData, PlotPoint, ColorOp, AggregationMode, PlotDataSource};
+use gpui_chart::data_types::{PlotData, PlotPoint, ColorOp};
+#[cfg(feature = "polars")]
+use gpui_chart::data_types::AggregationMode;
 #[cfg(feature = "polars")]
 use gpui_chart::polars_source::PolarsDataSource;
 #[cfg(feature = "polars")]
 use polars::prelude::*;
-use std::time::Instant;
 
 #[test]
 fn test_aggregation_edge_cases_generic() {
