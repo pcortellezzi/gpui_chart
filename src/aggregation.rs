@@ -2,6 +2,29 @@ use crate::data_types::{ColorOp, Ohlcv, PlotData, PlotPoint};
 
 use rayon::prelude::*;
 
+/// Calculates a stable bin size (power of 10 or 2) that is just above the ideal resolution.
+fn calculate_stable_bin_size(range: f64, max_points: usize) -> f64 {
+    if range <= 0.0 || max_points == 0 {
+        return 1.0;
+    }
+    let ideal = range / max_points as f64;
+    let exponent = ideal.log10().floor();
+    let base = 10.0f64.powf(exponent);
+    let rel = ideal / base;
+
+    let stable_rel = if rel < 1.2 {
+        1.0
+    } else if rel < 2.5 {
+        2.0
+    } else if rel < 7.5 {
+        5.0
+    } else {
+        10.0
+    };
+    
+    base * stable_rel
+}
+
 /// Decimates parallel arrays (Structure of Arrays) using M4 and Rayon.
 pub fn decimate_m4_arrays_par(
     x: &[f64],
@@ -38,10 +61,14 @@ pub fn decimate_m4_arrays_par_into(
         return;
     }
 
-    // M4 targets 4 points per bin
-    let target_bins = max_points / 4;
-    let bin_size = (x.len() as f64 / target_bins.max(1) as f64).ceil() as usize;
+    // Use stable binning to prevent jitter during pan
+    let range = x[x.len() - 1] - x[0];
+    let stable_bin_size = calculate_stable_bin_size(range, max_points / 4);
     
+    // Calculate stable index-based bin size based on value range
+    let avg_items_per_bin = (x.len() as f64 * (stable_bin_size / range)).round() as usize;
+    let bin_size = avg_items_per_bin.max(1);
+
     // Process chunks in parallel
     let mut chunks: Vec<Vec<PlotData>> = x.par_chunks(bin_size)
         .zip(y.par_chunks(bin_size))
@@ -162,10 +189,15 @@ pub fn decimate_ohlcv_arrays_par_into(
         return;
     }
 
-    // Target 1 point per bin
-    let target_bins = max_points;
-    let bin_size = (time.len() as f64 / target_bins.max(1) as f64).ceil() as usize;
+    // Stable Binning for OHLCV
+    let range = time[time.len() - 1] - time[0];
+    let stable_bin_size = calculate_stable_bin_size(range, max_points);
     
+    // Calculate stable index-based bin size
+    let avg_frequency = time.len() as f64 / range;
+    let items_per_stable_bin = (stable_bin_size * avg_frequency).round() as usize;
+    let bin_size = items_per_stable_bin.max(1);
+
     // Process chunks in parallel
     let mut chunks: Vec<Option<PlotData>> = time.par_chunks(bin_size)
         .enumerate()
@@ -225,8 +257,8 @@ pub fn decimate_ohlcv_arrays_par_into(
             if agg_low == f64::INFINITY { agg_low = 0.0; }
 
             Some(PlotData::Ohlcv(Ohlcv {
-                time: first_time,
-                span: last_time - first_time,
+                time: (first_time / stable_bin_size).floor() * stable_bin_size,
+                span: stable_bin_size,
                 open: agg_open,
                 high: agg_high,
                 low: agg_low,
