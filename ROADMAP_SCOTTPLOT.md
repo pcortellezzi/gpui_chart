@@ -26,7 +26,7 @@ Visual elements to highlight or explain data.
 ## 3. Axis System
 Advanced control over scales and labeling.
 
-- [ ] **Smart Date/Time Axis**: Automatic switching of formats (Years -> Months -> Days -> Hours -> Minutes) based on zoom level.
+- [x] **Smart Date/Time Axis**: Automatic switching of formats (Years -> Months -> Days -> Hours -> Minutes) based on zoom level.
 - [ ] **Multiple Axes**: Support for arbitrary numbers of Y-axes (left/right) and X-axes (top/bottom) with independent scaling.
 - [ ] **Logarithmic Scale**: Robust implementation for Log10/Log2/Ln scales.
 - [ ] **Tick Customization**: Rotation of labels, scientific notation (e.g., `1.2e-5`), custom formatters.

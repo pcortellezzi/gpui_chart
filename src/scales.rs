@@ -62,34 +62,30 @@ impl ChartScale {
     }
 
     pub fn format_tick(&self, value: f64, format: &crate::data_types::AxisFormat) -> String {
-        // Use explicit format if provided
         match format {
-            crate::data_types::AxisFormat::Time => {
+            crate::data_types::AxisFormat::Time(unit) => {
                 let (d_min, d_max) = self.domain();
                 let span = (d_max - d_min).abs();
                 
-                // Heuristic for milliseconds detection still useful if user didn't specify unit,
-                // but usually Smart Date Axis expects seconds or milliseconds.
-                // We assume if value > 1e11 it is probably ms/ns if it's a recent date, or seconds if it's far future.
-                // To be safe, let's keep the heuristic for now, or assume the user provides consistent data.
-                // Standard: if > 3e11 (year 11000 in seconds), treat as ms.
-                let span_sec = if value.abs() > 3_000_000_000_000.0 { 
-                     span / 1000.0
-                } else {
-                     span
+                let span_sec = match unit {
+                    crate::data_types::TimeUnit::Seconds => span,
+                    crate::data_types::TimeUnit::Milliseconds => span / 1000.0,
+                    crate::data_types::TimeUnit::Microseconds => span / 1_000_000.0,
+                    crate::data_types::TimeUnit::Nanoseconds => span / 1_000_000_000.0,
                 };
     
                 let fmt = crate::utils::date_formatter::determine_date_format(span_sec);
-                return crate::utils::date_formatter::format_timestamp(value, fmt);
+                return crate::utils::date_formatter::format_timestamp(value, fmt, *unit);
             }
             crate::data_types::AxisFormat::Numeric => {
-                // Heuristic fallback (backward compatibility)
+                // Keep heuristic ONLY for numeric fallback if it looks really like a timestamp
                 if value.abs() > 100_000_000_000.0 {
                     let (d_min, d_max) = self.domain();
                     let span = (d_max - d_min).abs();
                     let span_sec = if value.abs() > 3_000_000_000_000.0 { span / 1000.0 } else { span };
                     let fmt = crate::utils::date_formatter::determine_date_format(span_sec);
-                    return crate::utils::date_formatter::format_timestamp(value, fmt);
+                    let unit = if value.abs() > 3_000_000_000_000.0 { crate::data_types::TimeUnit::Milliseconds } else { crate::data_types::TimeUnit::Seconds };
+                    return crate::utils::date_formatter::format_timestamp(value, fmt, unit);
                 }
             }
         }

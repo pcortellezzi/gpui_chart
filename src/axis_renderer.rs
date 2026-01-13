@@ -16,6 +16,7 @@ impl AxisRenderer {
         theme: &ChartTheme,
         label: &str,
         format: &AxisFormat,
+        min_label_spacing: Pixels,
         bounds: Bounds<Pixels>,
         window: &mut Window,
         cx: &mut App,
@@ -39,13 +40,23 @@ impl AxisRenderer {
             } else {
                 bounds.size.width.as_f32()
             };
+            
+            // Dynamic density calculation with configurable margin
+            let margin = min_label_spacing.as_f32();
+            let label_size_est = match format {
+                AxisFormat::Time(_) => 80.0 + margin,
+                AxisFormat::Numeric => 50.0 + margin,
+            };
+            let count = (max_px / label_size_est).floor() as usize;
+            let count = count.clamp(2, 20);
+
             ticks_vec = d3rs::scale::LinearScale::new()
                 .domain(min, max)
                 .range(
                     if is_vertical { max_px as f64 } else { 0.0 },
                     if is_vertical { 0.0 } else { max_px as f64 },
                 )
-                .ticks(10);
+                .ticks(count);
             &ticks_vec
         } else {
             &range.cached_ticks
@@ -174,6 +185,7 @@ impl AxisRenderer {
         x_pos: Pixels,
         label: String,
         format: AxisFormat,
+        min_label_spacing: Pixels,
         theme: &ChartTheme,
         on_draw: impl Fn(Bounds<Pixels>) + 'static,
     ) -> Stateful<Div> {
@@ -198,7 +210,7 @@ impl AxisRenderer {
                     |_, _, _| {},
                     move |bounds, (), window: &mut Window, cx| {
                         Self::paint_axis(
-                            &range, true, edge, &theme, &label, &format, bounds, window, cx, &on_draw,
+                            &range, true, edge, &theme, &label, &format, min_label_spacing, bounds, window, cx, &on_draw,
                         );
                     },
                 )
@@ -215,6 +227,7 @@ impl AxisRenderer {
         gutter_right: Pixels,
         label: String,
         format: AxisFormat,
+        min_label_spacing: Pixels,
         theme: &ChartTheme,
         on_draw: impl Fn(Bounds<Pixels>) + 'static,
     ) -> Stateful<Div> {
@@ -242,7 +255,7 @@ impl AxisRenderer {
                         |_, _, _| {},
                         move |bounds, (), window: &mut Window, cx| {
                             Self::paint_axis(
-                                &range, false, edge, &theme, &label, &format, bounds, window, cx, &on_draw,
+                                &range, false, edge, &theme, &label, &format, min_label_spacing, bounds, window, cx, &on_draw,
                             );
                         },
                     )

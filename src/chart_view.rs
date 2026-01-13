@@ -970,6 +970,7 @@ impl Render for ChartView {
                     x_pos,
                     axis.label.clone(),
                     axis.format,
+                    axis.min_label_spacing,
                     &theme,
                     {
                         let key = key.clone();
@@ -1122,6 +1123,7 @@ impl Render for ChartView {
                 self.gutter_right,
                 x_axis.label.clone(),
                 x_axis.format,
+                x_axis.min_label_spacing,
                 &theme,
                 {
                     let key = key.clone();

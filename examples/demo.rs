@@ -127,7 +127,7 @@ impl DemoApp {
                 edge: AxisEdge::Bottom,
                 size: px(25.0),
                 label: "Time".into(),
-                format: gpui_chart::data_types::AxisFormat::Time,
+                format: gpui_chart::data_types::AxisFormat::Time(gpui_chart::data_types::TimeUnit::Milliseconds),
             });
 
             // Pane 1: Price

@@ -150,10 +150,17 @@ pub struct HeatmapCell {
 }
 
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
+pub enum TimeUnit {
+    Seconds,
+    Milliseconds,
+    Microseconds,
+    Nanoseconds,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
 pub enum AxisFormat {
     Numeric,
-    Time,
-    // Custom formats can be added later if needed (e.g. fn pointer, but not serializable easily)
+    Time(TimeUnit),
 }
 
 impl Default for AxisFormat {

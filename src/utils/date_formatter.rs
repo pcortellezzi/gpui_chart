@@ -1,3 +1,4 @@
+use crate::data_types::TimeUnit;
 use chrono::{TimeZone, Utc};
 
 #[derive(Debug, Clone, Copy)]
@@ -11,40 +12,38 @@ pub enum SmartDateFormat {
 
 /// Determines the best date format based on the visible time range (in seconds).
 pub fn determine_date_format(visible_range_sec: f64) -> SmartDateFormat {
-    // Constants in seconds
-    const YEAR: f64 = 365.0 * 24.0 * 3600.0;
-    const MONTH: f64 = 30.0 * 24.0 * 3600.0;
-    const DAY: f64 = 24.0 * 3600.0;
+    const MINUTE: f64 = 60.0;
     const HOUR: f64 = 3600.0;
+    const DAY: f64 = 24.0 * HOUR;
+    const MONTH: f64 = 30.0 * DAY;
+    const YEAR: f64 = 365.0 * DAY;
 
     if visible_range_sec > YEAR * 2.0 {
         SmartDateFormat::Year
-    } else if visible_range_sec > MONTH * 6.0 {
+    } else if visible_range_sec > MONTH * 2.0 {
         SmartDateFormat::MonthYear
-    } else if visible_range_sec > DAY * 2.0 {
+    } else if visible_range_sec > DAY * 1.5 {
         SmartDateFormat::DayMonth
-    } else if visible_range_sec > HOUR {
+    } else if visible_range_sec > MINUTE * 5.0 {
         SmartDateFormat::HourMin
     } else {
         SmartDateFormat::HourMinSec
     }
 }
 
-/// Formats a timestamp according to the specified format.
-/// Handles auto-detection of Milliseconds vs Seconds based on magnitude (> 1e11 is ms).
-pub fn format_timestamp(value: f64, format: SmartDateFormat) -> String {
-    // Heuristic: If value > 100 billion, it's likely milliseconds (valid for dates after 1973)
-    let (seconds, _) = if value.abs() > 100_000_000_000.0 {
-        ((value / 1000.0) as i64, 0)
-    } else {
-        (value as i64, 0)
+/// Formats a timestamp according to the specified format and unit.
+pub fn format_timestamp(value: f64, format: SmartDateFormat, unit: TimeUnit) -> String {
+    let seconds = match unit {
+        TimeUnit::Seconds => value as i64,
+        TimeUnit::Milliseconds => (value / 1000.0) as i64,
+        TimeUnit::Microseconds => (value / 1_000_000.0) as i64,
+        TimeUnit::Nanoseconds => (value / 1_000_000_000.0) as i64,
     };
 
-    // Use single to avoid panic on ambiguity, fallback to default if invalid
     let dt = match Utc.timestamp_opt(seconds, 0) {
         chrono::LocalResult::Single(d) => d,
         chrono::LocalResult::Ambiguous(d, _) => d,
-        chrono::LocalResult::None => return format!("{:.2}", value), // Fallback for non-date values
+        chrono::LocalResult::None => return format!("{:.2}", value),
     };
 
     match format {

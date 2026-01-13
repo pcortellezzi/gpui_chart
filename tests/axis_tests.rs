@@ -94,7 +94,7 @@ fn test_chart_scale_formatting() {
 
     // Test large numbers (timestamps)
     let ts = 1736500000000.0; // Sometime in 2025
-    let formatted = scale.format_tick(ts, &AxisFormat::Numeric);
+    let formatted = scale.format_tick(ts, &AxisFormat::Time(gpui_chart::data_types::TimeUnit::Milliseconds));
     assert!(
         formatted.contains(":"),
         "Should be formatted as time: {}",

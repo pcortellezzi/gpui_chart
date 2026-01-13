@@ -20,6 +20,12 @@ The library supports multiple aggregation modes for large datasets:
 - **MinMax**: Preserves only Min and Max. Very fast. (~1.5ms / 1M rows)
 - **LTTB (Largest-Triangle-Three-Buckets)**: Advanced algorithm that preserves visual shape and peaks. (~3ms / 1M rows)
 
+### 📈 Axis & Formatting
+- **Explicit Axis Types**: Support for `Numeric` and `Time` formats per axis.
+- **Smart Date Axis**: Automatically adapts date/time labels based on zoom level (Years -> Months -> Days -> Hours -> Seconds).
+- **Multiple Y-Axes**: Easily isolate series on their own Y-axis for different data scales.
+- **Auto-Fit**: Double-click to automatically scale axes to visible data.
+
 ### 🖱️ Advanced Interactivity
 The chart is fully interactive out-of-the-box:
 
@@ -101,6 +107,10 @@ fn main() {
                 
                 // Add a Pane
                 c.add_pane_at(0, 1.0, cx);
+                
+                // Configure X-Axis as Time
+                c.set_x_axis_format(0, gpui_chart::data_types::AxisFormat::Time, cx);
+
                 if let Some(pane) = c.panes.get_mut(0) {
                     pane.series.push(Series::new(
                         "Signal",

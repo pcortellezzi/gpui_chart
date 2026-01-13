@@ -20,6 +20,20 @@ pub struct AxisState {
     pub size: Pixels,
     pub label: String,
     pub format: AxisFormat,
+    pub min_label_spacing: Pixels,
+}
+
+impl AxisState {
+    pub fn new(entity: Entity<AxisRange>, edge: AxisEdge, size: Pixels, label: String) -> Self {
+        Self {
+            entity,
+            edge,
+            size,
+            label,
+            format: AxisFormat::Numeric,
+            min_label_spacing: px(20.0),
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -112,13 +126,12 @@ impl Chart {
         );
         let mut ps = PaneState::new(id.clone(), weight);
         let default_y = cx.new(|_| AxisRange::new(0.0, 100.0));
-        ps.y_axes.push(AxisState {
-            entity: default_y,
-            edge: AxisEdge::Right,
-            size: px(60.0),
-            label: "New".to_string(),
-            format: crate::data_types::AxisFormat::Numeric,
-        });
+        ps.y_axes.push(AxisState::new(
+            default_y,
+            AxisEdge::Right,
+            px(60.0),
+            "New".to_string(),
+        ));
 
         if idx >= self.panes.len() {
             self.panes.push(ps);
@@ -209,13 +222,12 @@ impl Chart {
                 let new_axis = cx.new(|_| AxisRange::new(s_min, s_max));
                 cx.observe(&new_axis, |_, _, cx| cx.notify()).detach();
 
-                ps.y_axes.push(AxisState {
-                    entity: new_axis.clone(),
-                    edge: AxisEdge::Right,
-                    size: px(60.0),
-                    label: series_id.to_string(),
-                    format: crate::data_types::AxisFormat::Numeric,
-                });
+                ps.y_axes.push(AxisState::new(
+                    new_axis.clone(),
+                    AxisEdge::Right,
+                    px(60.0),
+                    series_id.to_string(),
+                ));
                 let new_axis_id = AxisId(ps.y_axes.len() - 1);
 
                 if let Some(s) = ps.series.iter_mut().find(|s| s.id == series_id) {
@@ -294,6 +306,22 @@ impl Chart {
         if let Some(pane) = self.panes.get_mut(pane_idx) {
             if let Some(axis) = pane.y_axes.get_mut(axis_idx) {
                 axis.format = format;
+                self.notify_render(cx);
+            }
+        }
+    }
+
+    pub fn set_x_axis_min_spacing(&mut self, axis_idx: usize, spacing: Pixels, cx: &mut Context<Self>) {
+        if let Some(axis) = self.x_axes.get_mut(axis_idx) {
+            axis.min_label_spacing = spacing;
+            self.notify_render(cx);
+        }
+    }
+
+    pub fn set_y_axis_min_spacing(&mut self, pane_idx: usize, axis_idx: usize, spacing: Pixels, cx: &mut Context<Self>) {
+        if let Some(pane) = self.panes.get_mut(pane_idx) {
+            if let Some(axis) = pane.y_axes.get_mut(axis_idx) {
+                axis.min_label_spacing = spacing;
                 self.notify_render(cx);
             }
         }
