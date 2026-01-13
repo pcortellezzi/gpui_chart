@@ -21,8 +21,10 @@ The library supports multiple aggregation modes for large datasets:
 - **LTTB (Largest-Triangle-Three-Buckets)**: Advanced algorithm that preserves visual shape and peaks. (~3ms / 1M rows)
 
 ### 📈 Axis & Formatting
-- **Explicit Axis Types**: Support for `Numeric` and `Time` formats per axis.
+- **Explicit Axis Types**: Support for `Numeric` and `Time(TimeUnit)` formats per axis.
+- **Time Units**: Explicitly specify `Seconds`, `Milliseconds`, `Microseconds`, or `Nanoseconds`.
 - **Smart Date Axis**: Automatically adapts date/time labels based on zoom level (Years -> Months -> Days -> Hours -> Seconds).
+- **Configurable Spacing**: Set `min_label_spacing` to control the visual density of axis labels.
 - **Multiple Y-Axes**: Easily isolate series on their own Y-axis for different data scales.
 - **Auto-Fit**: Double-click to automatically scale axes to visible data.
 
@@ -75,6 +77,7 @@ gpui_chart = { path = "path/to/gpui_chart", features = ["polars"] } # Enable pol
 ```rust
 use gpui::*;
 use gpui_chart::{Chart, ChartView, AxisRange, Series, LinePlot, PlotPoint, SharedPlotState};
+use gpui_chart::data_types::{AxisFormat, TimeUnit};
 
 struct AppState {
     chart_view: View<ChartView>,
@@ -108,8 +111,8 @@ fn main() {
                 // Add a Pane
                 c.add_pane_at(0, 1.0, cx);
                 
-                // Configure X-Axis as Time
-                c.set_x_axis_format(0, gpui_chart::data_types::AxisFormat::Time, cx);
+                // Configure X-Axis as Time (Milliseconds)
+                c.set_x_axis_format(0, AxisFormat::Time(TimeUnit::Milliseconds), cx);
 
                 if let Some(pane) = c.panes.get_mut(0) {
                     pane.series.push(Series::new(
