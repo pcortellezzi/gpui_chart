@@ -5,6 +5,10 @@ A high-performance, interactive, and composable charting library for [GPUI](http
 ## ✨ Features
 
 ### 🚀 Core Performance
+- **Hybrid Stream Architecture**: Combines a massive historical dataset (Polars) with a high-frequency real-time buffer (`VecDeque`).
+    - **Zero-Latency Updates**: New ticks are added instantly to the real-time buffer.
+    - **Zero-Copy Commit**: Periodically merge real-time data into the historical Polars storage with a background rechunking to maintain maximum performance.
+    - **Balanced Aggregation**: Automatically budgets points between historical and live data to ensure the latest trends are always visible.
 - **High Performance**: Optimized for rendering massive datasets (LOD, Occlusion Culling, Zero-copy painting).
 - **Blazing Fast Aggregation**:
     - **Native Rust + Rayon**: Parallelized data decimation using CPU SIMD and multi-threading.

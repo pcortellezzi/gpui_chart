@@ -84,7 +84,11 @@ fn test_chart_view_middle_click_zoom(cx: &mut TestAppContext) {
     cx.run_until_parked();
 
     // 1. Initial State
-    let initial_x_range = chart_entity.read_with(cx, |c, cx| c.shared_x_axis.read(cx).clone());
+    let (initial_x_range, initial_y_range) = chart_entity.read_with(cx, |c, cx| {
+        let x = c.shared_x_axis.read(cx).clone();
+        let y = c.panes[0].y_axes[0].entity.read(cx).clone();
+        (x, y)
+    });
     assert_eq!(initial_x_range.min, 0.0);
     assert_eq!(initial_x_range.max, 100.0);
 
@@ -100,19 +104,31 @@ fn test_chart_view_middle_click_zoom(cx: &mut TestAppContext) {
     );
 
     // 3. Simulate Mouse Move (Drag) to zoom
+    // Moving 100px right and 100px up (negative delta y in GPUI)
     visual_cx.simulate_mouse_move(
-        center + Point::new(px(100.0), px(0.0)),
+        center + Point::new(px(100.0), px(-100.0)),
         Some(MouseButton::Middle),
         Default::default(),
     );
 
-    // 4. Verify X range has changed
-    let zoomed_x_range = chart_entity.read_with(&visual_cx, |c, cx| c.shared_x_axis.read(cx).clone());
+    // 4. Verify ranges have changed
+    let (zoomed_x_range, zoomed_y_range) = chart_entity.read_with(&visual_cx, |c, cx| {
+        let x = c.shared_x_axis.read(cx).clone();
+        let y = c.panes[0].y_axes[0].entity.read(cx).clone();
+        (x, y)
+    });
 
     assert!(
         zoomed_x_range.span() != initial_x_range.span(),
         "X range span should have changed after middle-click drag zoom. Got: {:?} -> {:?}",
         initial_x_range.span(),
         zoomed_x_range.span()
+    );
+
+    assert!(
+        zoomed_y_range.span() != initial_y_range.span(),
+        "Y range span should have changed after middle-click drag zoom. Got: {:?} -> {:?}",
+        initial_y_range.span(),
+        zoomed_y_range.span()
     );
 }

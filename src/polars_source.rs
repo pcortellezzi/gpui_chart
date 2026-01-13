@@ -389,7 +389,15 @@ impl PlotDataSource for PolarsDataSource {
     fn add_data(&mut self, _data: PlotData) {
     }
 
-    fn set_data(&mut self, _data: Vec<PlotData>) {
+    fn set_data(&mut self, data: Vec<PlotData>) {
+        if data.is_empty() { self.df = DataFrame::default(); return; }
+        let mut x_vals = Vec::with_capacity(data.len());
+        let mut y_vals = Vec::with_capacity(data.len());
+        for p in data {
+            match p { PlotData::Point(pt) => { x_vals.push(pt.x); y_vals.push(pt.y); }, PlotData::Ohlcv(o) => { x_vals.push(o.time); y_vals.push(o.close); } }
+        }
+        self.df = DataFrame::new(vec![Series::new(self.x_col.clone().into(), x_vals).into(), Series::new(self.y_col.clone().into(), y_vals).into()]).unwrap();
+        self.df.rechunk_mut();
     }
 
     fn suggested_x_spacing(&self) -> f64 {
