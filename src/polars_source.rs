@@ -17,7 +17,9 @@ pub struct PolarsDataSource {
 }
 
 impl PolarsDataSource {
-    pub fn new(df: DataFrame, x_col: &str, y_col: &str) -> Self {
+    pub fn new(mut df: DataFrame, x_col: &str, y_col: &str) -> Self {
+        // Essential for Zero-Copy: ensure all columns are in a single memory chunk.
+        df.rechunk_mut();
         Self {
             df,
             x_col: x_col.to_string(),
@@ -351,7 +353,7 @@ impl PlotDataSource for PolarsDataSource {
                      match self.mode {
                         crate::data_types::AggregationMode::M4 => crate::aggregation::decimate_m4_arrays_par_into(x_slice, y_slice, max_points, output),
                         crate::data_types::AggregationMode::MinMax => crate::aggregation::decimate_min_max_arrays_par_into(x_slice, y_slice, max_points, output),
-                        crate::data_types::AggregationMode::LTTB => crate::aggregation::decimate_lttb_arrays_into(x_slice, y_slice, max_points, output),
+                        crate::data_types::AggregationMode::LTTB => crate::aggregation::decimate_ilttb_arrays_par_into(x_slice, y_slice, max_points, output),
                      };
                      return;
                  }

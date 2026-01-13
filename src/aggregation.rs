@@ -203,10 +203,10 @@ pub fn decimate_ohlcv_arrays_par_into(
     let items_per_stable_bin = (stable_bin_size * avg_frequency).ceil() as usize;
     let bin_size = items_per_stable_bin.max(1);
 
-    // Process chunks in parallel
-    let mut chunks: Vec<Option<PlotData>> = time.par_chunks(bin_size)
+    // Process chunks in parallel and write directly into a pre-allocated vector
+    let chunks: Vec<PlotData> = time.par_chunks(bin_size)
         .enumerate()
-        .map(|(chunk_idx, t_chunk)| {
+        .filter_map(|(chunk_idx, t_chunk)| {
             let start_idx = chunk_idx * bin_size;
             let end_idx = start_idx + t_chunk.len();
             
@@ -257,11 +257,7 @@ pub fn decimate_ohlcv_arrays_par_into(
         })
         .collect();
 
-    for chunk in chunks.drain(..) {
-        if let Some(c) = chunk {
-            output.push(c);
-        }
-    }
+    output.extend(chunks);
     
     // Safeguard
     if output.len() > max_points {
