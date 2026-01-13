@@ -13,6 +13,8 @@ pub struct ChartTheme {
     pub tag_background: Hsla,
     pub tag_text: Hsla,
     pub accent: Hsla,
+    pub candle_body_width_pct: f32,
+    pub candle_wick_width_pct: f32,
 }
 
 impl ChartTheme {
@@ -29,6 +31,8 @@ impl ChartTheme {
             tag_background: gpui::white(),
             tag_text: gpui::black(),
             accent: gpui::blue(),
+            candle_body_width_pct: 0.8,
+            candle_wick_width_pct: 0.1,
         }
     }
 
@@ -45,6 +49,8 @@ impl ChartTheme {
             tag_background: gpui::black(),
             tag_text: gpui::white(),
             accent: gpui::blue(),
+            candle_body_width_pct: 0.8,
+            candle_wick_width_pct: 0.1,
         }
     }
 }

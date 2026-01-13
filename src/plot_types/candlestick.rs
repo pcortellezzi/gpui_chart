@@ -45,7 +45,7 @@ impl PlotRenderer for CandlestickPlot {
         transform: &PlotTransform,
         _series_id: &str,
         _cx: &mut App,
-        _state: &crate::data_types::SharedPlotState,
+        state: &crate::data_types::SharedPlotState,
     ) {
         let bounds = transform.bounds;
         let width_px = bounds.size.width.as_f32();
@@ -61,6 +61,10 @@ impl PlotRenderer for CandlestickPlot {
 
         let up_color = self.config.up_body_color;
         let down_color = self.config.down_body_color;
+        
+        let theme = &state.theme;
+        let body_pct = theme.candle_body_width_pct;
+        let wick_pct = theme.candle_wick_width_pct;
 
         let mut buffer = self.buffer.lock();
         self.source.get_aggregated_data(x_min, x_max, max_points, &mut buffer);
@@ -77,20 +81,20 @@ impl PlotRenderer for CandlestickPlot {
                 let is_up = candle.close >= candle.open;
                 let t_start_px = transform.x_data_to_screen(candle.time).as_f32();
                 
-                // Use actual span from data, or fallback to ms_per_px if span is tiny
-                let theoretical_span_px = (candle.span / ms_per_px).max(1.0) as f32;
+                // 1. Calculate base width
+                // If candle has no span (raw point), we use avg spacing.
+                let span = if candle.span > 0.0 { candle.span } else { self.source.suggested_x_spacing() };
+                let theoretical_span_px = (span / ms_per_px) as f32;
                 
-                // Clamp width to prevent giant candles over gaps (e.g. weekends)
-                // We allow up to 1.5x the average width to accommodate minor irregularities,
-                // but cut off anything larger which likely indicates a gap.
+                // 2. Clamp width to prevent giant candles over gaps (market closes)
+                // We ensure it's at least 3px when zoomed in to see the body clearly.
                 let width_px = theoretical_span_px.min(avg_px_per_point * 1.5).max(1.0);
 
-                let center_x = t_start_px + width_px / 2.0;
+                let center_x = t_start_px + (theoretical_span_px / 2.0); // Center on its theoretical slot
 
-                // Adaptive width: if candles are dense, fill the space. If sparse, use fixed pct.
-                // Aggregated data is usually dense (packed bins).
-                let b_w = width_px * self.config.body_width_pct;
-                let w_w = (b_w * self.config.wick_width_pct).max(1.0); // Min 1px wick
+                // 3. Body and Wick calculation
+                let b_w = (width_px * body_pct).max(1.0); // Min 1px body
+                let w_w = (b_w * wick_pct).max(1.0); // Min 1px wick
 
                 let y_h = transform.y_data_to_screen(candle.high).as_f32();
                 let y_l = transform.y_data_to_screen(candle.low).as_f32();
@@ -100,15 +104,15 @@ impl PlotRenderer for CandlestickPlot {
 
                 let color = if is_up { up_color } else { down_color };
 
-                // Wick
+                // Wick (High to Low)
                 window.paint_quad(fill(
                     Bounds::new(
                         Point::new(px(center_x - w_w / 2.0), px(y_h)),
-                        Size::new(px(w_w), px(y_l - y_h).max(px(1.0))),
+                        Size::new(px(w_w), px((y_l - y_h).max(1.0))),
                     ),
                     color,
                 ));
-                // Body
+                // Body (Open to Close)
                 window.paint_quad(fill(
                     Bounds::new(
                         Point::new(px(center_x - b_w / 2.0), px(b_top)),

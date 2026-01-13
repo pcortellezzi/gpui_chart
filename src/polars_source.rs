@@ -253,6 +253,8 @@ impl PlotDataSource for PolarsDataSource {
         };
 
         let mut result = Vec::with_capacity(sliced.height());
+        let suggested_span = self.suggested_x_spacing();
+
         if let (Some(o_n), Some(h_n), Some(l_n), Some(c_n)) = (&self.open_col, &self.high_col, &self.low_col, &self.close_col) {
             let o_col = match sliced.column(o_n).ok().and_then(|c| c.as_series()).and_then(|s| s.f64().ok()) {
                 Some(c) => c,
@@ -273,7 +275,7 @@ impl PlotDataSource for PolarsDataSource {
             for i in 0..sliced.height() {
                 result.push(PlotData::Ohlcv(Ohlcv {
                     time: x_col.get(i).unwrap_or(0.0),
-                    span: 0.0,
+                    span: suggested_span,
                     open: o_col.get(i).unwrap_or(0.0),
                     high: h_col.get(i).unwrap_or(0.0),
                     low: l_col.get(i).unwrap_or(0.0),
