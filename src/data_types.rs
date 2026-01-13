@@ -1135,7 +1135,9 @@ impl PlotDataSource for VecDataSource {
         }
 
         // 3. Fallback to dynamic binning if no pyramid (or ratio too high but pyramid empty/small)
-        let data = &self.data[start_idx..end_idx];
+        let start = start_idx.saturating_sub(1);
+        let end = (end_idx + 1).min(self.data.len());
+        let data = &self.data[start..end];
         Box::new(crate::aggregation::decimate_min_max_slice(data, max_points).into_iter())
     }
 

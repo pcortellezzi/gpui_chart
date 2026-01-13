@@ -315,7 +315,12 @@ impl PlotDataSource for PolarsDataSource {
     ) {
         output.clear();
         let (start_idx, end_idx) = self.get_range_indices(x_min, x_max);
-        let count = end_idx - start_idx;
+        
+        // Add padding: take extra points before and after to ensure stable bins 
+        // at the edges have enough data context.
+        let start = start_idx.saturating_sub(1);
+        let end = (end_idx + 1).min(self.df.height());
+        let count = end - start;
 
         if count <= max_points {
             output.extend(self.iter_range(x_min, x_max));
@@ -330,9 +335,7 @@ impl PlotDataSource for PolarsDataSource {
             || matches!(self.mode, crate::data_types::AggregationMode::LTTB))
            && self.open_col.is_none() // Only for standard XY plots
         {
-             let start = start_idx as i64;
-             let len = count;
-             let sliced = self.df.slice(start, len);
+             let sliced = self.df.slice(start as i64, count);
              
              if let (Ok(x_col), Ok(y_col)) = (sliced.column(&self.x_col), sliced.column(&self.y_col)) {
                  if let (Some(x_series), Some(y_series)) = (
@@ -357,9 +360,7 @@ impl PlotDataSource for PolarsDataSource {
 
         // Optimized Zero-Copy Path for OHLCV
         if let (Some(o_n), Some(h_n), Some(l_n), Some(c_n)) = (&self.open_col, &self.high_col, &self.low_col, &self.close_col) {
-             let start = start_idx as i64;
-             let len = count;
-             let sliced = self.df.slice(start, len);
+             let sliced = self.df.slice(start as i64, count);
              
              if let (Ok(x_col), Ok(o_col), Ok(h_col), Ok(l_col), Ok(c_col)) = (
                  sliced.column(&self.x_col), sliced.column(o_n), sliced.column(h_n), sliced.column(l_n), sliced.column(c_n)
@@ -379,7 +380,7 @@ impl PlotDataSource for PolarsDataSource {
              }
         }
 
-        let lazy_result = self.iter_aggregated_lazy_fallback(start_idx, count, max_points);
+        let lazy_result = self.iter_aggregated_lazy_fallback(start, count, max_points);
         output.extend(lazy_result);
     }
 
