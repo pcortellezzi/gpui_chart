@@ -123,3 +123,43 @@ pub fn sum_f64(data: &[f64]) -> f64 {
     }
     total
 }
+
+/// Finds the index of the point that maximizes the triangle area with points A and C.
+/// Area formula: |Ax(By - Cy) + Bx(Cy - Ay) + Cx(Ay - By)|
+/// Optimized to: |Bx * (Ay - Cy) + By * (Cx - Ax) + (Ax*Cy - Cx*Ay)|
+pub fn find_max_area_index(x: &[f64], y: &[f64], ax: f64, ay: f64, cx: f64, cy: f64) -> usize {
+    let len = x.len().min(y.len());
+    if len == 0 { return 0; }
+
+    let c1 = ay - cy;
+    let c2 = cx - ax;
+    let c3 = ax * cy - cx * ay;
+
+    let mut max_area = -1.0;
+    let mut best_idx = 0;
+
+    let chunks = x.chunks_exact(8).zip(y.chunks_exact(8));
+    let rem_x = x.chunks_exact(8).remainder();
+    let rem_y = y.chunks_exact(8).remainder();
+
+    for (i, (xc, yc)) in chunks.enumerate() {
+        for j in 0..8 {
+            let area = (xc[j] * c1 + yc[j] * c2 + c3).abs();
+            if area > max_area {
+                max_area = area;
+                best_idx = i * 8 + j;
+            }
+        }
+    }
+
+    let offset = (len / 8) * 8;
+    for (i, (&vx, &vy)) in rem_x.iter().zip(rem_y.iter()).enumerate() {
+        let area = (vx * c1 + vy * c2 + c3).abs();
+        if area > max_area {
+            max_area = area;
+            best_idx = offset + i;
+        }
+    }
+
+    best_idx
+}

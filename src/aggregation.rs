@@ -615,15 +615,10 @@ pub fn decimate_ilttb_arrays_par_into(
                 return (x[idx], y[idx]);
             }
             
-            let mut sum_x = 0.0;
-            let mut sum_y = 0.0;
-            let mut count = 0;
-            for j in start..end {
-                sum_x += x[j];
-                sum_y += y[j];
-                count += 1;
-            }
-            (sum_x / count as f64, sum_y / count as f64)
+            let count = (end - start) as f64;
+            let sum_x = crate::simd::sum_f64(&x[start..end]);
+            let sum_y = crate::simd::sum_f64(&y[start..end]);
+            (sum_x / count, sum_y / count)
         })
         .collect();
 
@@ -648,18 +643,13 @@ pub fn decimate_ilttb_arrays_par_into(
                 (x[x.len() - 1], y[y.len() - 1])
             };
 
-            let mut max_area = -1.0;
-            let mut best_idx = start;
-
-            for j in start..end {
-                let px = x[j];
-                let py = y[j];
-                let area = (a_x * (py - c_y) + px * (c_y - a_y) + c_x * (a_y - py)).abs();
-                if area > max_area {
-                    max_area = area;
-                    best_idx = j;
-                }
-            }
+            let best_local_idx = crate::simd::find_max_area_index(
+                &x[start..end],
+                &y[start..end],
+                a_x, a_y, c_x, c_y
+            );
+            
+            let best_idx = start + best_local_idx;
 
             PlotPoint { x: x[best_idx], y: y[best_idx], color_op: ColorOp::None }
         })
