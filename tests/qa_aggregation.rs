@@ -1,5 +1,6 @@
 use gpui_chart::aggregation::*;
-use gpui_chart::data_types::{PlotData, PlotPoint, ColorOp};
+use gpui_chart::data_types::{PlotData, PlotPoint, ColorOp, PlotDataSource};
+use std::time::Instant;
 #[cfg(feature = "polars")]
 use gpui_chart::data_types::AggregationMode;
 #[cfg(feature = "polars")]

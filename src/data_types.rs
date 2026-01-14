@@ -29,6 +29,7 @@ pub struct CandlestickConfig {
     pub down_border_color: Hsla,
     pub body_width_pct: f32,
     pub wick_width_pct: f32,
+    pub border_thickness_px: f32,
 }
 
 impl Default for CandlestickConfig {
@@ -44,6 +45,7 @@ impl Default for CandlestickConfig {
             down_border_color: red,
             body_width_pct: 0.8,
             wick_width_pct: 0.1,
+            border_thickness_px: 1.0,
         }
     }
 }

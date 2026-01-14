@@ -15,6 +15,11 @@ pub struct ChartTheme {
     pub accent: Hsla,
     pub candle_body_width_pct: f32,
     pub candle_wick_width_pct: f32,
+    pub candle_contour_thickness_px: f32,
+    pub up_candle_body_color: Hsla,
+    pub down_candle_body_color: Hsla,
+    pub up_candle_contour_color: Hsla,
+    pub down_candle_contour_color: Hsla,
 }
 
 impl ChartTheme {
@@ -33,6 +38,11 @@ impl ChartTheme {
             accent: gpui::blue(),
             candle_body_width_pct: 0.8,
             candle_wick_width_pct: 0.1,
+            candle_contour_thickness_px: 1.0,
+            up_candle_body_color: Hsla::from(gpui::green()),
+            down_candle_body_color: Hsla::from(gpui::red()),
+            up_candle_contour_color: Hsla::from(gpui::green()),
+            down_candle_contour_color: Hsla::from(gpui::red()),
         }
     }
 
@@ -51,6 +61,11 @@ impl ChartTheme {
             accent: gpui::blue(),
             candle_body_width_pct: 0.8,
             candle_wick_width_pct: 0.1,
+            candle_contour_thickness_px: 1.0,
+            up_candle_body_color: Hsla::from(gpui::green()),
+            down_candle_body_color: Hsla::from(gpui::red()),
+            up_candle_contour_color: Hsla::from(gpui::green()),
+            down_candle_contour_color: Hsla::from(gpui::red()),
         }
     }
 }

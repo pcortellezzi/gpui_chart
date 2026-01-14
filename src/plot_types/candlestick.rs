@@ -59,13 +59,6 @@ impl PlotRenderer for CandlestickPlot {
         // Request aggregated data matching screen resolution
         let max_points = width_px as usize;
 
-        let up_color = self.config.up_body_color;
-        let down_color = self.config.down_body_color;
-        
-        let theme = &state.theme;
-        let body_pct = theme.candle_body_width_pct;
-        let wick_pct = theme.candle_wick_width_pct;
-
         let mut buffer = self.buffer.lock();
         self.source.get_aggregated_data(x_min, x_max, max_points, &mut buffer);
 
@@ -76,25 +69,41 @@ impl PlotRenderer for CandlestickPlot {
              width_px
         };
 
+        let theme = &state.theme;
+        let body_pct = theme.candle_body_width_pct;
+        let wick_pct = theme.candle_wick_width_pct;
+        let contour_thickness = theme.candle_contour_thickness_px;
+
         for data in buffer.iter() {
             if let PlotData::Ohlcv(candle) = data {
                 let is_up = candle.close >= candle.open;
                 let t_start_px = transform.x_data_to_screen(candle.time).as_f32();
                 
                 // 1. Calculate base width
-                // If candle has no span (raw point), we use avg spacing.
                 let span = if candle.span > 0.0 { candle.span } else { self.source.suggested_x_spacing() };
                 let theoretical_span_px = (span / ms_per_px) as f32;
                 
-                // 2. Clamp width to prevent giant candles over gaps (market closes)
-                // We ensure it's at least 3px when zoomed in to see the body clearly.
                 let width_px = theoretical_span_px.min(avg_px_per_point * 1.5).max(1.0);
+                let center_x = t_start_px + (theoretical_span_px / 2.0);
 
-                let center_x = t_start_px + (theoretical_span_px / 2.0); // Center on its theoretical slot
+                // 2. High density mode: just a vertical line if we have less than 2px to draw
+                if width_px < 2.0 {
+                    let y_h = transform.y_data_to_screen(candle.high).as_f32();
+                    let y_l = transform.y_data_to_screen(candle.low).as_f32();
+                    let color = if is_up { theme.up_candle_contour_color } else { theme.down_candle_contour_color };
+                    window.paint_quad(fill(
+                        Bounds::new(
+                            Point::new(px(center_x - 0.5), px(y_h)),
+                            Size::new(px(1.0), px((y_l - y_h).max(1.0))),
+                        ),
+                        color,
+                    ));
+                    continue;
+                }
 
                 // 3. Body and Wick calculation
-                let b_w = (width_px * body_pct).max(1.0); // Min 1px body
-                let w_w = (b_w * wick_pct).max(1.0); // Min 1px wick
+                let b_w = (width_px * body_pct).max(1.0); 
+                let w_w = (b_w * wick_pct).max(1.0); 
 
                 let y_h = transform.y_data_to_screen(candle.high).as_f32();
                 let y_l = transform.y_data_to_screen(candle.low).as_f32();
@@ -102,24 +111,70 @@ impl PlotRenderer for CandlestickPlot {
                 let y_c = transform.y_data_to_screen(candle.close).as_f32();
                 let (b_top, b_bot) = if is_up { (y_c, y_o) } else { (y_o, y_c) };
 
-                let color = if is_up { up_color } else { down_color };
+                let body_color = if is_up { theme.up_candle_body_color } else { theme.down_candle_body_color };
+                let contour_color = if is_up { theme.up_candle_contour_color } else { theme.down_candle_contour_color };
 
-                // Wick (High to Low)
+                // Top Wick (High to Body Top)
+                if y_h < b_top {
+                    window.paint_quad(fill(
+                        Bounds::new(
+                            Point::new(px(center_x - w_w / 2.0), px(y_h)),
+                            Size::new(px(w_w), px(b_top - y_h)),
+                        ),
+                        contour_color,
+                    ));
+                }
+
+                // Bottom Wick (Body Bottom to Low)
+                if y_l > b_bot {
+                    window.paint_quad(fill(
+                        Bounds::new(
+                            Point::new(px(center_x - w_w / 2.0), px(b_bot)),
+                            Size::new(px(w_w), px(y_l - b_bot)),
+                        ),
+                        contour_color,
+                    ));
+                }
+
+                // Body Contour
+                // We draw it using 4 quads to represent the border
+                let b_left = center_x - b_w / 2.0;
+                let b_right = center_x + b_w / 2.0;
+                let b_height = (b_bot - b_top).max(1.0);
+
+                // Top border
                 window.paint_quad(fill(
-                    Bounds::new(
-                        Point::new(px(center_x - w_w / 2.0), px(y_h)),
-                        Size::new(px(w_w), px((y_l - y_h).max(1.0))),
-                    ),
-                    color,
+                    Bounds::new(Point::new(px(b_left), px(b_top)), Size::new(px(b_w), px(contour_thickness))),
+                    contour_color,
                 ));
-                // Body (Open to Close)
+                // Bottom border
                 window.paint_quad(fill(
-                    Bounds::new(
-                        Point::new(px(center_x - b_w / 2.0), px(b_top)),
-                        Size::new(px(b_w), px((b_bot - b_top).max(1.0))),
-                    ),
-                    color,
+                    Bounds::new(Point::new(px(b_left), px(b_bot - contour_thickness)), Size::new(px(b_w), px(contour_thickness))),
+                    contour_color,
                 ));
+                // Left border
+                window.paint_quad(fill(
+                    Bounds::new(Point::new(px(b_left), px(b_top)), Size::new(px(contour_thickness), px(b_height))),
+                    contour_color,
+                ));
+                // Right border
+                window.paint_quad(fill(
+                    Bounds::new(Point::new(px(b_right - contour_thickness), px(b_top)), Size::new(px(contour_thickness), px(b_height))),
+                    contour_color,
+                ));
+
+                // Body Fill
+                let fill_top = b_top + contour_thickness;
+                let fill_bot = b_bot - contour_thickness;
+                if fill_bot > fill_top {
+                    window.paint_quad(fill(
+                        Bounds::new(
+                            Point::new(px(b_left + contour_thickness), px(fill_top)),
+                            Size::new(px(b_w - 2.0 * contour_thickness), px(fill_bot - fill_top)),
+                        ),
+                        body_color,
+                    ));
+                }
             }
         }
     }
