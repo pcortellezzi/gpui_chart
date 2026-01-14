@@ -3,6 +3,8 @@ use gpui_chart::aggregation::decimate_ilttb_arrays_par_into;
 #[cfg(feature = "polars")]
 use gpui_chart::data_types::{AggregationMode, PlotDataSource};
 #[cfg(feature = "polars")]
+use gpui_chart::gaps::{GapIndex, GapSegment};
+#[cfg(feature = "polars")]
 use gpui_chart::polars_source::PolarsDataSource;
 #[cfg(feature = "polars")]
 use polars::prelude::*;
@@ -31,6 +33,17 @@ fn test_compare_aggregations() {
     let source_lttb =
         PolarsDataSource::new(df, "x", "y").with_aggregation_mode(AggregationMode::LTTB);
 
+    // Create a GapIndex with 100 gaps
+    let mut segments = Vec::new();
+    for i in 0..100 {
+        segments.push(GapSegment {
+            start_real: (i * 10000 + 5000) as i64,
+            end_real: (i * 10000 + 6000) as i64,
+            cumulative_before: 0,
+        });
+    }
+    let gaps = GapIndex::new(segments);
+
     println!("\n--- Aggregation Benchmark (1M rows) ---");
 
     // MinMax Benchmark
@@ -40,9 +53,20 @@ fn test_compare_aggregations() {
         .collect();
     let dur_minmax = start.elapsed();
     println!(
-        "MinMax (2 pts/bin) took: {:?} (points: {})",
+        "MinMax (2 pts/bin) took:      {:?} (points: {})",
         dur_minmax,
         res_minmax.len()
+    );
+
+    let start = Instant::now();
+    let res_minmax_gaps: Vec<_> = source_minmax
+        .iter_aggregated(0.0, n as f64, 2000, Some(&gaps))
+        .collect();
+    let dur_minmax_gaps = start.elapsed();
+    println!(
+        "MinMax WITH GAPS took:        {:?} (points: {})",
+        dur_minmax_gaps,
+        res_minmax_gaps.len()
     );
 
     // M4 Benchmark
@@ -52,9 +76,20 @@ fn test_compare_aggregations() {
         .collect();
     let dur_m4 = start.elapsed();
     println!(
-        "M4 (4 pts/bin) took:     {:?} (points: {})",
+        "M4 (4 pts/bin) took:          {:?} (points: {})",
         dur_m4,
         res_m4.len()
+    );
+
+    let start = Instant::now();
+    let res_m4_gaps: Vec<_> = source_m4
+        .iter_aggregated(0.0, n as f64, 2000, Some(&gaps))
+        .collect();
+    let dur_m4_gaps = start.elapsed();
+    println!(
+        "M4 WITH GAPS took:            {:?} (points: {})",
+        dur_m4_gaps,
+        res_m4_gaps.len()
     );
 
     // LTTB Benchmark (Sequential)
@@ -64,32 +99,25 @@ fn test_compare_aggregations() {
         .collect();
     let dur_lttb = start.elapsed();
     println!(
-        "LTTB (Sequential) took:  {:?} (points: {})",
+        "LTTB (Sequential) took:       {:?} (points: {})",
         dur_lttb,
         res_lttb.len()
     );
 
     // ILTTB Benchmark (Parallel)
     let mut out_buffer = Vec::with_capacity(2000);
-    // We need raw arrays for the par version
     let x_arr: Vec<f64> = (0..n).map(|i| i as f64).collect();
     let y_arr: Vec<f64> = (0..n).map(|i| (i as f64 * 0.01).sin()).collect();
     let start_ilttb = Instant::now();
     decimate_ilttb_arrays_par_into(&x_arr, &y_arr, 2000, &mut out_buffer, None);
     let dur_ilttb = start_ilttb.elapsed();
     println!(
-        "ILTTB (Parallel) took:   {:?} (points: {})",
+        "ILTTB (Parallel) took:        {:?} (points: {})",
         dur_ilttb,
         out_buffer.len()
     );
 
-    assert!(res_minmax.len() <= 2000);
-    assert!(res_m4.len() <= 2000);
-    assert!(res_lttb.len() <= 2000);
-    assert!(out_buffer.len() <= 2000);
-
     // OHLCV Benchmark
-    // Construct OHLCV data
     let open: Vec<f64> = (0..n).map(|i| (i as f64).sin()).collect();
     let high: Vec<f64> = (0..n).map(|i| (i as f64).sin() + 1.0).collect();
     let low: Vec<f64> = (0..n).map(|i| (i as f64).sin() - 1.0).collect();
@@ -113,10 +141,25 @@ fn test_compare_aggregations() {
         .collect();
     let dur_ohlcv = start.elapsed();
     println!(
-        "OHLCV (1 pt/bin) took:   {:?} (points: {})",
+        "OHLCV (1 pt/bin) took:        {:?} (points: {})",
         dur_ohlcv,
         res_ohlcv.len()
     );
 
+    let start = Instant::now();
+    let res_ohlcv_gaps: Vec<_> = source_ohlcv
+        .iter_aggregated(0.0, n as f64, 2000, Some(&gaps))
+        .collect();
+    let dur_ohlcv_gaps = start.elapsed();
+    println!(
+        "OHLCV WITH GAPS took:         {:?} (points: {})",
+        dur_ohlcv_gaps,
+        res_ohlcv_gaps.len()
+    );
+
+    assert!(res_minmax.len() <= 2000);
+    assert!(res_m4.len() <= 2000);
+    assert!(res_lttb.len() <= 2000);
+    assert!(out_buffer.len() <= 2000);
     assert!(res_ohlcv.len() <= 2000);
 }

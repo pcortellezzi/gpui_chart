@@ -494,15 +494,16 @@ pub struct Ohlcv {
     pub volume: f64,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub enum ColorOp {
     Persistent(Hsla),
     OneShot(Hsla),
     Reset,
+    #[default]
     None,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub struct PlotPoint {
     pub x: f64,
     pub y: f64,

@@ -26,6 +26,69 @@ fn calculate_stable_bin_size(range: f64, max_points: usize) -> f64 {
     base * stable_rel
 }
 
+use std::ops::Range;
+
+/// Calculates index ranges (buckets) that respect gaps.
+/// A bucket ends if it reaches `bin_size` OR if a gap is encountered.
+pub fn calculate_gap_aware_buckets(
+    x: &[f64],
+    gap_index: Option<&GapIndex>,
+    bin_size: usize,
+) -> Vec<Range<usize>> {
+    let n = x.len();
+    if n == 0 {
+        return Vec::new();
+    }
+
+    let bin_size = bin_size.max(1);
+    let mut buckets = Vec::with_capacity(n / bin_size + 1);
+    let mut current_start = 0;
+
+    if let Some(gi) = gap_index {
+        let segments = gi.segments();
+        let mut seg_idx = 0;
+
+        while current_start < n {
+            let next_target = (current_start + bin_size).min(n);
+
+            // Advance seg_idx to find the first gap that could potentially split this bin.
+            while seg_idx < segments.len() && segments[seg_idx].end_real <= x[current_start] as i64 {
+                seg_idx += 1;
+            }
+
+            if seg_idx < segments.len() && segments[seg_idx].start_real < x[next_target - 1] as i64 {
+                // A gap starts within this bin. Find the exact split point.
+                let gap_start_real = segments[seg_idx].start_real;
+                let split_idx = x[current_start..next_target]
+                    .partition_point(|&val| (val as i64) < gap_start_real);
+                let actual_split_idx = current_start + split_idx;
+
+                if actual_split_idx > current_start {
+                    buckets.push(current_start..actual_split_idx);
+                    current_start = actual_split_idx;
+                } else {
+                    // x[current_start] is already in or after the gap. Skip it.
+                    let gap_end_real = segments[seg_idx].end_real;
+                    let skip_idx = x[current_start..n]
+                        .partition_point(|&val| (val as i64) < gap_end_real);
+                    current_start += skip_idx;
+                    seg_idx += 1;
+                }
+            } else {
+                buckets.push(current_start..next_target);
+                current_start = next_target;
+            }
+        }
+    } else {
+        for i in (0..n).step_by(bin_size) {
+            buckets.push(i..(i + bin_size).min(n));
+        }
+        return buckets;
+    }
+
+    buckets
+}
+
 /// Decimates parallel arrays (Structure of Arrays) using M4 and Rayon.
 pub fn decimate_m4_arrays_par(
     x: &[f64],
@@ -36,6 +99,94 @@ pub fn decimate_m4_arrays_par(
     let mut output = Vec::with_capacity(max_points);
     decimate_m4_arrays_par_into(x, y, max_points, &mut output, gaps);
     output
+}
+
+fn aggregate_m4_bucket_to_array(x_chunk: &[f64], y_chunk: &[f64]) -> ([PlotPoint; 4], usize) {
+    let n = x_chunk.len();
+    if n == 0 {
+        return ([PlotPoint::default(); 4], 0);
+    }
+    if n == 1 {
+        return (
+            [
+                PlotPoint {
+                    x: x_chunk[0],
+                    y: y_chunk[0],
+                    color_op: ColorOp::None,
+                },
+                PlotPoint::default(),
+                PlotPoint::default(),
+                PlotPoint::default(),
+            ],
+            1,
+        );
+    }
+
+    let first_idx = 0;
+    let last_idx = n - 1;
+    let mut min_idx = 0;
+    let mut max_idx = 0;
+    let mut min_y = y_chunk[0];
+    let mut max_y = min_y;
+
+    let start_search = if min_y.is_nan() {
+        let mut found = false;
+        let mut idx = 0;
+        for (i, val) in y_chunk.iter().enumerate().skip(1) {
+            if !val.is_nan() {
+                min_y = *val;
+                max_y = *val;
+                min_idx = i;
+                max_idx = i;
+                idx = i;
+                found = true;
+                break;
+            }
+        }
+        if found {
+            idx + 1
+        } else {
+            n
+        }
+    } else {
+        1
+    };
+
+    for (i, val) in y_chunk.iter().enumerate().skip(start_search) {
+        if val.is_nan() {
+            continue;
+        }
+        if *val < min_y {
+            min_y = *val;
+            min_idx = i;
+        }
+        if *val > max_y {
+            max_y = *val;
+            max_idx = i;
+        }
+    }
+
+    let mut idxs = [first_idx, min_idx, max_idx, last_idx];
+    idxs.sort_unstable();
+
+    let mut result = [PlotPoint::default(); 4];
+    result[0] = PlotPoint {
+        x: x_chunk[idxs[0]],
+        y: y_chunk[idxs[0]],
+        color_op: ColorOp::None,
+    };
+    let mut count = 1;
+    for i in 1..4 {
+        if idxs[i] != idxs[i - 1] {
+            result[count] = PlotPoint {
+                x: x_chunk[idxs[i]],
+                y: y_chunk[idxs[i]],
+                color_op: ColorOp::None,
+            };
+            count += 1;
+        }
+    }
+    (result, count)
 }
 
 pub fn decimate_m4_arrays_par_into(
@@ -77,80 +228,31 @@ pub fn decimate_m4_arrays_par_into(
     let avg_items_per_bin = (x.len() as f64 * (stable_bin_size / logical_range)).ceil() as usize;
     let bin_size = avg_items_per_bin.max(1);
 
-    // Process chunks in parallel
-    let mut chunks: Vec<Vec<PlotData>> = x
-        .par_chunks(bin_size)
-        .zip(y.par_chunks(bin_size))
-        .map(|(x_chunk, y_chunk)| {
-            if x_chunk.is_empty() {
-                return vec![];
-            }
+    // Pre-calculate buckets that respect gaps
+    let buckets = calculate_gap_aware_buckets(x, gaps, bin_size);
 
-            let first_idx = 0;
-            let last_idx = x_chunk.len() - 1;
-
-            let mut min_idx = 0;
-            let mut max_idx = 0;
-            let mut min_y = y_chunk[0];
-            let mut max_y = min_y;
-
-            // Handle NaN start
-            let start_search = if min_y.is_nan() {
-                let mut found = false;
-                let mut idx = 0;
-                for (i, val) in y_chunk.iter().enumerate().skip(1) {
-                    if !val.is_nan() {
-                        min_y = *val;
-                        max_y = *val;
-                        min_idx = i;
-                        max_idx = i;
-                        idx = i;
-                        found = true;
-                        break;
-                    }
-                }
-                if found {
-                    idx + 1
-                } else {
-                    x_chunk.len()
-                }
-            } else {
-                1
-            };
-
-            for (i, val) in y_chunk.iter().enumerate().skip(start_search) {
-                if val.is_nan() {
-                    continue;
-                }
-                if *val < min_y {
-                    min_y = *val;
-                    min_idx = i;
-                }
-                if *val > max_y {
-                    max_y = *val;
-                    max_idx = i;
-                }
-            }
-
-            let mut indices = vec![first_idx, min_idx, max_idx, last_idx];
-            indices.sort_unstable();
-            indices.dedup();
-
-            let mut result = Vec::with_capacity(4);
-            for idx in indices {
-                result.push(PlotData::Point(PlotPoint {
-                    x: x_chunk[idx],
-                    y: y_chunk[idx],
-                    color_op: ColorOp::None,
-                }));
-            }
-            result
-        })
-        .collect();
+    // Process buckets in parallel, returning fixed-size arrays to avoid allocations.
+    let chunks: Vec<([PlotPoint; 4], usize)> = if gaps.is_some() {
+        buckets
+            .into_par_iter()
+            .map(|range| {
+                let x_chunk = &x[range.start..range.end];
+                let y_chunk = &y[range.start..range.end];
+                aggregate_m4_bucket_to_array(x_chunk, y_chunk)
+            })
+            .collect()
+    } else {
+        x.par_chunks(bin_size)
+            .zip(y.par_chunks(bin_size))
+            .map(|(x_chunk, y_chunk)| aggregate_m4_bucket_to_array(x_chunk, y_chunk))
+            .collect()
+    };
 
     // Flatten results
-    for chunk in chunks.drain(..) {
-        output.extend(chunk);
+    for (pts, n) in chunks {
+        for i in 0..n {
+            output.push(PlotData::Point(pts[i]));
+        }
     }
 
     // Ensure strict limit (Safeguard)
@@ -215,12 +317,15 @@ pub fn decimate_ohlcv_arrays_par_into(
     let items_per_stable_bin = (stable_bin_size * avg_frequency).ceil() as usize;
     let bin_size = items_per_stable_bin.max(1);
 
-    let chunks: Vec<PlotData> = time
-        .par_chunks(bin_size)
-        .enumerate()
-        .filter_map(|(chunk_idx, t_chunk)| {
-            let start_idx = chunk_idx * bin_size;
-            let end_idx = start_idx + t_chunk.len();
+    // Pre-calculate buckets that respect gaps
+    let buckets = calculate_gap_aware_buckets(time, gaps, bin_size);
+
+    let chunks: Vec<PlotData> = buckets
+        .into_par_iter()
+        .filter_map(|range| {
+            let start_idx = range.start;
+            let end_idx = range.end;
+            let t_chunk = &time[start_idx..end_idx];
 
             if t_chunk.is_empty() {
                 return None;
@@ -286,6 +391,108 @@ pub fn decimate_min_max_arrays_par(
     output
 }
 
+fn aggregate_min_max_bucket_to_array(x_chunk: &[f64], y_chunk: &[f64]) -> ([PlotPoint; 2], usize) {
+    let n = x_chunk.len();
+    if n == 0 {
+        return ([PlotPoint::default(); 2], 0);
+    }
+    if n == 1 {
+        return (
+            [
+                PlotPoint {
+                    x: x_chunk[0],
+                    y: y_chunk[0],
+                    color_op: ColorOp::None,
+                },
+                PlotPoint::default(),
+            ],
+            1,
+        );
+    }
+
+    let mut min_idx = 0;
+    let mut max_idx = 0;
+    let mut min_y = y_chunk[0];
+    let mut max_y = min_y;
+
+    let start_search = if min_y.is_nan() {
+        let mut found = false;
+        let mut idx = 0;
+        for (i, val) in y_chunk.iter().enumerate().skip(1) {
+            if !val.is_nan() {
+                min_y = *val;
+                max_y = *val;
+                min_idx = i;
+                max_idx = i;
+                idx = i;
+                found = true;
+                break;
+            }
+        }
+        if found {
+            idx + 1
+        } else {
+            n
+        }
+    } else {
+        1
+    };
+
+    for (i, val) in y_chunk.iter().enumerate().skip(start_search) {
+        if val.is_nan() {
+            continue;
+        }
+        if *val < min_y {
+            min_y = *val;
+            min_idx = i;
+        }
+        if *val > max_y {
+            max_y = *val;
+            max_idx = i;
+        }
+    }
+
+    let mut result = [PlotPoint::default(); 2];
+    if min_idx == max_idx {
+        result[0] = PlotPoint {
+            x: x_chunk[min_idx],
+            y: y_chunk[min_idx],
+            color_op: ColorOp::None,
+        };
+        (result, 1)
+    } else {
+        let p1_x = x_chunk[min_idx];
+        let p1_y = y_chunk[min_idx];
+        let p2_x = x_chunk[max_idx];
+        let p2_y = y_chunk[max_idx];
+
+        if p1_x <= p2_x {
+            result[0] = PlotPoint {
+                x: p1_x,
+                y: p1_y,
+                color_op: ColorOp::None,
+            };
+            result[1] = PlotPoint {
+                x: p2_x,
+                y: p2_y,
+                color_op: ColorOp::None,
+            };
+        } else {
+            result[0] = PlotPoint {
+                x: p2_x,
+                y: p2_y,
+                color_op: ColorOp::None,
+            };
+            result[1] = PlotPoint {
+                x: p1_x,
+                y: p1_y,
+                color_op: ColorOp::None,
+            };
+        }
+        (result, 2)
+    }
+}
+
 pub fn decimate_min_max_arrays_par_into(
     x: &[f64],
     y: &[f64],
@@ -320,99 +527,29 @@ pub fn decimate_min_max_arrays_par_into(
     let avg_items_per_bin = (x.len() as f64 * (stable_bin_size / logical_range)).ceil() as usize;
     let bin_size = avg_items_per_bin.max(1);
 
-    let mut chunks: Vec<Vec<PlotData>> = x
-        .par_chunks(bin_size)
-        .zip(y.par_chunks(bin_size))
-        .map(|(x_chunk, y_chunk)| {
-            if x_chunk.is_empty() {
-                return vec![];
-            }
+    // Pre-calculate buckets that respect gaps
+    let buckets = calculate_gap_aware_buckets(x, gaps, bin_size);
 
-            let mut min_idx = 0;
-            let mut max_idx = 0;
-            let mut min_y = y_chunk[0];
-            let mut max_y = min_y;
+    let chunks: Vec<([PlotPoint; 2], usize)> = if gaps.is_some() {
+        buckets
+            .into_par_iter()
+            .map(|range| {
+                let x_chunk = &x[range.start..range.end];
+                let y_chunk = &y[range.start..range.end];
+                aggregate_min_max_bucket_to_array(x_chunk, y_chunk)
+            })
+            .collect()
+    } else {
+        x.par_chunks(bin_size)
+            .zip(y.par_chunks(bin_size))
+            .map(|(x_chunk, y_chunk)| aggregate_min_max_bucket_to_array(x_chunk, y_chunk))
+            .collect()
+    };
 
-            let start_search = if min_y.is_nan() {
-                let mut found = false;
-                let mut idx = 0;
-                for (i, val) in y_chunk.iter().enumerate().skip(1) {
-                    if !val.is_nan() {
-                        min_y = *val;
-                        max_y = *val;
-                        min_idx = i;
-                        max_idx = i;
-                        idx = i;
-                        found = true;
-                        break;
-                    }
-                }
-                if found {
-                    idx + 1
-                } else {
-                    x_chunk.len()
-                }
-            } else {
-                1
-            };
-
-            for (i, val) in y_chunk.iter().enumerate().skip(start_search) {
-                if val.is_nan() {
-                    continue;
-                }
-                if *val < min_y {
-                    min_y = *val;
-                    min_idx = i;
-                }
-                if *val > max_y {
-                    max_y = *val;
-                    max_idx = i;
-                }
-            }
-
-            let mut result = Vec::with_capacity(2);
-            if min_idx == max_idx {
-                result.push(PlotData::Point(PlotPoint {
-                    x: x_chunk[min_idx],
-                    y: y_chunk[min_idx],
-                    color_op: ColorOp::None,
-                }));
-            } else {
-                let p1_x = x_chunk[min_idx];
-                let p1_y = y_chunk[min_idx];
-                let p2_x = x_chunk[max_idx];
-                let p2_y = y_chunk[max_idx];
-
-                if p1_x <= p2_x {
-                    result.push(PlotData::Point(PlotPoint {
-                        x: p1_x,
-                        y: p1_y,
-                        color_op: ColorOp::None,
-                    }));
-                    result.push(PlotData::Point(PlotPoint {
-                        x: p2_x,
-                        y: p2_y,
-                        color_op: ColorOp::None,
-                    }));
-                } else {
-                    result.push(PlotData::Point(PlotPoint {
-                        x: p2_x,
-                        y: p2_y,
-                        color_op: ColorOp::None,
-                    }));
-                    result.push(PlotData::Point(PlotPoint {
-                        x: p1_x,
-                        y: p1_y,
-                        color_op: ColorOp::None,
-                    }));
-                }
-            }
-            result
-        })
-        .collect();
-
-    for chunk in chunks.drain(..) {
-        output.extend(chunk);
+    for (pts, n) in chunks {
+        for i in 0..n {
+            output.push(PlotData::Point(pts[i]));
+        }
     }
 
     if output.len() > max_points {

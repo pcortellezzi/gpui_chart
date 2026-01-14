@@ -450,46 +450,6 @@ impl PlotDataSource for PolarsDataSource {
     ) {
         output.clear();
 
-        if let Some(g) = gaps {
-            let intervals = g.split_range(x_min as i64, x_max as i64);
-            if intervals.len() > 1 {
-                let total_logical_span: f64 = intervals
-                    .iter()
-                    .map(|(s, e)| (g.to_logical(*e) - g.to_logical(*s)) as f64)
-                    .sum();
-
-                if total_logical_span > 0.0 {
-                    for (s, e) in intervals {
-                        let logical_span = (g.to_logical(e) - g.to_logical(s)) as f64;
-                        let segment_max_points = ((logical_span / total_logical_span)
-                            * max_points as f64)
-                            .round() as usize;
-                        if segment_max_points > 0 {
-                            let segment_data: Vec<_> = self
-                                .iter_range(s as f64, e as f64)
-                                .filter(|p| {
-                                    let x = match p {
-                                        PlotData::Point(pt) => pt.x,
-                                        PlotData::Ohlcv(o) => o.time,
-                                    };
-                                    x >= s as f64 && x < e as f64
-                                })
-                                .collect();
-
-                            if !segment_data.is_empty() {
-                                output.extend(crate::aggregation::decimate_min_max_slice(
-                                    &segment_data,
-                                    segment_max_points,
-                                    None,
-                                ));
-                            }
-                        }
-                    }
-                    return;
-                }
-            }
-        }
-
         let (start_idx, end_idx) = self.get_range_indices(x_min, x_max);
 
         // Add padding: take extra points before and after to ensure stable bins
