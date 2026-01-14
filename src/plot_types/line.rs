@@ -55,6 +55,15 @@ impl PlotRenderer for LinePlot {
             state.gap_index.as_deref(),
         );
 
+        if let Some(gaps) = &state.gap_index {
+            let mut cursor = gaps.cursor();
+            for data in buffer.iter_mut() {
+                if let PlotData::Point(pt) = data {
+                    pt.x = cursor.to_logical(pt.x as i64) as f64;
+                }
+            }
+        }
+
         let mut screen_buffer = self.screen_buffer.lock();
         let (xm, xc, ym, yc) = transform.get_scale_coefficients();
         batch_transform_points(&buffer, xm, xc, ym, yc, &mut screen_buffer);

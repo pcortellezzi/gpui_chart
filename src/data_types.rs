@@ -286,9 +286,10 @@ impl AxisRange {
                     .range(0.0, 1.0)
                     .ticks(count);
 
+                let mut cursor = gaps.cursor();
                 self.cached_ticks = logical_ticks
                     .into_iter()
-                    .map(|t| gaps.to_real(t as i64) as f64)
+                    .map(|t| cursor.to_real(t as i64) as f64)
                     .filter(|&t| !gaps.is_inside(t as i64))
                     .collect();
             } else {

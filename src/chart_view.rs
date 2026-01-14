@@ -600,12 +600,14 @@ impl ChartView {
                     if bounds.contains(&event.position) {
                         inside_any_pane = true;
                         let x_range = c.shared_x_axis.read(cx);
+                        let gaps = c.shared_state.read(cx).gap_index.clone();
                         let hover_x = ViewController::map_pixels_to_value(
                             (event.position.x - bounds.origin.x).as_f32(),
                             bounds.size.width.as_f32(),
                             x_range.min,
                             x_range.max,
                             false,
+                            gaps.as_deref(),
                         );
                         c.shared_state.update(cx, |s: &mut SharedPlotState, _| {
                             s.mouse_pos = Some(event.position);

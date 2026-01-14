@@ -125,3 +125,42 @@ fn test_chart_view_middle_click_zoom(cx: &mut TestAppContext) {
         zoomed_y_range.span()
     );
 }
+
+#[test]
+fn test_ticks_skip_gaps() {
+    use gpui_chart::gaps::{ExclusionRule, GapIndexBuilder};
+    use gpui_chart::scales::ChartScale;
+    use std::sync::Arc;
+
+    // Define a gap from 100 to 200
+    let mut builder = GapIndexBuilder::new();
+    builder.add_rule(ExclusionRule::Fixed {
+        start: 100,
+        end: 200,
+    });
+    let gap_index = Arc::new(builder.build(0, 300));
+
+    // Scale covering 0..300 with gap at 100..200
+    let scale = ChartScale::new_linear((0.0, 300.0), (0.0, 1000.0))
+        .with_gaps(Some(gap_index.clone()));
+
+    let ticks = scale.ticks(20);
+
+    assert!(!ticks.is_empty(), "Should generate ticks");
+
+    for &t in &ticks {
+        // Ticks should be outside the gap [100, 200[
+        // Note: 200 is allowed as it is the start of the next valid segment
+        assert!(
+            t < 100.0 || t >= 200.0,
+            "Tick {} should not be strictly inside gap [100, 200[",
+            t
+        );
+    }
+
+    // Verify we have ticks on both sides
+    let has_before = ticks.iter().any(|&t| t < 100.0);
+    let has_after = ticks.iter().any(|&t| t >= 200.0);
+    assert!(has_before, "Should have ticks before the gap");
+    assert!(has_after, "Should have ticks after the gap");
+}

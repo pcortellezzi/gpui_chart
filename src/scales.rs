@@ -102,9 +102,10 @@ impl ChartScale {
         };
 
         if let Some(gaps) = self.gap_index() {
+            let mut cursor = gaps.cursor();
             logical_ticks
                 .into_iter()
-                .map(|t| gaps.to_real(t as i64) as f64)
+                .map(|t| cursor.to_real(t as i64) as f64)
                 .filter(|&t| !gaps.is_inside(t as i64))
                 .collect()
         } else {

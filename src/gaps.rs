@@ -227,6 +227,34 @@ impl<'a> MappingCursor<'a> {
         }
     }
 
+    /// Converts logical time back to real time, optimized for increasing `logical_ms`.
+    pub fn to_real(&mut self, logical_ms: i64) -> i64 {
+        let segments = &self.index.segments;
+        if segments.is_empty() {
+            return logical_ms;
+        }
+
+        // Advance cursor if needed
+        // logical_at_start = start_real - cumulative_before
+        while self.last_seg_idx < segments.len() {
+            let seg = &segments[self.last_seg_idx];
+            let logical_start = seg.start_real - seg.cumulative_before;
+            if logical_start > logical_ms {
+                break;
+            }
+            self.last_seg_idx += 1;
+        }
+
+        // self.last_seg_idx is now the first segment STARTS after logical_ms
+        // So the segment impacting us is last_seg_idx - 1 (if > 0)
+        if self.last_seg_idx == 0 {
+            logical_ms
+        } else {
+            let prev = &segments[self.last_seg_idx - 1];
+            logical_ms + (prev.cumulative_before + prev.duration())
+        }
+    }
+
     /// Reset the cursor state (e.g. for a new pass)
     pub fn reset(&mut self) {
         self.last_seg_idx = 0;

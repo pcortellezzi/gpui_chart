@@ -181,12 +181,21 @@ impl ViewController {
         min_val: f64,
         max_val: f64,
         invert: bool,
+        gaps: Option<&GapIndex>,
     ) -> f64 {
         if total_pixels <= 0.0 {
             return min_val;
         }
         let pct = (pixels / total_pixels).clamp(0.0, 1.0) as f64;
         let effective_pct = if invert { 1.0 - pct } else { pct };
-        min_val + (max_val - min_val) * effective_pct
+
+        if let Some(g) = gaps {
+            let l_min = g.to_logical(min_val as i64);
+            let l_max = g.to_logical(max_val as i64);
+            let l_val = l_min as f64 + (l_max - l_min) as f64 * effective_pct;
+            g.to_real(l_val as i64) as f64
+        } else {
+            min_val + (max_val - min_val) * effective_pct
+        }
     }
 }

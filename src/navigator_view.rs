@@ -129,26 +129,14 @@ impl NavigatorView {
         let shared_state = self.shared_state.read(cx);
         let gaps = shared_state.gap_index.as_deref();
 
-        let center_x = if let Some(g) = gaps {
-            let l_min = g.to_logical(self.full_domain.x_min as i64);
-            let l_max = g.to_logical(self.full_domain.x_max as i64);
-            let l_val = ViewController::map_pixels_to_value(
-                (pos.x - bounds.origin.x).as_f32(),
-                bounds.size.width.as_f32(),
-                l_min as f64,
-                l_max as f64,
-                false,
-            );
-            g.to_real(l_val as i64) as f64
-        } else {
-            ViewController::map_pixels_to_value(
-                (pos.x - bounds.origin.x).as_f32(),
-                bounds.size.width.as_f32(),
-                self.full_domain.x_min,
-                self.full_domain.x_max,
-                false,
-            )
-        };
+        let center_x = ViewController::map_pixels_to_value(
+            (pos.x - bounds.origin.x).as_f32(),
+            bounds.size.width.as_f32(),
+            self.full_domain.x_min,
+            self.full_domain.x_max,
+            false,
+            gaps,
+        );
 
         let center_y = ViewController::map_pixels_to_value(
             (pos.y - bounds.origin.y).as_f32(),
@@ -156,6 +144,7 @@ impl NavigatorView {
             self.full_domain.y_min,
             self.full_domain.y_max,
             true,
+            None,
         );
 
         let lock_x = self.config.lock_x;
