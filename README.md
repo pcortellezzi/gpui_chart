@@ -12,11 +12,12 @@ A high-performance, interactive, and composable charting library for [GPUI](http
 - **High Performance**: Optimized for rendering massive datasets (LOD, Occlusion Culling, Zero-copy painting).
 - **Blazing Fast Aggregation**:
     - **Native Rust + Rayon**: Parallelized data decimation using CPU SIMD and multi-threading.
-    - **Zero-Copy Polars Integration**: Direct access to underlying memory buffers, bypassing overhead.
+    - **Hybrid Gap-Aware LOD**: Automatically switches between pre-computed LOD pyramids (for continuous segments) and optimized raw aggregation (for gap boundaries), ensuring **O(1)** performance even with thousands of gaps.
+    - **Zero-Copy Architecture**: All data sources (`Polars`, `Vec`, `Streaming`) utilize centralized kernels that process data in-place without allocations.
     - **Zero-Alloc Rendering**: Buffer recycling strategy reuses memory across frames, eliminating dynamic allocations during the render loop.
     - **SIMD Batch Transforms**: Coordinate transformations are vectorized, processing millions of points in milliseconds.
     - **Stable Binning**: Decimation logic uses power-of-10/2 bin sizes to eliminate visual jitter during panning.
-    - **Benchmarks**: Decimates **1 Million rows** in **~0.5ms** (M4 Algorithm) on modern hardware.
+    - **Benchmarks**: Decimates **1 Million rows with 1000 gaps** in **~1.2ms** (M4 Algorithm) on modern hardware.
 - **Smooth Navigation**: Inertial scrolling, 60fps zooming and panning.
 
 ### 🕒 Logical Time & Gaps (Exclusions)

@@ -43,7 +43,7 @@ fn test_gap_performance_impact() {
     source.get_aggregated_data(0.0, (n * 2) as f64, max_points, &mut output, Some(&gaps));
     let dur_with_gaps = start_with_gaps.elapsed();
     println!(
-        "Aggregation WITH 1000 gaps (Scenario B): {:?}",
+        "Aggregation WITH 1000 gaps (Zero-Copy): {:?}",
         dur_with_gaps
     );
 
@@ -52,12 +52,13 @@ fn test_gap_performance_impact() {
     let iterations = 100_000;
     let start_mapping = Instant::now();
     let mut dummy_sum = 0;
+    let mut cursor = gaps.cursor();
     for i in 0..iterations {
-        dummy_sum += gaps.to_logical(i as i64);
+        dummy_sum += cursor.to_logical(i as i64);
     }
     let dur_mapping = start_mapping.elapsed();
     println!(
-        "Mapping (to_logical) 100,000 iterations: {:?} (avg per call: {:?})",
+        "Mapping (MappingCursor) 100,000 iterations: {:?} (avg per call: {:?})",
         dur_mapping,
         dur_mapping / iterations as u32
     );

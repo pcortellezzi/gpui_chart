@@ -173,6 +173,64 @@ impl GapIndex {
 
         result
     }
+
+    /// Returns a stateful cursor for optimized sequential access.
+    pub fn cursor(&self) -> MappingCursor<'_> {
+        MappingCursor::new(self)
+    }
+}
+
+/// A stateful cursor to optimize sequential transformations (O(1) amortized).
+pub struct MappingCursor<'a> {
+    index: &'a GapIndex,
+    last_seg_idx: usize,
+}
+
+impl<'a> MappingCursor<'a> {
+    pub fn new(index: &'a GapIndex) -> Self {
+        Self {
+            index,
+            last_seg_idx: 0,
+        }
+    }
+
+    /// Converts real time to logical time, optimized for increasing `real_ms`.
+    pub fn to_logical(&mut self, real_ms: i64) -> i64 {
+        let segments = &self.index.segments;
+        if segments.is_empty() {
+            return real_ms;
+        }
+
+        // Advance cursor if needed
+        while self.last_seg_idx < segments.len()
+            && segments[self.last_seg_idx].end_real <= real_ms
+        {
+            self.last_seg_idx += 1;
+        }
+
+        if self.last_seg_idx >= segments.len() {
+            // After all gaps
+            if let Some(last) = segments.last() {
+                return real_ms - (last.cumulative_before + last.duration());
+            } else {
+                return real_ms;
+            }
+        }
+
+        let current = &segments[self.last_seg_idx];
+        if real_ms < current.start_real {
+            // Between previous and current gap
+            real_ms - current.cumulative_before
+        } else {
+            // Inside current gap -> clamp to start
+            current.start_real - current.cumulative_before
+        }
+    }
+
+    /// Reset the cursor state (e.g. for a new pass)
+    pub fn reset(&mut self) {
+        self.last_seg_idx = 0;
+    }
 }
 
 /// Builder to generate a GapIndex from rules over a time window.
@@ -448,5 +506,29 @@ mod tests {
 
         assert_eq!(index.to_logical(100), 90); // 100 - 10
         assert_eq!(index.to_logical(200), 180); // 200 - 20
+    }
+
+    #[test]
+    fn test_mapping_cursor() {
+        let mut builder = GapIndexBuilder::new();
+        // Gaps: [100, 200], [300, 400]
+        builder.add_rule(ExclusionRule::Fixed {
+            start: 100,
+            end: 200,
+        });
+        builder.add_rule(ExclusionRule::Fixed {
+            start: 300,
+            end: 400,
+        });
+        let index = builder.build(0, 500);
+        let mut cursor = index.cursor();
+
+        assert_eq!(cursor.to_logical(50), 50);
+        assert_eq!(cursor.to_logical(100), 100);
+        assert_eq!(cursor.to_logical(150), 100); // Inside first gap
+        assert_eq!(cursor.to_logical(200), 100); // End of first gap
+        assert_eq!(cursor.to_logical(250), 150);
+        assert_eq!(cursor.to_logical(350), 200); // Inside second gap
+        assert_eq!(cursor.to_logical(450), 250);
     }
 }

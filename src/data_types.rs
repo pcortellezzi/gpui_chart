@@ -564,50 +564,6 @@ pub trait PlotDataSource: Send + Sync {
         gaps: Option<&GapIndex>,
     ) {
         output.clear();
-
-        if let Some(g) = gaps {
-            let intervals = g.split_range(x_min as i64, x_max as i64);
-            if intervals.len() > 1 {
-                // Scenario B: Aggregate each continuous segment separately.
-                // Divide max_points proportionally to the logical duration of each interval.
-                let total_logical_span: f64 = intervals
-                    .iter()
-                    .map(|(s, e)| (g.to_logical(*e) - g.to_logical(*s)) as f64)
-                    .sum();
-
-                if total_logical_span <= 0.0 {
-                    return;
-                }
-
-                for (s, e) in intervals {
-                    let logical_span = (g.to_logical(e) - g.to_logical(s)) as f64;
-                    let segment_max_points =
-                        ((logical_span / total_logical_span) * max_points as f64).round() as usize;
-                    if segment_max_points > 0 {
-                        let segment_data: Vec<_> = self
-                            .iter_range(s as f64, e as f64)
-                            .filter(|p| {
-                                let x = match p {
-                                    PlotData::Point(pt) => pt.x,
-                                    PlotData::Ohlcv(o) => o.time,
-                                };
-                                x >= s as f64 && x < e as f64
-                            })
-                            .collect();
-
-                        if !segment_data.is_empty() {
-                            output.extend(crate::aggregation::decimate_min_max_slice(
-                                &segment_data,
-                                segment_max_points,
-                                None,
-                            ));
-                        }
-                    }
-                }
-                return;
-            }
-        }
-
         output.extend(self.iter_aggregated(x_min, x_max, max_points, gaps));
     }
 
@@ -1169,89 +1125,49 @@ impl PlotDataSource for VecDataSource {
         max_points: usize,
         gaps: Option<&GapIndex>,
     ) -> Box<dyn Iterator<Item = PlotData> + '_> {
-        // 1. Identify raw range
-        let start_idx = self.data.partition_point(|p| self.get_x(p) < x_min);
-        let end_idx = self.data.partition_point(|p| self.get_x(p) <= x_max);
-        let count = end_idx - start_idx;
+        let mut buffer = Vec::with_capacity(max_points);
+        self.get_aggregated_data(x_min, x_max, max_points, &mut buffer, gaps);
+        Box::new(buffer.into_iter())
+    }
 
-        if count <= max_points {
-            let start = start_idx.saturating_sub(1);
-            let end = (end_idx + 1).min(self.data.len());
-            return Box::new(self.data[start..end].iter().cloned());
-        }
+    fn get_aggregated_data(
+        &self,
+        x_min: f64,
+        x_max: f64,
+        max_points: usize,
+        output: &mut Vec<PlotData>,
+        gaps: Option<&GapIndex>,
+    ) {
+        output.clear();
 
-        // If gaps are present, we skip the LOD pyramid for now to ensure gap consistency
-        if gaps.is_some() {
-            let start = start_idx.saturating_sub(1);
-            let end = (end_idx + 1).min(self.data.len());
-            let data = &self.data[start..end];
+        if let Some(g) = gaps {
+            let intervals = g.split_range(x_min as i64, x_max as i64);
+            if intervals.len() > 1 {
+                let total_logical_span: f64 = intervals
+                    .iter()
+                    .map(|(s, e)| (g.to_logical(*e) - g.to_logical(*s)) as f64)
+                    .sum();
 
-            // Check if we can use the optimized OHLCV kernel
-            if !data.is_empty() {
-                if let PlotData::Ohlcv(_) = &data[0] {
-                    let mut times = Vec::with_capacity(data.len());
-                    let mut opens = Vec::with_capacity(data.len());
-                    let mut highs = Vec::with_capacity(data.len());
-                    let mut lows = Vec::with_capacity(data.len());
-                    let mut closes = Vec::with_capacity(data.len());
-                    for p in data {
-                        if let PlotData::Ohlcv(o) = p {
-                            times.push(o.time);
-                            opens.push(o.open);
-                            highs.push(o.high);
-                            lows.push(o.low);
-                            closes.push(o.close);
+                if total_logical_span > 0.0 {
+                    for (s, e) in intervals {
+                        let logical_span = (g.to_logical(e) - g.to_logical(s)) as f64;
+                    let segment_max_points =
+                        ((logical_span / total_logical_span) * max_points as f64).round() as usize;
+                    if segment_max_points > 0 {
+                            self.get_aggregated_data_lod(
+                                s as f64,
+                                e as f64,
+                                segment_max_points,
+                                output,
+                            );
                         }
                     }
-                    return Box::new(
-                        crate::aggregation::decimate_ohlcv_arrays_par(
-                            &times, &opens, &highs, &lows, &closes, max_points, gaps,
-                        )
-                        .into_iter(),
-                    );
+                    return;
                 }
             }
-
-            return Box::new(
-                crate::aggregation::decimate_min_max_slice(data, max_points, gaps).into_iter(),
-            );
         }
 
-        // 2. Select LOD level
-        let ratio = count as f64 / max_points as f64;
-
-        // lod_levels[0] is ratio 2. lod_levels[1] is ratio 4.
-        // We want 2^(level+1) >= ratio.
-        // log2(ratio) <= level + 1  => level >= log2(ratio) - 1.
-        let level_idx = (ratio.log2().ceil() as isize - 1).max(0) as usize;
-
-        if level_idx < self.lod_levels.len() {
-            let level_data = &self.lod_levels[level_idx];
-
-            // Binary search on the aggregated level for precision
-            let l_start = level_data.partition_point(|p| self.get_x(p) < x_min);
-            let l_end = level_data.partition_point(|p| self.get_x(p) <= x_max);
-
-            // Add padding for continuity
-            let start = l_start.saturating_sub(1);
-            let end = (l_end + 1).min(level_data.len());
-
-            return Box::new(level_data[start..end].iter().cloned());
-        } else if !self.lod_levels.is_empty() {
-            // Fallback to highest compression
-            let level_data = self.lod_levels.last().unwrap();
-            let l_start = level_data.partition_point(|p| self.get_x(p) < x_min);
-            let l_end = level_data.partition_point(|p| self.get_x(p) <= x_max);
-            let start = l_start.saturating_sub(1);
-            let end = (l_end + 1).min(level_data.len());
-            return Box::new(level_data[start..end].iter().cloned());
-        }
-
-        // 3. Fallback to dynamic binning if no pyramid (or ratio too high but pyramid empty/small)
-        let start = start_idx.saturating_sub(1);
-        let end = (end_idx + 1).min(self.data.len());
-        let data = &self.data[start..end];
-        Box::new(crate::aggregation::decimate_min_max_slice(data, max_points, gaps).into_iter())
+        self.get_aggregated_data_lod(x_min, x_max, max_points, output);
     }
 
     fn add_data(&mut self, data: PlotData) {
@@ -1259,14 +1175,64 @@ impl PlotDataSource for VecDataSource {
         if self.data.len() % CHUNK_SIZE == 1 {
             self.rebuild_cache();
         }
-        // Note: We don't rebuild pyramid on every add for performance reasons.
-        // Ideally should append to levels incrementally, but for VecDataSource (static) it's rare.
     }
 
     fn set_data(&mut self, data: Vec<PlotData>) {
         self.data = data;
         self.rebuild_cache();
         self.build_lod_pyramid();
+    }
+}
+
+impl VecDataSource {
+    /// Internal helper for LOD aggregation on a continuous range (no gaps inside).
+    fn get_aggregated_data_lod(
+        &self,
+        x_min: f64,
+        x_max: f64,
+        max_points: usize,
+        output: &mut Vec<PlotData>,
+    ) {
+        let start_idx = self.data.partition_point(|p| self.get_x(p) < x_min);
+        let end_idx = self.data.partition_point(|p| self.get_x(p) <= x_max);
+        let count = end_idx - start_idx;
+
+        if count <= max_points {
+            let start = start_idx.saturating_sub(1);
+            let end = (end_idx + 1).min(self.data.len());
+            output.extend_from_slice(&self.data[start..end]);
+            return;
+        }
+
+        // Select LOD level
+        let ratio = count as f64 / max_points as f64;
+        let level_idx = (ratio.log2().ceil() as isize - 1).max(0) as usize;
+
+        if level_idx < self.lod_levels.len() {
+            let level_data = &self.lod_levels[level_idx];
+            let l_start = level_data.partition_point(|p| self.get_x(p) < x_min);
+            let l_end = level_data.partition_point(|p| self.get_x(p) <= x_max);
+            let start = l_start.saturating_sub(1);
+            let end = (l_end + 1).min(level_data.len());
+            output.extend_from_slice(&level_data[start..end]);
+        } else if !self.lod_levels.is_empty() {
+            let level_data = self.lod_levels.last().unwrap();
+            let l_start = level_data.partition_point(|p| self.get_x(p) < x_min);
+            let l_end = level_data.partition_point(|p| self.get_x(p) <= x_max);
+            let start = l_start.saturating_sub(1);
+            let end = (l_end + 1).min(level_data.len());
+            output.extend_from_slice(&level_data[start..end]);
+        } else {
+            // Fallback to dynamic binning
+            let start = start_idx.saturating_sub(1);
+            let end = (end_idx + 1).min(self.data.len());
+            crate::aggregation::decimate_min_max_slice_into(
+                &self.data[start..end],
+                max_points,
+                output,
+                None, // No gaps inside this segment
+            );
+        }
     }
 }
 
