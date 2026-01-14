@@ -30,7 +30,10 @@ pub fn paint_plot(
             .get(series.x_axis_id.0)
             .copied()
             .unwrap_or((0.0, 1.0));
-        let x_scale = ChartScale::new_linear(x_domain, (0.0, width_px));
+        let mut x_scale = ChartScale::new_linear(x_domain, (0.0, width_px));
+        if let Some(gaps) = &state.gap_index {
+            x_scale = x_scale.with_gaps(Some(gaps.clone()));
+        }
 
         let y_domain = y_domains
             .get(series.y_axis_id.0)

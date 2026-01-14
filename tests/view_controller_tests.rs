@@ -6,7 +6,7 @@ fn test_pan_axis_x() {
     let mut range = AxisRange::new(0.0, 100.0);
     // Move 10 pixels to the right on 100 pixels total
     // ratio = 100 / 100 = 1.0. delta_data = -10.0
-    ViewController::pan_axis(&mut range, 10.0, 100.0, false);
+    ViewController::pan_axis(&mut range, 10.0, 100.0, false, None);
     assert_eq!(range.min, -10.0);
     assert_eq!(range.max, 90.0);
 }
@@ -16,7 +16,7 @@ fn test_pan_axis_y() {
     let mut range = AxisRange::new(0.0, 100.0);
     // Move 10 pixels down (positive in GPUI)
     // ratio = 100 / 100 = 1.0. delta_data = 10.0
-    ViewController::pan_axis(&mut range, 10.0, 100.0, true);
+    ViewController::pan_axis(&mut range, 10.0, 100.0, true, None);
     assert_eq!(range.min, 10.0);
     assert_eq!(range.max, 110.0);
 }
@@ -25,7 +25,7 @@ fn test_pan_axis_y() {
 fn test_zoom_axis_at() {
     let mut range = AxisRange::new(0.0, 100.0);
     // Zoom x2 (factor 0.5) at center (0.5)
-    ViewController::zoom_axis_at(&mut range, 0.5, 0.5);
+    ViewController::zoom_axis_at(&mut range, 0.5, 0.5, None);
     assert_eq!(range.min, 25.0);
     assert_eq!(range.max, 75.0);
 }

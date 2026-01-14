@@ -19,6 +19,16 @@ A high-performance, interactive, and composable charting library for [GPUI](http
     - **Benchmarks**: Decimates **1 Million rows** in **~0.5ms** (M4 Algorithm) on modern hardware.
 - **Smooth Navigation**: Inertial scrolling, 60fps zooming and panning.
 
+### 🕒 Logical Time & Gaps (Exclusions)
+The library features a sophisticated **Logical Time System** designed specifically for financial markets (trading sessions) and periodic data:
+- **X-Axis Compression**: Periods without data (weekends, nights, holidays) are compressed to zero width, providing a continuous view of relevant data.
+- **Exclusion Rules**:
+    - **Fixed**: Specific UTC ranges (e.g., specific holidays).
+    - **Recurring (Temporal)**: Weekly schedules with timezone support (e.g., "Market closed every Friday 17:00 to Monday 09:00 NY time"). Gaps automatically adjust for DST.
+    - **Recurring (Numeric)**: Modulo-based gaps for non-temporal axes.
+- **Gap-Aware Aggregation**: The decimation engine (Scenario B) ensures that data buckets never bridge across a gap, preventing artificial "smearing" of prices across session closures.
+- **High Performance Mapping**: $O(\log n)$ coordinate transformation allows for thousands of gap segments without impacting 60fps performance.
+
 ### 📊 Aggregation Algorithms
 The library supports multiple aggregation modes for large datasets:
 - **M4 (Default)**: Preserves Min, Max, First, and Last points per bin. Guaranteed **Peak Preservation** (no Y-axis pumping). (~0.5ms / 1M rows)

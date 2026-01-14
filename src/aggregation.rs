@@ -1,13 +1,9 @@
 use crate::data_types::{ColorOp, Ohlcv, PlotData, PlotPoint};
+use crate::gaps::GapIndex;
 
 use rayon::prelude::*;
 
 /// Calculates a stable bin size (power of 10 or 2) that is just above the ideal resolution.
-/// 
-/// **Stable Binning** prevents "jitter" (scintillation) during panning by ensuring that 
-/// the bin boundaries are anchored to fixed multiples of the bin size (e.g., 1.0, 2.0, 5.0, 10.0).
-/// As the user pans, the data points fall into the same bins instead of being regrouped 
-/// slightly differently every frame.
 fn calculate_stable_bin_size(range: f64, max_points: usize) -> f64 {
     if range <= 0.0 || max_points == 0 {
         return 1.0;
@@ -26,7 +22,7 @@ fn calculate_stable_bin_size(range: f64, max_points: usize) -> f64 {
     } else {
         10.0
     };
-    
+
     base * stable_rel
 }
 
@@ -35,56 +31,64 @@ pub fn decimate_m4_arrays_par(
     x: &[f64],
     y: &[f64],
     max_points: usize,
+    gaps: Option<&GapIndex>,
 ) -> Vec<PlotData> {
     let mut output = Vec::with_capacity(max_points);
-    decimate_m4_arrays_par_into(x, y, max_points, &mut output);
+    decimate_m4_arrays_par_into(x, y, max_points, &mut output, gaps);
     output
 }
 
-/// Decimates parallel arrays (Structure of Arrays) using M4 and Rayon into an existing buffer.
-/// 
-/// This method is the core of the "Zero-Alloc" rendering pipeline. By reusing the `output`
-/// vector, we avoid repeated allocations during the render loop.
-///
-/// **Algorithm**: M4 (Min, Max, First, Last)
-/// **Parallelism**: Rayon (Chunk-based)
 pub fn decimate_m4_arrays_par_into(
     x: &[f64],
     y: &[f64],
     max_points: usize,
     output: &mut Vec<PlotData>,
+    gaps: Option<&GapIndex>,
 ) {
     output.clear();
     if x.is_empty() || y.is_empty() || x.len() != y.len() {
         return;
     }
-    
+
     if x.len() <= max_points {
         output.extend(x.iter().zip(y.iter()).map(|(x_val, y_val)| {
-            PlotData::Point(PlotPoint { x: *x_val, y: *y_val, color_op: ColorOp::None })
+            PlotData::Point(PlotPoint {
+                x: *x_val,
+                y: *y_val,
+                color_op: ColorOp::None,
+            })
         }));
         return;
     }
 
     // Use stable binning to prevent jitter during pan
-    let range = x[x.len() - 1] - x[0];
-    let stable_bin_size = calculate_stable_bin_size(range, (max_points / 4).max(1));
-    
+    let real_range = x[x.len() - 1] - x[0];
+
+    // If gaps are present, calculate logical range for stable bin size
+    let logical_range = if let Some(g) = gaps {
+        (g.to_logical(x[x.len() - 1] as i64) - g.to_logical(x[0] as i64)) as f64
+    } else {
+        real_range
+    };
+
+    let stable_bin_size = calculate_stable_bin_size(logical_range, (max_points / 4).max(1));
+
     // Calculate stable index-based bin size based on value range
-    let avg_items_per_bin = (x.len() as f64 * (stable_bin_size / range)).ceil() as usize;
+    let avg_items_per_bin = (x.len() as f64 * (stable_bin_size / logical_range)).ceil() as usize;
     let bin_size = avg_items_per_bin.max(1);
 
     // Process chunks in parallel
-    let mut chunks: Vec<Vec<PlotData>> = x.par_chunks(bin_size)
+    let mut chunks: Vec<Vec<PlotData>> = x
+        .par_chunks(bin_size)
         .zip(y.par_chunks(bin_size))
         .map(|(x_chunk, y_chunk)| {
             if x_chunk.is_empty() {
                 return vec![];
             }
-            
+
             let first_idx = 0;
             let last_idx = x_chunk.len() - 1;
-            
+
             let mut min_idx = 0;
             let mut max_idx = 0;
             let mut min_y = y_chunk[0];
@@ -105,13 +109,19 @@ pub fn decimate_m4_arrays_par_into(
                         break;
                     }
                 }
-                if found { idx + 1 } else { x_chunk.len() }
+                if found {
+                    idx + 1
+                } else {
+                    x_chunk.len()
+                }
             } else {
                 1
             };
 
             for (i, val) in y_chunk.iter().enumerate().skip(start_search) {
-                if val.is_nan() { continue; }
+                if val.is_nan() {
+                    continue;
+                }
                 if *val < min_y {
                     min_y = *val;
                     min_idx = i;
@@ -121,11 +131,11 @@ pub fn decimate_m4_arrays_par_into(
                     max_idx = i;
                 }
             }
-            
+
             let mut indices = vec![first_idx, min_idx, max_idx, last_idx];
             indices.sort_unstable();
             indices.dedup();
-            
+
             let mut result = Vec::with_capacity(4);
             for idx in indices {
                 result.push(PlotData::Point(PlotPoint {
@@ -142,14 +152,13 @@ pub fn decimate_m4_arrays_par_into(
     for chunk in chunks.drain(..) {
         output.extend(chunk);
     }
-    
+
     // Ensure strict limit (Safeguard)
     if output.len() > max_points {
         output.truncate(max_points);
     }
 }
 
-/// Decimates parallel arrays for OHLCV data.
 pub fn decimate_ohlcv_arrays_par(
     time: &[f64],
     open: &[f64],
@@ -157,13 +166,13 @@ pub fn decimate_ohlcv_arrays_par(
     low: &[f64],
     close: &[f64],
     max_points: usize,
+    gaps: Option<&GapIndex>,
 ) -> Vec<PlotData> {
     let mut output = Vec::with_capacity(max_points);
-    decimate_ohlcv_arrays_par_into(time, open, high, low, close, max_points, &mut output);
+    decimate_ohlcv_arrays_par_into(time, open, high, low, close, max_points, &mut output, gaps);
     output
 }
 
-/// Decimates parallel arrays for OHLCV data into an existing buffer.
 pub fn decimate_ohlcv_arrays_par_into(
     time: &[f64],
     open: &[f64],
@@ -172,44 +181,47 @@ pub fn decimate_ohlcv_arrays_par_into(
     close: &[f64],
     max_points: usize,
     output: &mut Vec<PlotData>,
+    gaps: Option<&GapIndex>,
 ) {
     output.clear();
     if time.is_empty() {
         return;
     }
-    
-    // If we have fewer points than the target, return 1:1
+
     if time.len() <= max_points {
         for i in 0..time.len() {
-             output.push(PlotData::Ohlcv(Ohlcv {
-                 time: time[i],
-                 span: 0.0,
-                 open: open.get(i).copied().unwrap_or(0.0),
-                 high: high.get(i).copied().unwrap_or(0.0),
-                 low: low.get(i).copied().unwrap_or(0.0),
-                 close: close.get(i).copied().unwrap_or(0.0),
-                 volume: 0.0,
-             }));
+            output.push(PlotData::Ohlcv(Ohlcv {
+                time: time[i],
+                span: 0.0,
+                open: open.get(i).copied().unwrap_or(0.0),
+                high: high.get(i).copied().unwrap_or(0.0),
+                low: low.get(i).copied().unwrap_or(0.0),
+                close: close.get(i).copied().unwrap_or(0.0),
+                volume: 0.0,
+            }));
         }
         return;
     }
 
-    // Stable Binning for OHLCV
-    let range = time[time.len() - 1] - time[0];
-    let stable_bin_size = calculate_stable_bin_size(range, max_points.max(1));
-    
-    // Calculate stable index-based bin size
-    let avg_frequency = time.len() as f64 / range;
+    let real_range = time[time.len() - 1] - time[0];
+    let logical_range = if let Some(g) = gaps {
+        (g.to_logical(time[time.len() - 1] as i64) - g.to_logical(time[0] as i64)) as f64
+    } else {
+        real_range
+    };
+
+    let stable_bin_size = calculate_stable_bin_size(logical_range, max_points.max(1));
+    let avg_frequency = time.len() as f64 / logical_range;
     let items_per_stable_bin = (stable_bin_size * avg_frequency).ceil() as usize;
     let bin_size = items_per_stable_bin.max(1);
 
-    // Process chunks in parallel and write directly into a pre-allocated vector
-    let chunks: Vec<PlotData> = time.par_chunks(bin_size)
+    let chunks: Vec<PlotData> = time
+        .par_chunks(bin_size)
         .enumerate()
         .filter_map(|(chunk_idx, t_chunk)| {
             let start_idx = chunk_idx * bin_size;
             let end_idx = start_idx + t_chunk.len();
-            
+
             if t_chunk.is_empty() {
                 return None;
             }
@@ -219,9 +231,10 @@ pub fn decimate_ohlcv_arrays_par_into(
             let l_chunk = &low[start_idx..end_idx.min(low.len())];
             let c_chunk = &close[start_idx..end_idx.min(close.len())];
 
-            if o_chunk.is_empty() { return None; }
+            if o_chunk.is_empty() {
+                return None;
+            }
 
-            // Open: first non-NaN
             let mut agg_open = 0.0;
             for &v in o_chunk {
                 if !v.is_nan() {
@@ -230,7 +243,6 @@ pub fn decimate_ohlcv_arrays_par_into(
                 }
             }
 
-            // Close: last non-NaN
             let mut agg_close = 0.0;
             for &v in c_chunk.iter().rev() {
                 if !v.is_nan() {
@@ -239,7 +251,6 @@ pub fn decimate_ohlcv_arrays_par_into(
                 }
             }
 
-            // High/Low: Use SIMD-optimized reductions
             let agg_high = crate::simd::max_f64(h_chunk);
             let agg_low = crate::simd::min_f64(l_chunk);
 
@@ -258,51 +269,59 @@ pub fn decimate_ohlcv_arrays_par_into(
         .collect();
 
     output.extend(chunks);
-    
-    // Safeguard
+
     if output.len() > max_points {
         output.truncate(max_points);
     }
 }
 
-/// Decimates parallel arrays using Min/Max and Rayon.
 pub fn decimate_min_max_arrays_par(
     x: &[f64],
     y: &[f64],
     max_points: usize,
+    gaps: Option<&GapIndex>,
 ) -> Vec<PlotData> {
     let mut output = Vec::with_capacity(max_points);
-    decimate_min_max_arrays_par_into(x, y, max_points, &mut output);
+    decimate_min_max_arrays_par_into(x, y, max_points, &mut output, gaps);
     output
 }
 
-/// Decimates parallel arrays using Min/Max and Rayon into an existing buffer.
 pub fn decimate_min_max_arrays_par_into(
     x: &[f64],
     y: &[f64],
     max_points: usize,
     output: &mut Vec<PlotData>,
+    gaps: Option<&GapIndex>,
 ) {
     output.clear();
     if x.is_empty() || y.is_empty() || x.len() != y.len() {
         return;
     }
-    
+
     if x.len() <= max_points {
         output.extend(x.iter().zip(y.iter()).map(|(x_val, y_val)| {
-            PlotData::Point(PlotPoint { x: *x_val, y: *y_val, color_op: ColorOp::None })
+            PlotData::Point(PlotPoint {
+                x: *x_val,
+                y: *y_val,
+                color_op: ColorOp::None,
+            })
         }));
         return;
     }
 
-    // Stable binning for MinMax
-    let range = x[x.len() - 1] - x[0];
-    let stable_bin_size = calculate_stable_bin_size(range, (max_points / 2).max(1));
-    let avg_items_per_bin = (x.len() as f64 * (stable_bin_size / range)).ceil() as usize;
+    let real_range = x[x.len() - 1] - x[0];
+    let logical_range = if let Some(g) = gaps {
+        (g.to_logical(x[x.len() - 1] as i64) - g.to_logical(x[0] as i64)) as f64
+    } else {
+        real_range
+    };
+
+    let stable_bin_size = calculate_stable_bin_size(logical_range, (max_points / 2).max(1));
+    let avg_items_per_bin = (x.len() as f64 * (stable_bin_size / logical_range)).ceil() as usize;
     let bin_size = avg_items_per_bin.max(1);
 
-    // Process chunks in parallel
-    let mut chunks: Vec<Vec<PlotData>> = x.par_chunks(bin_size)
+    let mut chunks: Vec<Vec<PlotData>> = x
+        .par_chunks(bin_size)
         .zip(y.par_chunks(bin_size))
         .map(|(x_chunk, y_chunk)| {
             if x_chunk.is_empty() {
@@ -314,7 +333,6 @@ pub fn decimate_min_max_arrays_par_into(
             let mut min_y = y_chunk[0];
             let mut max_y = min_y;
 
-            // Handle NaN start
             let start_search = if min_y.is_nan() {
                 let mut found = false;
                 let mut idx = 0;
@@ -329,13 +347,19 @@ pub fn decimate_min_max_arrays_par_into(
                         break;
                     }
                 }
-                if found { idx + 1 } else { x_chunk.len() }
+                if found {
+                    idx + 1
+                } else {
+                    x_chunk.len()
+                }
             } else {
                 1
             };
 
             for (i, val) in y_chunk.iter().enumerate().skip(start_search) {
-                if val.is_nan() { continue; }
+                if val.is_nan() {
+                    continue;
+                }
                 if *val < min_y {
                     min_y = *val;
                     min_idx = i;
@@ -358,13 +382,29 @@ pub fn decimate_min_max_arrays_par_into(
                 let p1_y = y_chunk[min_idx];
                 let p2_x = x_chunk[max_idx];
                 let p2_y = y_chunk[max_idx];
-                
+
                 if p1_x <= p2_x {
-                    result.push(PlotData::Point(PlotPoint { x: p1_x, y: p1_y, color_op: ColorOp::None }));
-                    result.push(PlotData::Point(PlotPoint { x: p2_x, y: p2_y, color_op: ColorOp::None }));
+                    result.push(PlotData::Point(PlotPoint {
+                        x: p1_x,
+                        y: p1_y,
+                        color_op: ColorOp::None,
+                    }));
+                    result.push(PlotData::Point(PlotPoint {
+                        x: p2_x,
+                        y: p2_y,
+                        color_op: ColorOp::None,
+                    }));
                 } else {
-                    result.push(PlotData::Point(PlotPoint { x: p2_x, y: p2_y, color_op: ColorOp::None }));
-                    result.push(PlotData::Point(PlotPoint { x: p1_x, y: p1_y, color_op: ColorOp::None }));
+                    result.push(PlotData::Point(PlotPoint {
+                        x: p2_x,
+                        y: p2_y,
+                        color_op: ColorOp::None,
+                    }));
+                    result.push(PlotData::Point(PlotPoint {
+                        x: p1_x,
+                        y: p1_y,
+                        color_op: ColorOp::None,
+                    }));
                 }
             }
             result
@@ -380,58 +420,66 @@ pub fn decimate_min_max_arrays_par_into(
     }
 }
 
-/// Decimates arrays using LTTB (Sequential but optimized for arrays).
 pub fn decimate_lttb_arrays(
     x: &[f64],
     y: &[f64],
     max_points: usize,
+    _gaps: Option<&GapIndex>,
 ) -> Vec<PlotData> {
     let mut output = Vec::with_capacity(max_points);
-    decimate_lttb_arrays_into(x, y, max_points, &mut output);
+    decimate_lttb_arrays_into(x, y, max_points, &mut output, _gaps);
     output
 }
 
-/// Decimates arrays using LTTB (Sequential but optimized for arrays) into an existing buffer.
 pub fn decimate_lttb_arrays_into(
     x: &[f64],
     y: &[f64],
     max_points: usize,
     output: &mut Vec<PlotData>,
+    _gaps: Option<&GapIndex>,
 ) {
     output.clear();
     if x.len() <= max_points || max_points < 3 {
-         output.extend(x.iter().zip(y.iter()).map(|(x_val, y_val)| {
-            PlotData::Point(PlotPoint { x: *x_val, y: *y_val, color_op: ColorOp::None })
+        output.extend(x.iter().zip(y.iter()).map(|(x_val, y_val)| {
+            PlotData::Point(PlotPoint {
+                x: *x_val,
+                y: *y_val,
+                color_op: ColorOp::None,
+            })
         }));
         return;
     }
 
-    // Stable bucket count for LTTB
     let range = x[x.len() - 1] - x[0];
     let stable_bin_size = calculate_stable_bin_size(range, max_points - 2);
     let target_bucket_count = (range / stable_bin_size).round() as usize;
     let target_bucket_count = target_bucket_count.clamp(1, max_points - 2);
 
     let bucket_size = (x.len() - 2) as f64 / target_bucket_count as f64;
-    
-    // 1. First point
+
     let mut a_idx = 0;
-    output.push(PlotData::Point(PlotPoint { x: x[0], y: y[0], color_op: ColorOp::None }));
+    output.push(PlotData::Point(PlotPoint {
+        x: x[0],
+        y: y[0],
+        color_op: ColorOp::None,
+    }));
 
     for i in 0..target_bucket_count {
         let bucket_start = 1 + (i as f64 * bucket_size).floor() as usize;
         let bucket_end = (1 + ((i + 1) as f64 * bucket_size).floor() as usize).min(x.len() - 1);
-        
-        if bucket_start >= bucket_end { continue; }
+
+        if bucket_start >= bucket_end {
+            continue;
+        }
 
         let next_bucket_start = bucket_end;
-        let next_bucket_end = (1 + ((i + 2) as f64 * bucket_size).floor() as usize).min(x.len() - 1);
+        let next_bucket_end =
+            (1 + ((i + 2) as f64 * bucket_size).floor() as usize).min(x.len() - 1);
 
-        // Average for next bucket
         let mut avg_x = 0.0;
         let mut avg_y = 0.0;
         let mut avg_count = 0;
-        
+
         for j in next_bucket_start..next_bucket_end {
             let val_x = x[j];
             let val_y = y[j];
@@ -441,14 +489,14 @@ pub fn decimate_lttb_arrays_into(
                 avg_count += 1;
             }
         }
-        
+
         if avg_count > 0 {
             avg_x /= avg_count as f64;
             avg_y /= avg_count as f64;
         } else {
-             let idx = next_bucket_start.min(x.len() - 1);
-             avg_x = x[idx];
-             avg_y = y[idx];
+            let idx = next_bucket_start.min(x.len() - 1);
+            avg_x = x[idx];
+            avg_y = y[idx];
         }
 
         let p_a_x = x[a_idx];
@@ -460,39 +508,47 @@ pub fn decimate_lttb_arrays_into(
         for j in bucket_start..bucket_end {
             let p_b_x = x[j];
             let p_b_y = y[j];
-            
-            if p_b_x.is_nan() || p_b_y.is_nan() { continue; }
 
-            let area = (p_a_x * (p_b_y - avg_y) + p_b_x * (avg_y - p_a_y) + avg_x * (p_a_y - p_b_y)).abs();
-            
+            if p_b_x.is_nan() || p_b_y.is_nan() {
+                continue;
+            }
+
+            let area =
+                (p_a_x * (p_b_y - avg_y) + p_b_x * (avg_y - p_a_y) + avg_x * (p_a_y - p_b_y)).abs();
+
             if area > max_area {
                 max_area = area;
                 next_a_idx = j;
             }
         }
-        
+
         a_idx = next_a_idx;
-        output.push(PlotData::Point(PlotPoint { x: x[a_idx], y: y[a_idx], color_op: ColorOp::None }));
+        output.push(PlotData::Point(PlotPoint {
+            x: x[a_idx],
+            y: y[a_idx],
+            color_op: ColorOp::None,
+        }));
     }
 
-    // Last point
-    output.push(PlotData::Point(PlotPoint { x: x[x.len() - 1], y: y[y.len() - 1], color_op: ColorOp::None }));
+    output.push(PlotData::Point(PlotPoint {
+        x: x[x.len() - 1],
+        y: y[y.len() - 1],
+        color_op: ColorOp::None,
+    }));
 }
 
-/// Decimates a slice of PlotData using the Min/Max algorithm.
-/// This is the standard entry point for most data sources.
-pub fn decimate_min_max_slice(data: &[PlotData], max_points: usize) -> Vec<PlotData> {
+pub fn decimate_min_max_slice(
+    data: &[PlotData],
+    max_points: usize,
+    gaps: Option<&GapIndex>,
+) -> Vec<PlotData> {
     if data.is_empty() {
         return vec![];
     }
 
-    // Special case for OHLCV: they already represent aggregates, 
-    // so we typically want 1 point per bin (the aggregate of the bin).
-    // To stay consistent with standard Point decimation (which returns 2 points per bin),
-    // we use target_bins = max_points / 2.
     if let PlotData::Ohlcv(_) = data[0] {
-        let target_bins = max_points / 2;
-        let bin_size = (data.len() as f64 / target_bins.max(1) as f64).ceil() as usize;
+        let target_bins = (max_points / 2).max(1);
+        let bin_size = (data.len() as f64 / target_bins as f64).ceil() as usize;
         let mut aggregated = Vec::with_capacity(target_bins.max(1));
         for chunk in data.chunks(bin_size) {
             if let Some(agg) = aggregate_chunk(chunk) {
@@ -502,52 +558,65 @@ pub fn decimate_min_max_slice(data: &[PlotData], max_points: usize) -> Vec<PlotD
         return aggregated;
     }
 
-    // For standard points, use the generic Min/Max (2 points per bin)
     decimate_min_max_generic(
         data,
         max_points,
-        |p| match p { PlotData::Point(pt) => pt.x, _ => 0.0 },
-        |p| match p { PlotData::Point(pt) => pt.y, _ => 0.0 },
-        |p| p.clone()
+        |p| match p {
+            PlotData::Point(pt) => pt.x,
+            _ => 0.0,
+        },
+        |p| match p {
+            PlotData::Point(pt) => pt.y,
+            _ => 0.0,
+        },
+        |p| p.clone(),
+        gaps,
     )
 }
 
-/// Decimates a slice of PlotData using the M4 algorithm.
-/// M4 extracts 4 points per bin: First, Min, Max, Last.
-pub fn decimate_m4_slice(data: &[PlotData], max_points: usize) -> Vec<PlotData> {
+pub fn decimate_m4_slice(
+    data: &[PlotData],
+    max_points: usize,
+    gaps: Option<&GapIndex>,
+) -> Vec<PlotData> {
     if data.is_empty() {
         return vec![];
     }
 
     if let PlotData::Ohlcv(_) = data[0] {
-        // For OHLCV, we keep the existing aggregation for now as it's already "M4-like"
-        return decimate_min_max_slice(data, max_points);
+        return decimate_min_max_slice(data, max_points, gaps);
     }
 
     decimate_m4_generic(
         data,
         max_points,
-        |p| match p { PlotData::Point(pt) => pt.x, _ => 0.0 },
-        |p| match p { PlotData::Point(pt) => pt.y, _ => 0.0 },
-        |p| p.clone()
+        |p| match p {
+            PlotData::Point(pt) => pt.x,
+            _ => 0.0,
+        },
+        |p| match p {
+            PlotData::Point(pt) => pt.y,
+            _ => 0.0,
+        },
+        |p| p.clone(),
+        gaps,
     )
 }
 
-/// Decimates a slice of PlotData using the LTTB algorithm.
-/// LTTB preserves visual shape better than Min/Max for line charts.
-pub fn decimate_lttb_slice(data: &[PlotData], max_points: usize) -> Vec<PlotData> {
+pub fn decimate_lttb_slice(
+    data: &[PlotData],
+    max_points: usize,
+    gaps: Option<&GapIndex>,
+) -> Vec<PlotData> {
     if data.is_empty() {
         return vec![];
     }
-    // Fallback for OHLCV
     if let PlotData::Ohlcv(_) = data[0] {
-        return decimate_min_max_slice(data, max_points);
+        return decimate_min_max_slice(data, max_points, gaps);
     }
 
-    // Optimization: If we have simple Points, we can use the parallel array-based version
-    // for much higher performance (ILTTB implementation).
     let mut all_points = true;
-    for p in data.iter().take(100) { // Small sample check
+    for p in data.iter().take(100) {
         if !matches!(p, PlotData::Point(_)) {
             all_points = false;
             break;
@@ -555,44 +624,67 @@ pub fn decimate_lttb_slice(data: &[PlotData], max_points: usize) -> Vec<PlotData
     }
 
     if all_points && data.len() > 1000 {
-        let x: Vec<f64> = data.iter().map(|p| match p { PlotData::Point(pt) => pt.x, _ => 0.0 }).collect();
-        let y: Vec<f64> = data.iter().map(|p| match p { PlotData::Point(pt) => pt.y, _ => 0.0 }).collect();
+        let x: Vec<f64> = data
+            .iter()
+            .map(|p| match p {
+                PlotData::Point(pt) => pt.x,
+                _ => 0.0,
+            })
+            .collect();
+        let y: Vec<f64> = data
+            .iter()
+            .map(|p| match p {
+                PlotData::Point(pt) => pt.y,
+                _ => 0.0,
+            })
+            .collect();
         let mut output = Vec::with_capacity(max_points);
-        decimate_ilttb_arrays_par_into(&x, &y, max_points, &mut output);
+        decimate_ilttb_arrays_par_into(&x, &y, max_points, &mut output, gaps);
         return output;
     }
 
     decimate_lttb_generic(
         data,
         max_points,
-        |p| match p { PlotData::Point(pt) => pt.x, _ => 0.0 },
-        |p| match p { PlotData::Point(pt) => pt.y, _ => 0.0 },
-        |p| p.clone()
+        |p| match p {
+            PlotData::Point(pt) => pt.x,
+            _ => 0.0,
+        },
+        |p| match p {
+            PlotData::Point(pt) => pt.y,
+            _ => 0.0,
+        },
+        |p| p.clone(),
+        gaps,
     )
 }
 
-/// Decimates parallel arrays using ILTTB (Independent LTTB) and Rayon.
 pub fn decimate_ilttb_arrays_par(
     x: &[f64],
     y: &[f64],
     max_points: usize,
+    gaps: Option<&GapIndex>,
 ) -> Vec<PlotData> {
     let mut output = Vec::with_capacity(max_points);
-    decimate_ilttb_arrays_par_into(x, y, max_points, &mut output);
+    decimate_ilttb_arrays_par_into(x, y, max_points, &mut output, gaps);
     output
 }
 
-/// Decimates parallel arrays using ILTTB (Independent LTTB) and Rayon into an existing buffer.
 pub fn decimate_ilttb_arrays_par_into(
     x: &[f64],
     y: &[f64],
     max_points: usize,
     output: &mut Vec<PlotData>,
+    _gaps: Option<&GapIndex>,
 ) {
     output.clear();
     if x.len() <= max_points || max_points < 3 {
-         output.extend(x.iter().zip(y.iter()).map(|(x_val, y_val)| {
-            PlotData::Point(PlotPoint { x: *x_val, y: *y_val, color_op: ColorOp::None })
+        output.extend(x.iter().zip(y.iter()).map(|(x_val, y_val)| {
+            PlotData::Point(PlotPoint {
+                x: *x_val,
+                y: *y_val,
+                color_op: ColorOp::None,
+            })
         }));
         return;
     }
@@ -600,7 +692,6 @@ pub fn decimate_ilttb_arrays_par_into(
     let target_bucket_count = max_points - 2;
     let bucket_size = (x.len() - 2) as f64 / target_bucket_count as f64;
 
-    // 1. Pre-calculate averages for all buckets in parallel
     let averages: Vec<(f64, f64)> = (0..target_bucket_count)
         .into_par_iter()
         .map(|i| {
@@ -610,7 +701,7 @@ pub fn decimate_ilttb_arrays_par_into(
                 let idx = start.min(x.len() - 1);
                 return (x[idx], y[idx]);
             }
-            
+
             let count = (end - start) as f64;
             let sum_x = crate::simd::sum_f64(&x[start..end]);
             let sum_y = crate::simd::sum_f64(&y[start..end]);
@@ -618,21 +709,14 @@ pub fn decimate_ilttb_arrays_par_into(
         })
         .collect();
 
-    // 2. Select points in parallel
     let mut sampled: Vec<PlotPoint> = (0..target_bucket_count)
         .into_par_iter()
         .map(|i| {
             let start = 1 + (i as f64 * bucket_size).floor() as usize;
             let end = (1 + ((i + 1) as f64 * bucket_size).floor() as usize).min(x.len() - 1);
-            
-            // Point A: Average of previous bucket
-            let (a_x, a_y) = if i > 0 {
-                averages[i - 1]
-            } else {
-                (x[0], y[0])
-            };
 
-            // Point C: Average of next bucket
+            let (a_x, a_y) = if i > 0 { averages[i - 1] } else { (x[0], y[0]) };
+
             let (c_x, c_y) = if i < target_bucket_count - 1 {
                 averages[i + 1]
             } else {
@@ -642,31 +726,44 @@ pub fn decimate_ilttb_arrays_par_into(
             let best_local_idx = crate::simd::find_max_area_index(
                 &x[start..end],
                 &y[start..end],
-                a_x, a_y, c_x, c_y
+                a_x,
+                a_y,
+                c_x,
+                c_y,
             );
-            
+
             let best_idx = start + best_local_idx;
 
-            PlotPoint { x: x[best_idx], y: y[best_idx], color_op: ColorOp::None }
+            PlotPoint {
+                x: x[best_idx],
+                y: y[best_idx],
+                color_op: ColorOp::None,
+            }
         })
         .collect();
 
-    // 3. Final assembly
-    output.push(PlotData::Point(PlotPoint { x: x[0], y: y[0], color_op: ColorOp::None }));
+    output.push(PlotData::Point(PlotPoint {
+        x: x[0],
+        y: y[0],
+        color_op: ColorOp::None,
+    }));
     for pt in sampled.drain(..) {
         output.push(PlotData::Point(pt));
     }
-    output.push(PlotData::Point(PlotPoint { x: x[x.len() - 1], y: y[y.len() - 1], color_op: ColorOp::None }));
+    output.push(PlotData::Point(PlotPoint {
+        x: x[x.len() - 1],
+        y: y[y.len() - 1],
+        color_op: ColorOp::None,
+    }));
 }
 
-/// Generic Min/Max aggregator.
-/// Takes any slice and returns a decimated Vec of PlotData.
 pub fn decimate_min_max_generic<T, FX, FY, FC>(
     data: &[T],
     max_points: usize,
     get_x: FX,
     get_y: FY,
     create_point: FC,
+    gaps: Option<&GapIndex>,
 ) -> Vec<PlotData>
 where
     FX: Fn(&T) -> f64,
@@ -677,10 +774,16 @@ where
         return data.iter().map(create_point).collect();
     }
 
-    // Stable binning
-    let range = get_x(&data[data.len() - 1]) - get_x(&data[0]);
-    let stable_bin_size = calculate_stable_bin_size(range, (max_points / 2).max(1));
-    let avg_items_per_bin = (data.len() as f64 * (stable_bin_size / range)).ceil() as usize;
+    let real_range = get_x(&data[data.len() - 1]) - get_x(&data[0]);
+    let logical_range = if let Some(g) = gaps {
+        (g.to_logical(get_x(&data[data.len() - 1]) as i64) - g.to_logical(get_x(&data[0]) as i64))
+            as f64
+    } else {
+        real_range
+    };
+
+    let stable_bin_size = calculate_stable_bin_size(logical_range, (max_points / 2).max(1));
+    let avg_items_per_bin = (data.len() as f64 * (stable_bin_size / logical_range)).ceil() as usize;
     let bin_size = avg_items_per_bin.max(1);
 
     let mut aggregated = Vec::with_capacity(max_points);
@@ -695,7 +798,6 @@ where
         let mut min_y = get_y(&chunk[0]);
         let mut max_y = min_y;
 
-        // If the first point is NaN, try to find the first non-NaN point to initialize min/max
         let start_search_idx = if min_y.is_nan() {
             let mut found = false;
             let mut first_non_nan = 0;
@@ -711,7 +813,11 @@ where
                     break;
                 }
             }
-            if found { first_non_nan + 1 } else { chunk.len() }
+            if found {
+                first_non_nan + 1
+            } else {
+                chunk.len()
+            }
         } else {
             1
         };
@@ -736,7 +842,7 @@ where
         } else {
             let p1 = &chunk[min_idx];
             let p2 = &chunk[max_idx];
-            
+
             if get_x(p1) <= get_x(p2) {
                 aggregated.push(create_point(p1));
                 aggregated.push(create_point(p2));
@@ -747,7 +853,6 @@ where
         }
     }
 
-    // Ensure we respect max_points exactly
     if aggregated.len() > max_points {
         aggregated.truncate(max_points);
     }
@@ -755,14 +860,13 @@ where
     aggregated
 }
 
-/// Generic M4 aggregator.
-/// Takes any slice and returns a decimated Vec of PlotData.
 pub fn decimate_m4_generic<T, FX, FY, FC>(
     data: &[T],
     max_points: usize,
     get_x: FX,
     get_y: FY,
     create_point: FC,
+    gaps: Option<&GapIndex>,
 ) -> Vec<PlotData>
 where
     FX: Fn(&T) -> f64,
@@ -773,10 +877,16 @@ where
         return data.iter().map(create_point).collect();
     }
 
-    // Stable binning
-    let range = get_x(&data[data.len() - 1]) - get_x(&data[0]);
-    let stable_bin_size = calculate_stable_bin_size(range, (max_points / 4).max(1));
-    let avg_items_per_bin = (data.len() as f64 * (stable_bin_size / range)).ceil() as usize;
+    let real_range = get_x(&data[data.len() - 1]) - get_x(&data[0]);
+    let logical_range = if let Some(g) = gaps {
+        (g.to_logical(get_x(&data[data.len() - 1]) as i64) - g.to_logical(get_x(&data[0]) as i64))
+            as f64
+    } else {
+        real_range
+    };
+
+    let stable_bin_size = calculate_stable_bin_size(logical_range, (max_points / 4).max(1));
+    let avg_items_per_bin = (data.len() as f64 * (stable_bin_size / logical_range)).ceil() as usize;
     let bin_size = avg_items_per_bin.max(1);
 
     let mut aggregated = Vec::with_capacity(max_points);
@@ -793,7 +903,6 @@ where
         let mut min_y = get_y(&chunk[0]);
         let mut max_y = min_y;
 
-        // If the first point is NaN, try to find the first non-NaN point to initialize min/max
         let start_search_idx = if min_y.is_nan() {
             let mut found = false;
             let mut first_non_nan = 0;
@@ -809,7 +918,11 @@ where
                     break;
                 }
             }
-            if found { first_non_nan + 1 } else { chunk.len() }
+            if found {
+                first_non_nan + 1
+            } else {
+                chunk.len()
+            }
         } else {
             1
         };
@@ -829,8 +942,6 @@ where
             }
         }
 
-        // We have 4 candidates: first, min, max, last.
-        // We must sort them by index to keep chronological order.
         let mut indices = vec![first_idx, min_idx, max_idx, last_idx];
         indices.sort_unstable();
         indices.dedup();
@@ -840,7 +951,6 @@ where
         }
     }
 
-    // Ensure we respect max_points exactly
     if aggregated.len() > max_points {
         aggregated.truncate(max_points);
     }
@@ -848,13 +958,13 @@ where
     aggregated
 }
 
-/// Generic LTTB aggregator.
 pub fn decimate_lttb_generic<T, FX, FY, FC>(
     data: &[T],
     max_points: usize,
     get_x: FX,
     get_y: FY,
     create_point: FC,
+    _gaps: Option<&GapIndex>,
 ) -> Vec<PlotData>
 where
     FX: Fn(&T) -> f64,
@@ -862,80 +972,70 @@ where
     FC: Fn(&T) -> PlotData,
 {
     if data.len() <= max_points || max_points < 3 {
-         return data.iter().map(create_point).collect();
+        return data.iter().map(create_point).collect();
     }
 
     let mut sampled = Vec::with_capacity(max_points);
-    
-    // Bucket size. Exclude start and end points.
+
     let bucket_size = (data.len() - 2) as f64 / (max_points - 2) as f64;
-    
-    // 1. First point
+
     let mut a_idx = 0;
     sampled.push(create_point(&data[a_idx]));
 
     for i in 0..(max_points - 2) {
-        // Current bucket range
         let bucket_start = 1 + (i as f64 * bucket_size).floor() as usize;
         let bucket_end = 1 + ((i + 1) as f64 * bucket_size).floor() as usize;
-        
-        // Next bucket range (for average)
-        let next_bucket_start = bucket_end;
-        let next_bucket_end = (1 + ((i + 2) as f64 * bucket_size).floor() as usize).min(data.len() - 1);
 
-        // Calculate average of next bucket
+        let next_bucket_start = bucket_end;
+        let next_bucket_end =
+            (1 + ((i + 2) as f64 * bucket_size).floor() as usize).min(data.len() - 1);
+
         let mut avg_x = 0.0;
         let mut avg_y = 0.0;
         let mut avg_count = 0;
-        
+
         for j in next_bucket_start..next_bucket_end {
             avg_x += get_x(&data[j]);
             avg_y += get_y(&data[j]);
             avg_count += 1;
         }
-        
+
         if avg_count > 0 {
             avg_x /= avg_count as f64;
             avg_y /= avg_count as f64;
         } else {
-            // Fallback if next bucket is empty
-             avg_x = get_x(&data[next_bucket_start.min(data.len() - 1)]);
-             avg_y = get_y(&data[next_bucket_start.min(data.len() - 1)]);
+            avg_x = get_x(&data[next_bucket_start.min(data.len() - 1)]);
+            avg_y = get_y(&data[next_bucket_start.min(data.len() - 1)]);
         }
 
-        // Point A
         let p_a_x = get_x(&data[a_idx]);
         let p_a_y = get_y(&data[a_idx]);
 
-        // Find best point B in current bucket
         let mut max_area = -1.0;
-        let mut next_a_idx = bucket_start; // Default
+        let mut next_a_idx = bucket_start;
 
         for j in bucket_start..bucket_end {
             let p_b_x = get_x(&data[j]);
             let p_b_y = get_y(&data[j]);
-            
-            // Triangle Area = 0.5 * |Ax(By - Cy) + Bx(Cy - Ay) + Cx(Ay - By)|
-            // We can ignore 0.5 for comparison
-            let area = (p_a_x * (p_b_y - avg_y) + p_b_x * (avg_y - p_a_y) + avg_x * (p_a_y - p_b_y)).abs();
-            
+
+            let area =
+                (p_a_x * (p_b_y - avg_y) + p_b_x * (avg_y - p_a_y) + avg_x * (p_a_y - p_b_y)).abs();
+
             if area > max_area {
                 max_area = area;
                 next_a_idx = j;
             }
         }
-        
+
         a_idx = next_a_idx;
         sampled.push(create_point(&data[a_idx]));
     }
 
-    // Last point
     sampled.push(create_point(&data[data.len() - 1]));
 
     sampled
 }
 
-/// Aggregates a chunk into a single point (Mean for Points, OHLCV-Merge for OHLCV).
 pub fn aggregate_chunk(chunk: &[PlotData]) -> Option<PlotData> {
     if chunk.is_empty() {
         return None;

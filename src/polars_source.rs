@@ -1,6 +1,6 @@
 #![cfg(feature = "polars")]
 
-use crate::data_types::{PlotData, PlotDataSource, PlotPoint, Ohlcv, ColorOp};
+use crate::data_types::{ColorOp, Ohlcv, PlotData, PlotDataSource, PlotPoint};
 use polars::prelude::*;
 use polars_ops::prelude::{search_sorted, SearchSortedSide};
 
@@ -37,13 +37,7 @@ impl PolarsDataSource {
         self
     }
 
-    pub fn with_ohlcv(
-        mut self,
-        open: &str,
-        high: &str,
-        low: &str,
-        close: &str,
-    ) -> Self {
+    pub fn with_ohlcv(mut self, open: &str, high: &str, low: &str, close: &str) -> Self {
         self.open_col = Some(open.to_string());
         self.high_col = Some(high.to_string());
         self.low_col = Some(low.to_string());
@@ -56,7 +50,7 @@ impl PolarsDataSource {
             Some(s) => s,
             None => return (0, 0),
         };
-        
+
         let x_min_s = Series::new("x_min".into(), &[x_min]);
         let x_max_s = Series::new("x_max".into(), &[x_max]);
 
@@ -83,38 +77,101 @@ impl PolarsDataSource {
     ) -> Box<dyn Iterator<Item = PlotData> + '_> {
         let mut lf = self.df.slice(start_idx as i64, count).lazy();
 
-        if let (Some(o_n), Some(h_n), Some(l_n), Some(c_n)) = (&self.open_col, &self.high_col, &self.low_col, &self.close_col) {
+        if let (Some(o_n), Some(h_n), Some(l_n), Some(c_n)) = (
+            &self.open_col,
+            &self.high_col,
+            &self.low_col,
+            &self.close_col,
+        ) {
             let target_bins = max_points.max(1);
             let bin_size = (count as f64 / target_bins as f64).ceil() as i64;
-            
-            lf = lf.with_row_index("index_id", Some(0))
-                   .with_column((col("index_id") / lit(bin_size)).cast(DataType::Int64).alias("bin_id"));
 
-            let agg_lf = lf.group_by([col("bin_id")]).agg([
-                col(o_n).first().alias(o_n),
-                col(h_n).max().alias(h_n),
-                col(l_n).min().alias(l_n),
-                col(c_n).last().alias(c_n),
-                col(&self.x_col).first().alias(&self.x_col),
-            ]).sort(["bin_id"], Default::default());
+            lf = lf.with_row_index("index_id", Some(0)).with_column(
+                (col("index_id") / lit(bin_size))
+                    .cast(DataType::Int64)
+                    .alias("bin_id"),
+            );
+
+            let agg_lf = lf
+                .group_by([col("bin_id")])
+                .agg([
+                    col(o_n).first().alias(o_n),
+                    col(h_n).max().alias(h_n),
+                    col(l_n).min().alias(l_n),
+                    col(c_n).last().alias(c_n),
+                    col(&self.x_col).first().alias(&self.x_col),
+                ])
+                .sort(["bin_id"], Default::default());
 
             let df = match agg_lf.collect() {
                 Ok(df) => df,
                 Err(_) => return Box::new(std::iter::empty()),
             };
-            
-             let x_c = match df.column(&self.x_col).ok().and_then(|c| c.as_series()).and_then(|s| s.f64().ok()) { Some(c) => c, None => return Box::new(std::iter::empty()) };
-             let o_c = match df.column(o_n).ok().and_then(|c| c.as_series()).and_then(|s| s.f64().ok()) { Some(c) => c, None => return Box::new(std::iter::empty()) };
-             let h_c = match df.column(h_n).ok().and_then(|c| c.as_series()).and_then(|s| s.f64().ok()) { Some(c) => c, None => return Box::new(std::iter::empty()) };
-             let l_c = match df.column(l_n).ok().and_then(|c| c.as_series()).and_then(|s| s.f64().ok()) { Some(c) => c, None => return Box::new(std::iter::empty()) };
-             let c_c = match df.column(c_n).ok().and_then(|c| c.as_series()).and_then(|s| s.f64().ok()) { Some(c) => c, None => return Box::new(std::iter::empty()) };
 
-            let result: Vec<_> = x_c.iter().zip(o_c.iter()).zip(h_c.iter()).zip(l_c.iter()).zip(c_c.iter())
+            let x_c = match df
+                .column(&self.x_col)
+                .ok()
+                .and_then(|c| c.as_series())
+                .and_then(|s| s.f64().ok())
+            {
+                Some(c) => c,
+                None => return Box::new(std::iter::empty()),
+            };
+            let o_c = match df
+                .column(o_n)
+                .ok()
+                .and_then(|c| c.as_series())
+                .and_then(|s| s.f64().ok())
+            {
+                Some(c) => c,
+                None => return Box::new(std::iter::empty()),
+            };
+            let h_c = match df
+                .column(h_n)
+                .ok()
+                .and_then(|c| c.as_series())
+                .and_then(|s| s.f64().ok())
+            {
+                Some(c) => c,
+                None => return Box::new(std::iter::empty()),
+            };
+            let l_c = match df
+                .column(l_n)
+                .ok()
+                .and_then(|c| c.as_series())
+                .and_then(|s| s.f64().ok())
+            {
+                Some(c) => c,
+                None => return Box::new(std::iter::empty()),
+            };
+            let c_c = match df
+                .column(c_n)
+                .ok()
+                .and_then(|c| c.as_series())
+                .and_then(|s| s.f64().ok())
+            {
+                Some(c) => c,
+                None => return Box::new(std::iter::empty()),
+            };
+
+            let result: Vec<_> = x_c
+                .iter()
+                .zip(o_c.iter())
+                .zip(h_c.iter())
+                .zip(l_c.iter())
+                .zip(c_c.iter())
                 .map(|((((x, o), h), l), c)| {
                     PlotData::Ohlcv(Ohlcv {
-                        time: x.unwrap_or(0.0), span: 0.0, open: o.unwrap_or(0.0), high: h.unwrap_or(0.0), low: l.unwrap_or(0.0), close: c.unwrap_or(0.0), volume: 0.0,
+                        time: x.unwrap_or(0.0),
+                        span: 0.0,
+                        open: o.unwrap_or(0.0),
+                        high: h.unwrap_or(0.0),
+                        low: l.unwrap_or(0.0),
+                        close: c.unwrap_or(0.0),
+                        volume: 0.0,
                     })
-                }).collect();
+                })
+                .collect();
             return Box::new(result.into_iter());
         }
 
@@ -125,20 +182,39 @@ impl PolarsDataSource {
         };
 
         let bin_size = (count as f64 / target_bins as f64).ceil() as i64;
-        lf = lf.with_row_index("index_id", Some(0))
-               .with_column((col("index_id") / lit(bin_size)).cast(DataType::Int64).alias("bin_id"));
+        lf = lf.with_row_index("index_id", Some(0)).with_column(
+            (col("index_id") / lit(bin_size))
+                .cast(DataType::Int64)
+                .alias("bin_id"),
+        );
 
         let agg_exprs = if m4_mode {
             vec![
-                col(&self.x_col).first().alias("x_first"), col(&self.x_col).last().alias("x_last"),
-                col(&self.x_col).gather(col(&self.y_col).arg_min()).first().alias("x_min"), col(&self.x_col).gather(col(&self.y_col).arg_max()).first().alias("x_max"),
-                col(&self.y_col).first().alias("y_first"), col(&self.y_col).last().alias("y_last"),
-                col(&self.y_col).min().alias("y_min"), col(&self.y_col).max().alias("y_max"),
+                col(&self.x_col).first().alias("x_first"),
+                col(&self.x_col).last().alias("x_last"),
+                col(&self.x_col)
+                    .gather(col(&self.y_col).arg_min())
+                    .first()
+                    .alias("x_min"),
+                col(&self.x_col)
+                    .gather(col(&self.y_col).arg_max())
+                    .first()
+                    .alias("x_max"),
+                col(&self.y_col).first().alias("y_first"),
+                col(&self.y_col).last().alias("y_last"),
+                col(&self.y_col).min().alias("y_min"),
+                col(&self.y_col).max().alias("y_max"),
             ]
         } else {
             vec![
-                col(&self.x_col).gather(col(&self.y_col).arg_min()).first().alias("x_min"),
-                col(&self.x_col).gather(col(&self.y_col).arg_max()).first().alias("x_max"),
+                col(&self.x_col)
+                    .gather(col(&self.y_col).arg_min())
+                    .first()
+                    .alias("x_min"),
+                col(&self.x_col)
+                    .gather(col(&self.y_col).arg_max())
+                    .first()
+                    .alias("x_max"),
                 col(&self.y_col).min().alias("y_min"),
                 col(&self.y_col).max().alias("y_max"),
             ]
@@ -149,18 +225,27 @@ impl PolarsDataSource {
         let select_exprs = if m4_mode {
             vec![
                 col("bin_id"),
-                concat_list([col("x_first"), col("x_min"), col("x_max"), col("x_last")]).unwrap().alias(&self.x_col),
-                concat_list([col("y_first"), col("y_min"), col("y_max"), col("y_last")]).unwrap().alias(&self.y_col),
+                concat_list([col("x_first"), col("x_min"), col("x_max"), col("x_last")])
+                    .unwrap()
+                    .alias(&self.x_col),
+                concat_list([col("y_first"), col("y_min"), col("y_max"), col("y_last")])
+                    .unwrap()
+                    .alias(&self.y_col),
             ]
         } else {
             vec![
                 col("bin_id"),
-                concat_list([col("x_min"), col("x_max")]).unwrap().alias(&self.x_col),
-                concat_list([col("y_min"), col("y_max")]).unwrap().alias(&self.y_col),
+                concat_list([col("x_min"), col("x_max")])
+                    .unwrap()
+                    .alias(&self.x_col),
+                concat_list([col("y_min"), col("y_max")])
+                    .unwrap()
+                    .alias(&self.y_col),
             ]
         };
 
-        let m4_lf = agg_lf.select(select_exprs)
+        let m4_lf = agg_lf
+            .select(select_exprs)
             .explode(cols([&self.x_col, &self.y_col]))
             .sort(["bin_id", &self.x_col], Default::default());
 
@@ -168,16 +253,27 @@ impl PolarsDataSource {
             Ok(df) => df,
             Err(_) => return Box::new(std::iter::empty()),
         };
-        let x_c = match df.column(&self.x_col).ok().and_then(|c| c.as_series()).and_then(|s| s.f64().ok()) {
+        let x_c = match df
+            .column(&self.x_col)
+            .ok()
+            .and_then(|c| c.as_series())
+            .and_then(|s| s.f64().ok())
+        {
             Some(c) => c,
             None => return Box::new(std::iter::empty()),
         };
-        let y_c = match df.column(&self.y_col).ok().and_then(|c| c.as_series()).and_then(|s| s.f64().ok()) {
+        let y_c = match df
+            .column(&self.y_col)
+            .ok()
+            .and_then(|c| c.as_series())
+            .and_then(|s| s.f64().ok())
+        {
             Some(c) => c,
             None => return Box::new(std::iter::empty()),
         };
 
-        let result: Vec<_> = x_c.iter()
+        let result: Vec<_> = x_c
+            .iter()
             .zip(y_c.iter())
             .map(|(x, y)| {
                 PlotData::Point(PlotPoint {
@@ -203,7 +299,7 @@ impl PlotDataSource for PolarsDataSource {
 
         let x_min = x.min::<f64>().ok()??;
         let x_max = x.max::<f64>().ok()??;
-        
+
         let (y_min, y_max) = if let (Some(l), Some(h)) = (&self.low_col, &self.high_col) {
             let low = self.df.column(l).ok()?.as_series()?.min::<f64>().ok()??;
             let high = self.df.column(h).ok()?.as_series()?.max::<f64>().ok()??;
@@ -219,7 +315,7 @@ impl PlotDataSource for PolarsDataSource {
 
     fn get_y_range(&self, x_min: f64, x_max: f64) -> Option<(f64, f64)> {
         let (start_idx, end_idx) = self.get_range_indices(x_min, x_max);
-        
+
         if start_idx >= end_idx {
             return None;
         }
@@ -244,12 +340,22 @@ impl PlotDataSource for PolarsDataSource {
         let start = start_idx.saturating_sub(1);
         let end = (end_idx + 1).min(self.df.height());
         let sliced = self.df.slice(start as i64, end - start);
-        
-        let x_col = match sliced.column(&self.x_col).ok().and_then(|c| c.as_series()).and_then(|s| s.f64().ok()) {
+
+        let x_col = match sliced
+            .column(&self.x_col)
+            .ok()
+            .and_then(|c| c.as_series())
+            .and_then(|s| s.f64().ok())
+        {
             Some(c) => c,
             None => return Box::new(std::iter::empty()),
         };
-        let y_col = match sliced.column(&self.y_col).ok().and_then(|c| c.as_series()).and_then(|s| s.f64().ok()) {
+        let y_col = match sliced
+            .column(&self.y_col)
+            .ok()
+            .and_then(|c| c.as_series())
+            .and_then(|s| s.f64().ok())
+        {
             Some(c) => c,
             None => return Box::new(std::iter::empty()),
         };
@@ -257,20 +363,45 @@ impl PlotDataSource for PolarsDataSource {
         let mut result = Vec::with_capacity(sliced.height());
         let suggested_span = self.suggested_x_spacing();
 
-        if let (Some(o_n), Some(h_n), Some(l_n), Some(c_n)) = (&self.open_col, &self.high_col, &self.low_col, &self.close_col) {
-            let o_col = match sliced.column(o_n).ok().and_then(|c| c.as_series()).and_then(|s| s.f64().ok()) {
+        if let (Some(o_n), Some(h_n), Some(l_n), Some(c_n)) = (
+            &self.open_col,
+            &self.high_col,
+            &self.low_col,
+            &self.close_col,
+        ) {
+            let o_col = match sliced
+                .column(o_n)
+                .ok()
+                .and_then(|c| c.as_series())
+                .and_then(|s| s.f64().ok())
+            {
                 Some(c) => c,
                 None => return Box::new(std::iter::empty()),
             };
-            let h_col = match sliced.column(h_n).ok().and_then(|c| c.as_series()).and_then(|s| s.f64().ok()) {
+            let h_col = match sliced
+                .column(h_n)
+                .ok()
+                .and_then(|c| c.as_series())
+                .and_then(|s| s.f64().ok())
+            {
                 Some(c) => c,
                 None => return Box::new(std::iter::empty()),
             };
-            let l_col = match sliced.column(l_n).ok().and_then(|c| c.as_series()).and_then(|s| s.f64().ok()) {
+            let l_col = match sliced
+                .column(l_n)
+                .ok()
+                .and_then(|c| c.as_series())
+                .and_then(|s| s.f64().ok())
+            {
                 Some(c) => c,
                 None => return Box::new(std::iter::empty()),
             };
-            let c_col = match sliced.column(c_n).ok().and_then(|c| c.as_series()).and_then(|s| s.f64().ok()) {
+            let c_col = match sliced
+                .column(c_n)
+                .ok()
+                .and_then(|c| c.as_series())
+                .and_then(|s| s.f64().ok())
+            {
                 Some(c) => c,
                 None => return Box::new(std::iter::empty()),
             };
@@ -302,9 +433,10 @@ impl PlotDataSource for PolarsDataSource {
         x_min: f64,
         x_max: f64,
         max_points: usize,
+        gaps: Option<&crate::gaps::GapIndex>,
     ) -> Box<dyn Iterator<Item = PlotData> + '_> {
         let mut buffer = Vec::with_capacity(max_points);
-        self.get_aggregated_data(x_min, x_max, max_points, &mut buffer);
+        self.get_aggregated_data(x_min, x_max, max_points, &mut buffer, gaps);
         Box::new(buffer.into_iter())
     }
 
@@ -314,11 +446,53 @@ impl PlotDataSource for PolarsDataSource {
         x_max: f64,
         max_points: usize,
         output: &mut Vec<PlotData>,
+        gaps: Option<&crate::gaps::GapIndex>,
     ) {
         output.clear();
+
+        if let Some(g) = gaps {
+            let intervals = g.split_range(x_min as i64, x_max as i64);
+            if intervals.len() > 1 {
+                let total_logical_span: f64 = intervals
+                    .iter()
+                    .map(|(s, e)| (g.to_logical(*e) - g.to_logical(*s)) as f64)
+                    .sum();
+
+                if total_logical_span > 0.0 {
+                    for (s, e) in intervals {
+                        let logical_span = (g.to_logical(e) - g.to_logical(s)) as f64;
+                        let segment_max_points = ((logical_span / total_logical_span)
+                            * max_points as f64)
+                            .round() as usize;
+                        if segment_max_points > 0 {
+                            let segment_data: Vec<_> = self
+                                .iter_range(s as f64, e as f64)
+                                .filter(|p| {
+                                    let x = match p {
+                                        PlotData::Point(pt) => pt.x,
+                                        PlotData::Ohlcv(o) => o.time,
+                                    };
+                                    x >= s as f64 && x < e as f64
+                                })
+                                .collect();
+
+                            if !segment_data.is_empty() {
+                                output.extend(crate::aggregation::decimate_min_max_slice(
+                                    &segment_data,
+                                    segment_max_points,
+                                    None,
+                                ));
+                            }
+                        }
+                    }
+                    return;
+                }
+            }
+        }
+
         let (start_idx, end_idx) = self.get_range_indices(x_min, x_max);
-        
-        // Add padding: take extra points before and after to ensure stable bins 
+
+        // Add padding: take extra points before and after to ensure stable bins
         // at the edges have enough data context.
         let start = start_idx.saturating_sub(1);
         let end = (end_idx + 1).min(self.df.height());
@@ -332,71 +506,183 @@ impl PlotDataSource for PolarsDataSource {
         // Optimized Zero-Copy Path for Points (M4, MinMax, LTTB)
         // This path bypasses Polars Lazy API and allocations by accessing contiguous memory slices directly.
         // It writes directly into the recycling `output` buffer.
-        if (matches!(self.mode, crate::data_types::AggregationMode::M4) 
+        if (matches!(self.mode, crate::data_types::AggregationMode::M4)
             || matches!(self.mode, crate::data_types::AggregationMode::MinMax)
             || matches!(self.mode, crate::data_types::AggregationMode::LTTB))
-           && self.open_col.is_none() // Only for standard XY plots
+            && self.open_col.is_none()
+        // Only for standard XY plots
         {
-             let sliced = self.df.slice(start as i64, count);
-             
-             if let (Ok(x_col), Ok(y_col)) = (sliced.column(&self.x_col), sliced.column(&self.y_col)) {
-                 if let (Some(x_series), Some(y_series)) = (
-                     x_col.as_series().and_then(|s| s.f64().ok()),
-                     y_col.as_series().and_then(|s| s.f64().ok())
-                 ) {
-                     let x_vec: Vec<f64>;
-                     let x_slice = if let Ok(s) = x_series.cont_slice() { s } else { x_vec = x_series.to_vec().into_iter().map(|v| v.unwrap_or(f64::NAN)).collect(); &x_vec };
+            let sliced = self.df.slice(start as i64, count);
 
-                     let y_vec: Vec<f64>;
-                     let y_slice = if let Ok(s) = y_series.cont_slice() { s } else { y_vec = y_series.to_vec().into_iter().map(|v| v.unwrap_or(f64::NAN)).collect(); &y_vec };
-                     
-                     match self.mode {
-                        crate::data_types::AggregationMode::M4 => crate::aggregation::decimate_m4_arrays_par_into(x_slice, y_slice, max_points, output),
-                        crate::data_types::AggregationMode::MinMax => crate::aggregation::decimate_min_max_arrays_par_into(x_slice, y_slice, max_points, output),
-                        crate::data_types::AggregationMode::LTTB => crate::aggregation::decimate_ilttb_arrays_par_into(x_slice, y_slice, max_points, output),
-                     };
-                     return;
-                 }
-             }
+            if let (Ok(x_col), Ok(y_col)) = (sliced.column(&self.x_col), sliced.column(&self.y_col))
+            {
+                if let (Some(x_series), Some(y_series)) = (
+                    x_col.as_series().and_then(|s| s.f64().ok()),
+                    y_col.as_series().and_then(|s| s.f64().ok()),
+                ) {
+                    let x_vec: Vec<f64>;
+                    let x_slice = if let Ok(s) = x_series.cont_slice() {
+                        s
+                    } else {
+                        x_vec = x_series
+                            .to_vec()
+                            .into_iter()
+                            .map(|v| v.unwrap_or(f64::NAN))
+                            .collect();
+                        &x_vec
+                    };
+
+                    let y_vec: Vec<f64>;
+                    let y_slice = if let Ok(s) = y_series.cont_slice() {
+                        s
+                    } else {
+                        y_vec = y_series
+                            .to_vec()
+                            .into_iter()
+                            .map(|v| v.unwrap_or(f64::NAN))
+                            .collect();
+                        &y_vec
+                    };
+
+                    match self.mode {
+                        crate::data_types::AggregationMode::M4 => {
+                            crate::aggregation::decimate_m4_arrays_par_into(
+                                x_slice, y_slice, max_points, output, gaps,
+                            )
+                        }
+                        crate::data_types::AggregationMode::MinMax => {
+                            crate::aggregation::decimate_min_max_arrays_par_into(
+                                x_slice, y_slice, max_points, output, gaps,
+                            )
+                        }
+                        crate::data_types::AggregationMode::LTTB => {
+                            crate::aggregation::decimate_ilttb_arrays_par_into(
+                                x_slice, y_slice, max_points, output, gaps,
+                            )
+                        }
+                    };
+                    return;
+                }
+            }
         }
 
         // Optimized Zero-Copy Path for OHLCV
-        if let (Some(o_n), Some(h_n), Some(l_n), Some(c_n)) = (&self.open_col, &self.high_col, &self.low_col, &self.close_col) {
-             let sliced = self.df.slice(start as i64, count);
-             
-             if let (Ok(x_col), Ok(o_col), Ok(h_col), Ok(l_col), Ok(c_col)) = (
-                 sliced.column(&self.x_col), sliced.column(o_n), sliced.column(h_n), sliced.column(l_n), sliced.column(c_n)
-             ) {
-                 if let (Some(x_s), Some(o_s), Some(h_s), Some(l_s), Some(c_s)) = (
-                     x_col.as_series().and_then(|s| s.f64().ok()), o_col.as_series().and_then(|s| s.f64().ok()), h_col.as_series().and_then(|s| s.f64().ok()), l_col.as_series().and_then(|s| s.f64().ok()), c_col.as_series().and_then(|s| s.f64().ok())
-                 ) {
-                     let x_vec: Vec<f64>; let x_slice = if let Ok(s) = x_s.cont_slice() { s } else { x_vec = x_s.to_vec().into_iter().map(|v| v.unwrap_or(f64::NAN)).collect(); &x_vec };
-                     let o_vec: Vec<f64>; let o_slice = if let Ok(s) = o_s.cont_slice() { s } else { o_vec = o_s.to_vec().into_iter().map(|v| v.unwrap_or(f64::NAN)).collect(); &o_vec };
-                     let h_vec: Vec<f64>; let h_slice = if let Ok(s) = h_s.cont_slice() { s } else { h_vec = h_s.to_vec().into_iter().map(|v| v.unwrap_or(f64::NAN)).collect(); &h_vec };
-                     let l_vec: Vec<f64>; let l_slice = if let Ok(s) = l_s.cont_slice() { s } else { l_vec = l_s.to_vec().into_iter().map(|v| v.unwrap_or(f64::NAN)).collect(); &l_vec };
-                     let c_vec: Vec<f64>; let c_slice = if let Ok(s) = c_s.cont_slice() { s } else { c_vec = c_s.to_vec().into_iter().map(|v| v.unwrap_or(f64::NAN)).collect(); &c_vec };
+        if let (Some(o_n), Some(h_n), Some(l_n), Some(c_n)) = (
+            &self.open_col,
+            &self.high_col,
+            &self.low_col,
+            &self.close_col,
+        ) {
+            let sliced = self.df.slice(start as i64, count);
 
-                     crate::aggregation::decimate_ohlcv_arrays_par_into(x_slice, o_slice, h_slice, l_slice, c_slice, max_points, output);
-                     return;
-                 }
-             }
+            if let (Ok(x_col), Ok(o_col), Ok(h_col), Ok(l_col), Ok(c_col)) = (
+                sliced.column(&self.x_col),
+                sliced.column(o_n),
+                sliced.column(h_n),
+                sliced.column(l_n),
+                sliced.column(c_n),
+            ) {
+                if let (Some(x_s), Some(o_s), Some(h_s), Some(l_s), Some(c_s)) = (
+                    x_col.as_series().and_then(|s| s.f64().ok()),
+                    o_col.as_series().and_then(|s| s.f64().ok()),
+                    h_col.as_series().and_then(|s| s.f64().ok()),
+                    l_col.as_series().and_then(|s| s.f64().ok()),
+                    c_col.as_series().and_then(|s| s.f64().ok()),
+                ) {
+                    let x_vec: Vec<f64>;
+                    let x_slice = if let Ok(s) = x_s.cont_slice() {
+                        s
+                    } else {
+                        x_vec = x_s
+                            .to_vec()
+                            .into_iter()
+                            .map(|v| v.unwrap_or(f64::NAN))
+                            .collect();
+                        &x_vec
+                    };
+                    let o_vec: Vec<f64>;
+                    let o_slice = if let Ok(s) = o_s.cont_slice() {
+                        s
+                    } else {
+                        o_vec = o_s
+                            .to_vec()
+                            .into_iter()
+                            .map(|v| v.unwrap_or(f64::NAN))
+                            .collect();
+                        &o_vec
+                    };
+                    let h_vec: Vec<f64>;
+                    let h_slice = if let Ok(s) = h_s.cont_slice() {
+                        s
+                    } else {
+                        h_vec = h_s
+                            .to_vec()
+                            .into_iter()
+                            .map(|v| v.unwrap_or(f64::NAN))
+                            .collect();
+                        &h_vec
+                    };
+                    let l_vec: Vec<f64>;
+                    let l_slice = if let Ok(s) = l_s.cont_slice() {
+                        s
+                    } else {
+                        l_vec = l_s
+                            .to_vec()
+                            .into_iter()
+                            .map(|v| v.unwrap_or(f64::NAN))
+                            .collect();
+                        &l_vec
+                    };
+                    let c_vec: Vec<f64>;
+                    let c_slice = if let Ok(s) = c_s.cont_slice() {
+                        s
+                    } else {
+                        c_vec = c_s
+                            .to_vec()
+                            .into_iter()
+                            .map(|v| v.unwrap_or(f64::NAN))
+                            .collect();
+                        &c_vec
+                    };
+
+                    crate::aggregation::decimate_ohlcv_arrays_par_into(
+                        x_slice, o_slice, h_slice, l_slice, c_slice, max_points, output, gaps,
+                    );
+                    return;
+                }
+            }
         }
 
         let lazy_result = self.iter_aggregated_lazy_fallback(start, count, max_points);
         output.extend(lazy_result);
     }
 
-    fn add_data(&mut self, _data: PlotData) {
-    }
+    fn add_data(&mut self, _data: PlotData) {}
 
     fn set_data(&mut self, data: Vec<PlotData>) {
-        if data.is_empty() { self.df = DataFrame::default(); return; }
+        if data.is_empty() {
+            self.df = DataFrame::default();
+            return;
+        }
         let mut x_vals = Vec::with_capacity(data.len());
         let mut y_vals = Vec::with_capacity(data.len());
         for p in data {
-            match p { PlotData::Point(pt) => { x_vals.push(pt.x); y_vals.push(pt.y); }, PlotData::Ohlcv(o) => { x_vals.push(o.time); y_vals.push(o.close); } }
+            match p {
+                PlotData::Point(pt) => {
+                    x_vals.push(pt.x);
+                    y_vals.push(pt.y);
+                }
+                PlotData::Ohlcv(o) => {
+                    x_vals.push(o.time);
+                    y_vals.push(o.close);
+                }
+            }
         }
-        self.df = DataFrame::new(vec![Series::new(self.x_col.clone().into(), x_vals).into(), Series::new(self.y_col.clone().into(), y_vals).into()]).unwrap();
+        self.df = DataFrame::new(vec![
+            Series::new(self.x_col.clone().into(), x_vals).into(),
+            Series::new(self.y_col.clone().into(), y_vals).into(),
+        ])
+        .unwrap();
         self.df.rechunk_mut();
     }
 
@@ -404,7 +690,13 @@ impl PlotDataSource for PolarsDataSource {
         if self.df.height() < 2 {
             return 1.0;
         }
-        let x = match self.df.column(&self.x_col).ok().and_then(|c| c.as_series()).and_then(|s| s.f64().ok()) {
+        let x = match self
+            .df
+            .column(&self.x_col)
+            .ok()
+            .and_then(|c| c.as_series())
+            .and_then(|s| s.f64().ok())
+        {
             Some(x) => x,
             None => return 1.0,
         };

@@ -1,22 +1,24 @@
 use crate::data_types::{AxisEdge, AxisFormat, AxisRange};
+use crate::gaps::GapIndex;
 use crate::scales::ChartScale;
 use crate::theme::ChartTheme;
 use crate::utils::PixelsExt;
-use d3rs::scale::Scale;
 use gpui::prelude::FluentBuilder;
 use gpui::*;
+use std::sync::Arc;
 
 pub struct AxisRenderer;
 
 impl AxisRenderer {
     fn paint_axis(
-        range: &AxisRange,
+        range: &mut AxisRange,
         is_vertical: bool,
         edge: AxisEdge,
         theme: &ChartTheme,
         label: &str,
         format: &AxisFormat,
         min_label_spacing: Pixels,
+        gaps: Option<&GapIndex>,
         bounds: Bounds<Pixels>,
         window: &mut Window,
         cx: &mut App,
@@ -31,38 +33,30 @@ impl AxisRenderer {
             (0.0, bounds.size.width.as_f32())
         };
 
-        let scale = ChartScale::new_linear((min, max), scale_range);
+        let mut scale = ChartScale::new_linear((min, max), scale_range);
+        if let Some(g) = gaps {
+            scale = scale.with_gaps(Some(Arc::new(g.clone())));
+        }
 
-        let ticks_vec;
-        let ticks = if range.cached_ticks.is_empty() {
-            let max_px = if is_vertical {
-                bounds.size.height.as_f32()
-            } else {
-                bounds.size.width.as_f32()
-            };
-            
-            // Dynamic density calculation with configurable margin
-            let margin = min_label_spacing.as_f32();
-            let label_size_est = match format {
-                AxisFormat::Time(_) => 80.0 + margin,
-                AxisFormat::Numeric => 50.0 + margin,
-            };
-            let count = (max_px / label_size_est).floor() as usize;
-            let count = count.clamp(2, 20);
-
-            ticks_vec = d3rs::scale::LinearScale::new()
-                .domain(min, max)
-                .range(
-                    if is_vertical { max_px as f64 } else { 0.0 },
-                    if is_vertical { 0.0 } else { max_px as f64 },
-                )
-                .ticks(count);
-            &ticks_vec
+        let max_px = if is_vertical {
+            bounds.size.height.as_f32()
         } else {
-            &range.cached_ticks
+            bounds.size.width.as_f32()
         };
 
+        // Dynamic density calculation
+        let margin = min_label_spacing.as_f32();
+        let label_size_est = match format {
+            AxisFormat::Time(_) => 80.0 + margin,
+            AxisFormat::Numeric => 50.0 + margin,
+        };
+        let count = (max_px / label_size_est).floor() as usize;
+        let count = count.clamp(2, 20);
+
+        let ticks = range.ticks(count, gaps);
+
         // 1. Axis Border Line
+        // ... (existing code for border line)
         let mut line_builder = PathBuilder::stroke(px(1.0));
         if is_vertical {
             let x = if edge == AxisEdge::Left {
@@ -176,21 +170,37 @@ impl AxisRenderer {
 
     pub fn render_y_axis(
         pane_idx: usize,
+
         axis_idx: usize,
+
         range: &AxisRange,
+
         edge: AxisEdge,
+
         size: Pixels,
+
         h_pct: f32,
+
         current_top_pct: f32,
+
         x_pos: Pixels,
+
         label: String,
+
         format: AxisFormat,
+
         min_label_spacing: Pixels,
+
         theme: &ChartTheme,
+
+        gaps: Option<Arc<GapIndex>>,
+
         on_draw: impl Fn(Bounds<Pixels>) + 'static,
     ) -> Stateful<Div> {
         let is_left = edge == AxisEdge::Left;
-        let range = range.clone();
+
+        let mut range = range.clone();
+
         let theme = theme.clone();
 
         div()
@@ -210,7 +220,18 @@ impl AxisRenderer {
                     |_, _, _| {},
                     move |bounds, (), window: &mut Window, cx| {
                         Self::paint_axis(
-                            &range, true, edge, &theme, &label, &format, min_label_spacing, bounds, window, cx, &on_draw,
+                            &mut range,
+                            true,
+                            edge,
+                            &theme,
+                            &label,
+                            &format,
+                            min_label_spacing,
+                            gaps.as_deref(),
+                            bounds,
+                            window,
+                            cx,
+                            &on_draw,
                         );
                     },
                 )
@@ -220,19 +241,33 @@ impl AxisRenderer {
 
     pub fn render_x_axis(
         axis_idx: usize,
+
         range: &AxisRange,
+
         edge: AxisEdge,
+
         size: Pixels,
+
         gutter_left: Pixels,
+
         gutter_right: Pixels,
+
         label: String,
+
         format: AxisFormat,
+
         min_label_spacing: Pixels,
+
         theme: &ChartTheme,
+
+        gaps: Option<Arc<GapIndex>>,
+
         on_draw: impl Fn(Bounds<Pixels>) + 'static,
     ) -> Stateful<Div> {
         let is_top = edge == AxisEdge::Top;
-        let range = range.clone();
+
+        let mut range = range.clone();
+
         let theme = theme.clone();
 
         div()
@@ -255,7 +290,18 @@ impl AxisRenderer {
                         |_, _, _| {},
                         move |bounds, (), window: &mut Window, cx| {
                             Self::paint_axis(
-                                &range, false, edge, &theme, &label, &format, min_label_spacing, bounds, window, cx, &on_draw,
+                                &mut range,
+                                false,
+                                edge,
+                                &theme,
+                                &label,
+                                &format,
+                                min_label_spacing,
+                                gaps.as_deref(),
+                                bounds,
+                                window,
+                                cx,
+                                &on_draw,
                             );
                         },
                     )

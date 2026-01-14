@@ -17,7 +17,7 @@ fn test_vec_datasource_aggregation_simple() {
 
     // Ask for 10 points covering the whole range [0, 99]
     // 100 points / 10 = 10 points per bin.
-    let aggregated: Vec<PlotData> = source.iter_aggregated(0.0, 99.0, 10).collect();
+    let aggregated: Vec<PlotData> = source.iter_aggregated(0.0, 99.0, 10, None).collect();
 
     // With simple dynamic binning (fallback when < 2000 points):
     // We expect exactly 10 points if perfectly divisible.
@@ -69,7 +69,9 @@ fn test_vec_datasource_pyramid_trigger() {
 
     // So it should select L5 and return roughly 62 points.
 
-    let aggregated: Vec<PlotData> = source.iter_aggregated(0.0, count as f64, 100).collect();
+    let aggregated: Vec<PlotData> = source
+        .iter_aggregated(0.0, count as f64, 100, None)
+        .collect();
 
     println!("Requested 100 points from 4000, got {}", aggregated.len());
 
@@ -110,7 +112,7 @@ fn test_vec_datasource_ohlcv_aggregation() {
     // Aggregate into 10 max points.
     // target_bins = 10 / 2 = 5 bins.
     // Each bin will contain 100/5 = 20 candles.
-    let aggregated: Vec<PlotData> = source.iter_aggregated(0.0, 100.0, 10).collect();
+    let aggregated: Vec<PlotData> = source.iter_aggregated(0.0, 100.0, 10, None).collect();
 
     assert_eq!(aggregated.len(), 5);
 

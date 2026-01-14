@@ -1,4 +1,4 @@
-use crate::data_types::{PlotData, PlotDataSource, StreamingDataSource, AggregationMode};
+use crate::data_types::{AggregationMode, PlotData, PlotDataSource, StreamingDataSource};
 use std::time::Instant;
 
 pub struct HybridDataSource {
@@ -27,7 +27,7 @@ impl HybridDataSource {
 
     pub fn add_realtime(&mut self, data: PlotData) {
         self.realtime.add_data(data);
-        
+
         // Automatic commit when threshold is reached to maintain performance
         if self.realtime.len() >= self.commit_threshold_points {
             self.commit_realtime_to_historical();
@@ -52,7 +52,7 @@ impl HybridDataSource {
         all_data.extend(rt_data);
 
         self.historical.set_data(all_data);
-        
+
         // 3. Reset realtime
         self.realtime.set_data(vec![]);
         self.last_commit = Instant::now();
@@ -77,10 +77,7 @@ impl PlotDataSource for HybridDataSource {
         let b2 = self.realtime.get_bounds();
 
         match (b1, b2) {
-            (Some(h), Some(r)) => Some((
-                h.0.min(r.0), h.1.max(r.1),
-                h.2.min(r.2), h.3.max(r.3)
-            )),
+            (Some(h), Some(r)) => Some((h.0.min(r.0), h.1.max(r.1), h.2.min(r.2), h.3.max(r.3))),
             (Some(h), None) => Some(h),
             (None, Some(r)) => Some(r),
             (None, None) => None,
@@ -100,8 +97,11 @@ impl PlotDataSource for HybridDataSource {
     }
 
     fn iter_range(&self, x_min: f64, x_max: f64) -> Box<dyn Iterator<Item = PlotData> + '_> {
-        Box::new(self.historical.iter_range(x_min, x_max)
-            .chain(self.realtime.iter_range(x_min, x_max)))
+        Box::new(
+            self.historical
+                .iter_range(x_min, x_max)
+                .chain(self.realtime.iter_range(x_min, x_max)),
+        )
     }
 
     fn get_aggregated_data(
@@ -110,26 +110,31 @@ impl PlotDataSource for HybridDataSource {
         x_max: f64,
         max_points: usize,
         output: &mut Vec<PlotData>,
+        gaps: Option<&crate::gaps::GapIndex>,
     ) {
         output.clear();
-        
+
         // Ratio-based point budgeting
         let h_len = self.historical.len() as f64;
         let r_len = self.realtime.len() as f64;
         let total = h_len + r_len;
-        
-        if total == 0.0 { return; }
+
+        if total == 0.0 {
+            return;
+        }
 
         let hist_budget = (max_points as f64 * (h_len / total)).ceil() as usize;
         let rt_budget = max_points.saturating_sub(hist_budget);
 
         if hist_budget > 0 {
-            self.historical.get_aggregated_data(x_min, x_max, hist_budget, output);
+            self.historical
+                .get_aggregated_data(x_min, x_max, hist_budget, output, gaps);
         }
-        
+
         if rt_budget > 0 {
             let mut rt_buffer = Vec::with_capacity(rt_budget);
-            self.realtime.get_aggregated_data(x_min, x_max, rt_budget, &mut rt_buffer);
+            self.realtime
+                .get_aggregated_data(x_min, x_max, rt_budget, &mut rt_buffer, gaps);
             output.extend(rt_buffer);
         }
     }

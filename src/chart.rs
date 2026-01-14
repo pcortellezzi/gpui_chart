@@ -295,14 +295,25 @@ impl Chart {
         self.notify_render(cx);
     }
 
-    pub fn set_x_axis_format(&mut self, axis_idx: usize, format: crate::data_types::AxisFormat, cx: &mut Context<Self>) {
+    pub fn set_x_axis_format(
+        &mut self,
+        axis_idx: usize,
+        format: crate::data_types::AxisFormat,
+        cx: &mut Context<Self>,
+    ) {
         if let Some(axis) = self.x_axes.get_mut(axis_idx) {
             axis.format = format;
             self.notify_render(cx);
         }
     }
 
-    pub fn set_y_axis_format(&mut self, pane_idx: usize, axis_idx: usize, format: crate::data_types::AxisFormat, cx: &mut Context<Self>) {
+    pub fn set_y_axis_format(
+        &mut self,
+        pane_idx: usize,
+        axis_idx: usize,
+        format: crate::data_types::AxisFormat,
+        cx: &mut Context<Self>,
+    ) {
         if let Some(pane) = self.panes.get_mut(pane_idx) {
             if let Some(axis) = pane.y_axes.get_mut(axis_idx) {
                 axis.format = format;
@@ -311,14 +322,25 @@ impl Chart {
         }
     }
 
-    pub fn set_x_axis_min_spacing(&mut self, axis_idx: usize, spacing: Pixels, cx: &mut Context<Self>) {
+    pub fn set_x_axis_min_spacing(
+        &mut self,
+        axis_idx: usize,
+        spacing: Pixels,
+        cx: &mut Context<Self>,
+    ) {
         if let Some(axis) = self.x_axes.get_mut(axis_idx) {
             axis.min_label_spacing = spacing;
             self.notify_render(cx);
         }
     }
 
-    pub fn set_y_axis_min_spacing(&mut self, pane_idx: usize, axis_idx: usize, spacing: Pixels, cx: &mut Context<Self>) {
+    pub fn set_y_axis_min_spacing(
+        &mut self,
+        pane_idx: usize,
+        axis_idx: usize,
+        spacing: Pixels,
+        cx: &mut Context<Self>,
+    ) {
         if let Some(pane) = self.panes.get_mut(pane_idx) {
             if let Some(axis) = pane.y_axes.get_mut(axis_idx) {
                 axis.min_label_spacing = spacing;

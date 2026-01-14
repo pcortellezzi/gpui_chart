@@ -341,7 +341,9 @@ impl ChartView {
                                 let mut sy_min = f64::INFINITY;
                                 let mut sy_max = f64::NEG_INFINITY;
                                 for series in &ps.series {
-                                    if series.y_axis_id.0 != a_idx || ps.hidden_series.contains(&series.id) {
+                                    if series.y_axis_id.0 != a_idx
+                                        || ps.hidden_series.contains(&series.id)
+                                    {
                                         continue;
                                     }
                                     if let Some((s_min, s_max)) =
@@ -354,7 +356,7 @@ impl ChartView {
                                 if sy_min != f64::INFINITY {
                                     y_axis_state.entity.update(cx, |y, _| {
                                         ViewController::auto_fit_axis(y, sy_min, sy_max, 0.05);
-                                        y.update_ticks_if_needed(10);
+                                        y.update_ticks_if_needed(10, None);
                                     });
                                 }
                             }
@@ -443,10 +445,14 @@ impl ChartView {
                         c.x_axes.get(drag_info.axis_idx).map(|a| a.entity.clone())
                     };
 
-                    if let (Some(axis), Some(bounds)) = (
-                        axis_entity,
-                        axis_bounds_rc.borrow().get(&key).cloned(),
-                    ) {
+                    if let (Some(axis), Some(bounds)) =
+                        (axis_entity, axis_bounds_rc.borrow().get(&key).cloned())
+                    {
+                        let gaps = if drag_info.is_y {
+                            None
+                        } else {
+                            c.shared_state.read(cx).gap_index.clone()
+                        };
                         axis.update(cx, |r: &mut AxisRange, _| {
                             match drag_info.button {
                                 MouseButton::Left => {
@@ -460,6 +466,7 @@ impl ChartView {
                                         (if drag_info.is_y { delta.y } else { delta.x }).as_f32(),
                                         total_size.as_f32(),
                                         drag_info.is_y,
+                                        gaps.as_deref(),
                                     );
                                 }
                                 MouseButton::Middle => {
@@ -467,11 +474,16 @@ impl ChartView {
                                         (if drag_info.is_y { delta.y } else { -delta.x }).as_f32(),
                                         100.0,
                                     );
-                                    ViewController::zoom_axis_at(r, drag_info.pivot_pct, factor);
+                                    ViewController::zoom_axis_at(
+                                        r,
+                                        drag_info.pivot_pct,
+                                        factor,
+                                        gaps.as_deref(),
+                                    );
                                 }
                                 _ => {}
                             }
-                            r.update_ticks_if_needed(10);
+                            r.update_ticks_if_needed(10, gaps.as_deref());
                         });
                         c.shared_state
                             .update(cx, |s: &mut SharedPlotState, _| s.request_render());
@@ -488,14 +500,28 @@ impl ChartView {
                         let delta = event.position - start;
                         let pw = bounds.size.width.as_f32();
                         let ph = bounds.size.height.as_f32();
+                        let gaps = c.shared_state.read(cx).gap_index.clone();
                         match ps.drag_button {
                             Some(MouseButton::Left) => {
-                                c.shared_x_axis.update(cx, |x, _| {
-                                    ViewController::pan_axis(x, delta.x.as_f32(), pw, false);
+                                let gaps_x = gaps.clone();
+                                c.shared_x_axis.update(cx, move |x, _| {
+                                    ViewController::pan_axis(
+                                        x,
+                                        delta.x.as_f32(),
+                                        pw,
+                                        false,
+                                        gaps_x.as_deref(),
+                                    );
                                 });
                                 for y_axis in &ps.y_axes {
                                     y_axis.entity.update(cx, |y, _| {
-                                        ViewController::pan_axis(y, delta.y.as_f32(), ph, true);
+                                        ViewController::pan_axis(
+                                            y,
+                                            delta.y.as_f32(),
+                                            ph,
+                                            true,
+                                            None,
+                                        );
                                     });
                                 }
                             }
@@ -504,17 +530,30 @@ impl ChartView {
                                     ViewController::compute_zoom_factor(delta.x.as_f32(), 100.0);
                                 let factor_y =
                                     ViewController::compute_zoom_factor(-delta.y.as_f32(), 100.0);
-                                
+
                                 let pivot_source = ps.initial_drag_start.unwrap_or(start);
-                                let pivot_x = (pivot_source.x - bounds.origin.x).as_f32() as f64 / pw as f64;
-                                let pivot_y = (pivot_source.y - bounds.origin.y).as_f32() as f64 / ph as f64;
-                                
-                                c.shared_x_axis.update(cx, |x, _| {
-                                    ViewController::zoom_axis_at(x, pivot_x, factor_x);
+                                let pivot_x =
+                                    (pivot_source.x - bounds.origin.x).as_f32() as f64 / pw as f64;
+                                let pivot_y =
+                                    (pivot_source.y - bounds.origin.y).as_f32() as f64 / ph as f64;
+
+                                let gaps_x = gaps.clone();
+                                c.shared_x_axis.update(cx, move |x, _| {
+                                    ViewController::zoom_axis_at(
+                                        x,
+                                        pivot_x,
+                                        factor_x,
+                                        gaps_x.as_deref(),
+                                    );
                                 });
                                 for y_axis in &ps.y_axes {
                                     y_axis.entity.update(cx, |y, _| {
-                                        ViewController::zoom_axis_at(y, 1.0 - pivot_y, factor_y);
+                                        ViewController::zoom_axis_at(
+                                            y,
+                                            1.0 - pivot_y,
+                                            factor_y,
+                                            None,
+                                        );
                                     });
                                 }
                             }
@@ -747,17 +786,20 @@ impl ChartView {
                             ScrollDelta::Pixels(p) => p.y.as_f32(),
                             ScrollDelta::Lines(p) => p.y as f32 * 20.0,
                         };
+                        let gaps = c.shared_state.read(cx).gap_index.clone();
                         if is_zoom {
                             let factor = (1.0f64 - delta_y as f64 * 0.01).clamp(0.1, 10.0);
                             let mx_pct = (event.position.x - bounds.origin.x).as_f32() as f64
                                 / bounds.size.width.as_f32() as f64;
-                            c.shared_x_axis
-                                .update(cx, |x, _| ViewController::zoom_axis_at(x, mx_pct, factor));
+                            let gaps_x = gaps.clone();
+                            c.shared_x_axis.update(cx, move |x, _| {
+                                ViewController::zoom_axis_at(x, mx_pct, factor, gaps_x.as_deref())
+                            });
                             let my_pct = (event.position.y - bounds.origin.y).as_f32() as f64
                                 / bounds.size.height.as_f32() as f64;
                             for y_axis in &ps.y_axes {
                                 y_axis.entity.update(cx, |y, _| {
-                                    ViewController::zoom_axis_at(y, 1.0 - my_pct, factor)
+                                    ViewController::zoom_axis_at(y, 1.0 - my_pct, factor, None)
                                 });
                             }
                         } else {
@@ -765,12 +807,14 @@ impl ChartView {
                                 ScrollDelta::Pixels(p) => p.x.as_f32(),
                                 ScrollDelta::Lines(p) => p.x as f32 * 20.0,
                             };
-                            c.shared_x_axis.update(cx, |x, _| {
+                            let gaps_x = gaps.clone();
+                            c.shared_x_axis.update(cx, move |x, _| {
                                 ViewController::pan_axis(
                                     x,
                                     delta_x,
                                     bounds.size.width.as_f32(),
                                     false,
+                                    gaps_x.as_deref(),
                                 )
                             });
                             for y_axis in &ps.y_axes {
@@ -780,6 +824,7 @@ impl ChartView {
                                         delta_y,
                                         bounds.size.height.as_f32(),
                                         true,
+                                        None,
                                     )
                                 });
                             }
@@ -795,19 +840,20 @@ impl ChartView {
 
     fn handle_pan_left(&mut self, _: &PanLeft, _win: &mut Window, cx: &mut Context<Self>) {
         self.chart.update(cx, |c, cx| {
-            c.shared_x_axis.update(cx, |r, _| {
-                ViewController::pan_axis(r, -20.0, 200.0, false);
-                r.update_ticks_if_needed(10);
+            let gaps = c.shared_state.read(cx).gap_index.clone();
+            c.shared_x_axis.update(cx, move |r, _| {
+                ViewController::pan_axis(r, -20.0, 200.0, false, gaps.as_deref());
+                r.update_ticks_if_needed(10, gaps.as_deref());
             });
-            c.shared_state
-                .update(cx, |s: &mut SharedPlotState, _| s.request_render());
+            c.shared_state.update(cx, |s, _| s.request_render());
         });
     }
     fn handle_pan_right(&mut self, _: &PanRight, _win: &mut Window, cx: &mut Context<Self>) {
         self.chart.update(cx, |c, cx| {
-            c.shared_x_axis.update(cx, |r, _| {
-                ViewController::pan_axis(r, 20.0, 200.0, false);
-                r.update_ticks_if_needed(10);
+            let gaps = c.shared_state.read(cx).gap_index.clone();
+            c.shared_x_axis.update(cx, move |r, _| {
+                ViewController::pan_axis(r, 20.0, 200.0, false, gaps.as_deref());
+                r.update_ticks_if_needed(10, gaps.as_deref());
             });
             c.shared_state
                 .update(cx, |s: &mut SharedPlotState, _| s.request_render());
@@ -815,22 +861,22 @@ impl ChartView {
     }
     fn handle_zoom_in(&mut self, _: &ZoomIn, _win: &mut Window, cx: &mut Context<Self>) {
         self.chart.update(cx, |c, cx| {
-            c.shared_x_axis.update(cx, |r, _| {
-                ViewController::zoom_axis_at(r, 0.5, 0.9);
-                r.update_ticks_if_needed(10);
+            let gaps = c.shared_state.read(cx).gap_index.clone();
+            c.shared_x_axis.update(cx, move |r, _| {
+                ViewController::zoom_axis_at(r, 0.5, 0.9, gaps.as_deref());
+                r.update_ticks_if_needed(10, gaps.as_deref());
             });
-            c.shared_state
-                .update(cx, |s: &mut SharedPlotState, _| s.request_render());
+            c.shared_state.update(cx, |s, _| s.request_render());
         });
     }
     fn handle_zoom_out(&mut self, _: &ZoomOut, _win: &mut Window, cx: &mut Context<Self>) {
         self.chart.update(cx, |c, cx| {
-            c.shared_x_axis.update(cx, |r, _| {
-                ViewController::zoom_axis_at(r, 0.5, 1.1);
-                r.update_ticks_if_needed(10);
+            let gaps = c.shared_state.read(cx).gap_index.clone();
+            c.shared_x_axis.update(cx, move |r, _| {
+                ViewController::zoom_axis_at(r, 0.5, 1.1, gaps.as_deref());
+                r.update_ticks_if_needed(10, gaps.as_deref());
             });
-            c.shared_state
-                .update(cx, |s: &mut SharedPlotState, _| s.request_render());
+            c.shared_state.update(cx, |s, _| s.request_render());
         });
     }
     fn handle_reset_view(&mut self, _: &ResetView, _win: &mut Window, cx: &mut Context<Self>) {
@@ -846,9 +892,10 @@ impl ChartView {
                 }
             }
             if x_min != f64::INFINITY {
-                c.shared_x_axis.update(cx, |r, _| {
+                let gaps = c.shared_state.read(cx).gap_index.clone();
+                c.shared_x_axis.update(cx, move |r, _| {
                     ViewController::auto_fit_axis(r, x_min, x_max, 0.05);
-                    r.update_ticks_if_needed(10);
+                    r.update_ticks_if_needed(10, gaps.as_deref());
                 });
             }
             for ps in c.panes.iter() {
@@ -871,7 +918,7 @@ impl ChartView {
                     if sy_min != f64::INFINITY {
                         y_axis_state.entity.update(cx, |y, _| {
                             ViewController::auto_fit_axis(y, sy_min, sy_max, 0.05);
-                            y.update_ticks_if_needed(10);
+                            y.update_ticks_if_needed(10, None);
                         });
                     }
                 }
@@ -972,6 +1019,7 @@ impl Render for ChartView {
                     axis.format,
                     axis.min_label_spacing,
                     &theme,
+                    None, // Y axes don't have gaps
                     {
                         let key = key.clone();
                         let lab = last_render_axis_bounds.clone();
@@ -1026,7 +1074,7 @@ impl Render for ChartView {
                                                 ViewController::auto_fit_axis(
                                                     y, sy_min, sy_max, 0.05,
                                                 );
-                                                y.update_ticks_if_needed(10);
+                                                y.update_ticks_if_needed(10, None);
                                             });
                                         }
                                     }
@@ -1092,7 +1140,7 @@ impl Render for ChartView {
                         };
                         let factor = (1.0f64 - dy as f64 * 0.01).clamp(0.1, 10.0);
                         axis_entity.update(cx, |r, _| {
-                            ViewController::zoom_axis_at(r, 0.5, factor);
+                            ViewController::zoom_axis_at(r, 0.5, factor, None);
                         });
                         shared_state.update(cx, |s: &mut SharedPlotState, _| s.request_render());
                     }
@@ -1125,6 +1173,7 @@ impl Render for ChartView {
                 x_axis.format,
                 x_axis.min_label_spacing,
                 &theme,
+                shared_state.gap_index.clone(),
                 {
                     let key = key.clone();
                     let lab = last_render_axis_bounds.clone();
@@ -1162,9 +1211,10 @@ impl Render for ChartView {
                                 }
                             }
                             if x_min != f64::INFINITY {
-                                c.shared_x_axis.update(cx, |r, _| {
+                                let gaps = c.shared_state.read(cx).gap_index.clone();
+                                c.shared_x_axis.update(cx, move |r, _| {
                                     ViewController::auto_fit_axis(r, x_min, x_max, 0.05);
-                                    r.update_ticks_if_needed(10);
+                                    r.update_ticks_if_needed(10, gaps.as_deref());
                                 });
                             }
                             c.shared_state
@@ -1226,8 +1276,9 @@ impl Render for ChartView {
                         ScrollDelta::Lines(p) => p.y as f32 * 20.0,
                     };
                     let factor = (1.0f64 - dy as f64 * 0.01).clamp(0.1, 10.0);
+                    let gaps = shared_state.read(cx).gap_index.clone();
                     axis_entity.update(cx, |r, _| {
-                        ViewController::zoom_axis_at(r, 0.5, factor);
+                        ViewController::zoom_axis_at(r, 0.5, factor, gaps.as_deref());
                     });
                     shared_state.update(cx, |s: &mut SharedPlotState, _| s.request_render());
                 }
@@ -1338,7 +1389,7 @@ impl Render for ChartView {
             let chart = chart_handle.clone();
             let legend = self.render_legend(i, ps, &theme, panes.len(), chart.clone(), cx);
             let shared_state_for_canvas = shared_state_handle.clone();
-            
+
             let mut pane_debug_overlay = None;
             if shared_state.debug_mode {
                 let times = shared_state.pane_paint_times.read();
@@ -1374,12 +1425,16 @@ impl Render for ChartView {
                                 pane_rc
                                     .borrow_mut()
                                     .insert(pane_id_for_canvas.clone(), bounds);
-                                let x_range = x_axis_entity.read(cx);
+                                let x_range = x_axis_entity.read(cx).clone();
                                 let x_bounds = x_range.clamped_bounds();
-                                let x_scale = crate::scales::ChartScale::new_linear(
+                                let mut x_scale = crate::scales::ChartScale::new_linear(
                                     x_bounds,
                                     (0.0, bounds.size.width.as_f32()),
                                 );
+                                if let Some(gaps) = &shared_state_for_paint.gap_index {
+                                    x_scale = x_scale.with_gaps(Some(gaps.clone()));
+                                }
+
                                 let y_domains: Vec<(f64, f64)> = y_axes_entities
                                     .iter()
                                     .map(|a| a.read(cx).clamped_bounds())
@@ -1387,15 +1442,17 @@ impl Render for ChartView {
                                 let x_domains = vec![x_bounds];
                                 window.with_content_mask(Some(ContentMask { bounds }), |window| {
                                     if !y_axes_entities.is_empty() {
-                                        let y0 = y_axes_entities[0].read(cx);
+                                        let y0 = y_axes_entities[0].read(cx).clone();
                                         let y_scale = crate::scales::ChartScale::new_linear(
                                             y_domains[0],
                                             (bounds.size.height.as_f32(), 0.0),
                                         );
-                                        let x_ticks = d3rs::scale::LinearScale::new()
-                                            .domain(x_bounds.0, x_bounds.1)
-                                            .range(0.0, bounds.size.width.as_f32() as f64)
-                                            .ticks(10);
+
+                                        let mut x_axis_range = x_range.clone();
+                                        let x_ticks = x_axis_range
+                                            .ticks(10, shared_state_for_paint.gap_index.as_deref())
+                                            .to_vec();
+
                                         let y_render_info = crate::rendering::YAxisRenderInfo {
                                             domain: y_domains[0],
                                             scale: y_scale,

@@ -6,23 +6,23 @@ fn test_m4_visual_stability_panning() {
     let n = 2000;
     let x: Vec<f64> = (0..n).map(|i| i as f64).collect();
     let y: Vec<f64> = (0..n).map(|i| (i as f64 * 0.1).sin() * 100.0).collect();
-    
+
     let max_points = 200;
-    
+
     // Decimate original range
-    let res1 = decimate_m4_arrays_par(&x, &y, max_points);
-    
+    let res1 = decimate_m4_arrays_par(&x, &y, max_points, None);
+
     // Shift data by a small amount (simulate panning)
     // We take a slice that is slightly offset
     let offset = 1;
     let x_shifted = &x[offset..];
     let y_shifted = &y[offset..];
-    
-    let res2 = decimate_m4_arrays_par(x_shifted, y_shifted, max_points);
-    
+
+    let res2 = decimate_m4_arrays_par(x_shifted, y_shifted, max_points, None);
+
     // In a stable binning system, the majority of points (except maybe at the edges)
     // should be identical or very close because they belong to the same "stable" bins.
-    
+
     let mut matches = 0;
     for p1 in &res1 {
         if let PlotData::Point(pt1) = p1 {
@@ -36,13 +36,17 @@ fn test_m4_visual_stability_panning() {
             }
         }
     }
-    
+
     let match_ratio = matches as f64 / res1.len() as f64;
     println!("Stability match ratio: {:.2}%", match_ratio * 100.0);
-    
-    // If the ratio is very low, it means every point changed just because of 1 offset, 
+
+    // If the ratio is very low, it means every point changed just because of 1 offset,
     // which is the definition of jitter.
-    // Note: With index-based chunking, this is hard to achieve perfectly, 
+    // Note: With index-based chunking, this is hard to achieve perfectly,
     // but stable_bin_size helps a bit.
-    assert!(match_ratio > 0.5, "Too much jitter! Only {:.2}% of points remained stable after 1-point pan.", match_ratio * 100.0);
+    assert!(
+        match_ratio > 0.5,
+        "Too much jitter! Only {:.2}% of points remained stable after 1-point pan.",
+        match_ratio * 100.0
+    );
 }

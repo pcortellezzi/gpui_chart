@@ -14,7 +14,7 @@ fn test_streaming_datasource_capacity() {
     }
 
     assert_eq!(source.len(), 10);
-    // Les premières données (0-4) doivent avoir été supprimées
+    // The first data points (0-4) must have been removed
     let bounds = source.get_bounds().unwrap();
     assert_eq!(bounds.0, 5.0, "x_min should be 5 after eviction");
     assert_eq!(bounds.1, 14.0, "x_max should be 14");
@@ -32,12 +32,12 @@ fn test_datasource_y_range() {
     }
     let source = VecDataSource::new(data);
 
-    // Range ne contenant pas le pic
+    // Range NOT containing the peak
     let range1 = source.get_y_range(0.0, 10.0).unwrap();
     assert_eq!(range1.0, 0.0);
     assert_eq!(range1.1, 10.0);
 
-    // Range contenant le pic
+    // Range containing the peak
     let range2 = source.get_y_range(45.0, 55.0).unwrap();
     assert_eq!(range2.1, 1000.0);
 }
@@ -45,7 +45,7 @@ fn test_datasource_y_range() {
 #[test]
 fn test_streaming_cache_rebuild() {
     let mut source = StreamingDataSource::new(1000);
-    // Ajouter assez de points pour remplir des chunks
+    // Add enough points to fill chunks
     for i in 0..600 {
         source.add_data(PlotData::Point(PlotPoint {
             x: i as f64,

@@ -1,18 +1,20 @@
+use gpui::{px, Point};
+use gpui_chart::data_types::{ColorOp, PlotData, PlotPoint};
 use gpui_chart::simd::batch_transform_points;
-use gpui_chart::data_types::{PlotData, PlotPoint, ColorOp};
-use gpui::{Point, px};
 use std::time::Instant;
 
 #[test]
 fn bench_batch_transform() {
     let n = 1_000_000;
-    let data: Vec<PlotData> = (0..n).map(|i| {
-        PlotData::Point(PlotPoint {
-            x: i as f64,
-            y: (i as f64).sin(),
-            color_op: ColorOp::None,
+    let data: Vec<PlotData> = (0..n)
+        .map(|i| {
+            PlotData::Point(PlotPoint {
+                x: i as f64,
+                y: (i as f64).sin(),
+                color_op: ColorOp::None,
+            })
         })
-    }).collect();
+        .collect();
 
     let x_scale = 0.5;
     let x_offset = 10.0;
@@ -45,5 +47,8 @@ fn bench_batch_transform() {
     let dur_naive = start_naive.elapsed();
 
     println!("Naive Loop (1M points) took:      {:?}", dur_naive);
-    println!("Speedup: {:.2}x", dur_naive.as_secs_f64() / dur_simd.as_secs_f64());
+    println!(
+        "Speedup: {:.2}x",
+        dur_naive.as_secs_f64() / dur_simd.as_secs_f64()
+    );
 }

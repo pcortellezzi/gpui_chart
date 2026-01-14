@@ -45,7 +45,7 @@ impl PlotRenderer for AreaPlot {
         transform: &PlotTransform,
         _series_id: &str,
         _cx: &mut App,
-        _state: &crate::data_types::SharedPlotState,
+        state: &crate::data_types::SharedPlotState,
     ) {
         let (x_min, x_max) = transform.x_scale.domain();
         let max_points = transform.bounds.size.width.as_f32() as usize * 2;
@@ -58,7 +58,13 @@ impl PlotRenderer for AreaPlot {
         let mut last_pt: Option<Point<Pixels>> = None;
 
         let mut buffer = self.buffer.lock();
-        self.source.get_aggregated_data(x_min, x_max, max_points, &mut buffer);
+        self.source.get_aggregated_data(
+            x_min,
+            x_max,
+            max_points,
+            &mut buffer,
+            state.gap_index.as_deref(),
+        );
 
         for data in buffer.iter() {
             if let PlotData::Point(point) = data {

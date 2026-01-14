@@ -25,16 +25,26 @@ fn test_m4_disappearing_tail() {
     // range = 7.0 * 100 = 700.
     let x_slice = &x[0..701]; // x[700] = 700.0
     let y_slice = &y[0..701];
-    
+
     let mut output = Vec::new();
-    decimate_m4_arrays_par_into(x_slice, y_slice, max_points, &mut output);
-    
+    decimate_m4_arrays_par_into(x_slice, y_slice, max_points, &mut output, None);
+
     let last_x = match output.last().unwrap() {
         PlotData::Point(p) => p.x,
         _ => panic!("Expected point"),
     };
-    
-    println!("Input Max X: {}, Output Max X: {}, Points: {}", x_slice.last().unwrap(), last_x, output.len());
-    
-    assert!(last_x >= 700.0, "Tail data disappeared! Input Max X: {}, Last X in output: {}", x_slice.last().unwrap(), last_x);
+
+    println!(
+        "Input Max X: {}, Output Max X: {}, Points: {}",
+        x_slice.last().unwrap(),
+        last_x,
+        output.len()
+    );
+
+    assert!(
+        last_x >= 700.0,
+        "Tail data disappeared! Input Max X: {}, Last X in output: {}",
+        x_slice.last().unwrap(),
+        last_x
+    );
 }

@@ -39,13 +39,19 @@ impl PlotRenderer for StepLinePlot {
         transform: &PlotTransform,
         _series_id: &str,
         _cx: &mut App,
-        _state: &crate::data_types::SharedPlotState,
+        state: &crate::data_types::SharedPlotState,
     ) {
         let (x_min, x_max) = transform.x_scale.domain();
         let max_points = transform.bounds.size.width.as_f32() as usize * 2;
-        
+
         let mut buffer = self.buffer.lock();
-        self.source.get_aggregated_data(x_min, x_max, max_points, &mut buffer);
+        self.source.get_aggregated_data(
+            x_min,
+            x_max,
+            max_points,
+            &mut buffer,
+            state.gap_index.as_deref(),
+        );
 
         let mut builder = PathBuilder::stroke(px(self.config.line_width));
         let mut prev_pt: Option<Point<Pixels>> = None;

@@ -1,8 +1,8 @@
 use super::PlotRenderer;
 use crate::data_types::{LinePlotConfig, PlotData, PlotDataSource, PlotPoint, VecDataSource};
+use crate::simd::batch_transform_points;
 use crate::transform::PlotTransform;
 use crate::utils::PixelsExt;
-use crate::simd::batch_transform_points;
 use gpui::*;
 
 /// Line plot type
@@ -41,13 +41,19 @@ impl PlotRenderer for LinePlot {
         transform: &PlotTransform,
         _series_id: &str,
         _cx: &mut App,
-        _state: &crate::data_types::SharedPlotState,
+        state: &crate::data_types::SharedPlotState,
     ) {
         let (x_min, x_max) = transform.x_scale.domain();
         let max_points = transform.bounds.size.width.as_f32() as usize * 2;
 
         let mut buffer = self.buffer.lock();
-        self.source.get_aggregated_data(x_min, x_max, max_points, &mut buffer);
+        self.source.get_aggregated_data(
+            x_min,
+            x_max,
+            max_points,
+            &mut buffer,
+            state.gap_index.as_deref(),
+        );
 
         let mut screen_buffer = self.screen_buffer.lock();
         let (xm, xc, ym, yc) = transform.get_scale_coefficients();

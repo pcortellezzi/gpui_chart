@@ -67,20 +67,20 @@ fn test_axis_range_zoom_pivot_with_clamping() {
     // Virtual range: [-50, 350].
     range.zoom_at(150.0, 0.5, 4.0);
 
-    // Avec la nouvelle logique, clamp() ne doit pas modifier les bornes
-    // car elles couvrent déjà toute la zone [0, 300].
+    // With new logic, clamp() should not modify boundaries
+    // because they already cover the entire [0, 300] area.
     range.clamp();
 
     assert_eq!(range.min, -50.0, "Virtual min should be preserved");
     assert_eq!(range.max, 350.0, "Virtual max should be preserved");
 
-    // Cependant, pour le rendu, on verra bien [0, 300]
+    // However, for rendering, we will see [0, 300]
     let (view_min, view_max) = range.clamped_bounds();
     assert_eq!(view_min, 0.0);
     assert_eq!(view_max, 300.0);
 
     // Zoom back in (factor 0.25) at the same pivot 150.0.
-    // 150.0 est toujours à 50% de [-50, 350].
+    // 150.0 is still at 50% of [-50, 350].
     // New span = 400 * 0.25 = 100.
     // New min = 150 - 100 * 0.5 = 100.
     range.zoom_at(150.0, 0.5, 0.25);
@@ -94,7 +94,10 @@ fn test_chart_scale_formatting() {
 
     // Test large numbers (timestamps)
     let ts = 1736500000000.0; // Sometime in 2025
-    let formatted = scale.format_tick(ts, &AxisFormat::Time(gpui_chart::data_types::TimeUnit::Milliseconds));
+    let formatted = scale.format_tick(
+        ts,
+        &AxisFormat::Time(gpui_chart::data_types::TimeUnit::Milliseconds),
+    );
     assert!(
         formatted.contains(":"),
         "Should be formatted as time: {}",

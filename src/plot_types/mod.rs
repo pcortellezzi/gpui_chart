@@ -16,13 +16,20 @@ pub use heatmap::HeatmapPlot;
 pub use line::LinePlot;
 pub use step_line::StepLinePlot;
 
-use crate::transform::PlotTransform;
 use crate::data_types::SharedPlotState;
+use crate::transform::PlotTransform;
 use gpui::*;
 
 /// Trait for rendering plot types
 pub trait PlotRenderer: Send + Sync {
-    fn render(&self, window: &mut Window, transform: &PlotTransform, series_id: &str, cx: &mut App, state: &SharedPlotState);
+    fn render(
+        &self,
+        window: &mut Window,
+        transform: &PlotTransform,
+        series_id: &str,
+        cx: &mut App,
+        state: &SharedPlotState,
+    );
 
     /// Get min/max bounds for auto-fitting (x_min, x_max, y_min, y_max)
     fn get_min_max(&self) -> Option<(f64, f64, f64, f64)>;

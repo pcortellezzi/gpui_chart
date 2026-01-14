@@ -1,13 +1,25 @@
+use gpui::{px, Point};
+use gpui_chart::data_types::{ColorOp, PlotData, PlotPoint};
 use gpui_chart::simd::batch_transform_points;
-use gpui_chart::data_types::{PlotData, PlotPoint, ColorOp};
-use gpui::{Point, px};
 
 #[test]
 fn test_batch_transform_points_correctness() {
     let data = vec![
-        PlotData::Point(PlotPoint { x: 0.0, y: 0.0, color_op: ColorOp::None }),
-        PlotData::Point(PlotPoint { x: 10.0, y: 10.0, color_op: ColorOp::None }),
-        PlotData::Point(PlotPoint { x: 5.0, y: 20.0, color_op: ColorOp::None }),
+        PlotData::Point(PlotPoint {
+            x: 0.0,
+            y: 0.0,
+            color_op: ColorOp::None,
+        }),
+        PlotData::Point(PlotPoint {
+            x: 10.0,
+            y: 10.0,
+            color_op: ColorOp::None,
+        }),
+        PlotData::Point(PlotPoint {
+            x: 5.0,
+            y: 20.0,
+            color_op: ColorOp::None,
+        }),
     ];
 
     let x_scale = 2.0; // 1 data unit = 2 pixels
@@ -35,7 +47,11 @@ fn test_batch_transform_points_correctness() {
 
 #[test]
 fn test_batch_transform_clears_buffer() {
-    let data = vec![PlotData::Point(PlotPoint { x: 0.0, y: 0.0, color_op: ColorOp::None })];
+    let data = vec![PlotData::Point(PlotPoint {
+        x: 0.0,
+        y: 0.0,
+        color_op: ColorOp::None,
+    })];
     let mut output = vec![Point::new(px(999.0), px(999.0))];
 
     batch_transform_points(&data, 1.0, 0.0, 1.0, 0.0, &mut output);

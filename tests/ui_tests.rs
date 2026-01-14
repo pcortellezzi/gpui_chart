@@ -1,7 +1,4 @@
-use gpui::{
-    px, AppContext, MouseButton, Point,
-    TestAppContext,
-};
+use gpui::{px, AppContext, MouseButton, Point, TestAppContext};
 use gpui_chart::data_types::{AxisRange, SharedPlotState};
 use gpui_chart::{Chart, ChartView};
 
@@ -97,11 +94,7 @@ fn test_chart_view_middle_click_zoom(cx: &mut TestAppContext) {
 
     let mut visual_cx = gpui::VisualTestContext::from_window(window.into(), cx);
 
-    visual_cx.simulate_mouse_down(
-        center,
-        MouseButton::Middle,
-        Default::default(),
-    );
+    visual_cx.simulate_mouse_down(center, MouseButton::Middle, Default::default());
 
     // 3. Simulate Mouse Move (Drag) to zoom
     // Moving 100px right and 100px up (negative delta y in GPUI)

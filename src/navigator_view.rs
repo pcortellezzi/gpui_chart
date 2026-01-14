@@ -126,13 +126,29 @@ impl NavigatorView {
             return;
         }
 
-        let center_x = ViewController::map_pixels_to_value(
-            (pos.x - bounds.origin.x).as_f32(),
-            bounds.size.width.as_f32(),
-            self.full_domain.x_min,
-            self.full_domain.x_max,
-            false,
-        );
+        let shared_state = self.shared_state.read(cx);
+        let gaps = shared_state.gap_index.as_deref();
+
+        let center_x = if let Some(g) = gaps {
+            let l_min = g.to_logical(self.full_domain.x_min as i64);
+            let l_max = g.to_logical(self.full_domain.x_max as i64);
+            let l_val = ViewController::map_pixels_to_value(
+                (pos.x - bounds.origin.x).as_f32(),
+                bounds.size.width.as_f32(),
+                l_min as f64,
+                l_max as f64,
+                false,
+            );
+            g.to_real(l_val as i64) as f64
+        } else {
+            ViewController::map_pixels_to_value(
+                (pos.x - bounds.origin.x).as_f32(),
+                bounds.size.width.as_f32(),
+                self.full_domain.x_min,
+                self.full_domain.x_max,
+                false,
+            )
+        };
 
         let center_y = ViewController::map_pixels_to_value(
             (pos.y - bounds.origin.y).as_f32(),
@@ -146,15 +162,13 @@ impl NavigatorView {
         let lock_y = self.config.lock_y;
         let clamp_to_map = self.config.clamp_to_minimap;
         let full = self.full_domain.clone();
-
         if !lock_x {
             self.x_axis.update(cx, |x, _cx| {
-                let limit = if clamp_to_map {
-                    Some((full.x_min, full.x_max))
-                } else {
-                    None
-                };
-                ViewController::move_to_center(x, center_x, limit);
+                // Move selection rectangle to center at current mouse position
+                let span = x.span();
+                x.min = center_x - span / 2.0;
+                x.max = center_x + span / 2.0;
+                x.clamp();
             });
         }
 
@@ -212,8 +226,25 @@ impl Render for NavigatorView {
                             bounds.size.height.as_f32() as f64,
                         );
 
-                        let left_pct = (x_axis_val.min - full_domain.x_min) / full_domain.width();
-                        let right_pct = (x_axis_val.max - full_domain.x_min) / full_domain.width();
+                        let (left_pct, right_pct) = if let Some(g) = &shared_state.gap_index {
+                            let l_min_full = g.to_logical(full_domain.x_min as i64) as f64;
+                            let l_max_full = g.to_logical(full_domain.x_max as i64) as f64;
+                            let l_span_full = l_max_full - l_min_full;
+
+                            let l_min_view = g.to_logical(x_axis_val.min as i64) as f64;
+                            let l_max_view = g.to_logical(x_axis_val.max as i64) as f64;
+
+                            (
+                                (l_min_view - l_min_full) / l_span_full,
+                                (l_max_view - l_min_full) / l_span_full,
+                            )
+                        } else {
+                            (
+                                (x_axis_val.min - full_domain.x_min) / full_domain.width(),
+                                (x_axis_val.max - full_domain.x_min) / full_domain.width(),
+                            )
+                        };
+
                         let rect_left = (w * left_pct).clamp(0.0, w) as f32;
                         let rect_right = (w * right_pct).clamp(0.0, w) as f32;
 

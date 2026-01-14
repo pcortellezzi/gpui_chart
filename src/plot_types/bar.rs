@@ -40,7 +40,7 @@ impl PlotRenderer for BarPlot {
         transform: &PlotTransform,
         _series_id: &str,
         _cx: &mut App,
-        _state: &crate::data_types::SharedPlotState,
+        state: &crate::data_types::SharedPlotState,
     ) {
         let (x_min, x_max) = transform.x_scale.domain();
 
@@ -49,16 +49,30 @@ impl PlotRenderer for BarPlot {
         let max_points = screen_width.clamp(1, 2000); // Cap at 2000 for safety
 
         let mut buffer = self.buffer.lock();
-        self.source.get_aggregated_data(x_min, x_max, max_points, &mut buffer);
-        
+        self.source.get_aggregated_data(
+            x_min,
+            x_max,
+            max_points,
+            &mut buffer,
+            state.gap_index.as_deref(),
+        );
+
         if buffer.is_empty() {
             return;
         }
 
         // Calculate dynamic spacing if we have enough points
-        let first_x = if let Some(PlotData::Point(p)) = buffer.first() { p.x } else { 0.0 };
-        let last_x = if let Some(PlotData::Point(p)) = buffer.last() { p.x } else { 0.0 };
-        
+        let first_x = if let Some(PlotData::Point(p)) = buffer.first() {
+            p.x
+        } else {
+            0.0
+        };
+        let last_x = if let Some(PlotData::Point(p)) = buffer.last() {
+            p.x
+        } else {
+            0.0
+        };
+
         let effective_spacing = if buffer.len() > 1 {
             (last_x - first_x) / (buffer.len() - 1) as f64
         } else {

@@ -1,4 +1,5 @@
 use crate::data_types::AxisRange;
+use crate::gaps::GapIndex;
 
 /// ViewController handles the business logic of interactions (zoom, pan, resize)
 /// independently of the GPUI infrastructure to facilitate testing.
@@ -6,39 +7,77 @@ pub struct ViewController;
 
 impl ViewController {
     /// Calculates and applies a pan on an axis based on a pixel delta.
-    pub fn pan_axis(range: &mut AxisRange, delta_pixels: f32, total_pixels: f32, is_y: bool) {
+    pub fn pan_axis(
+        range: &mut AxisRange,
+        delta_pixels: f32,
+        total_pixels: f32,
+        is_y: bool,
+        gaps: Option<&GapIndex>,
+    ) {
         if total_pixels <= 0.0 {
             return;
         }
-        let span = range.span();
+
+        let span = if let Some(g) = gaps {
+            (g.to_logical(range.max as i64) - g.to_logical(range.min as i64)) as f64
+        } else {
+            range.span()
+        };
+
         let ratio = span / total_pixels as f64;
 
-        // In Y, a positive delta (downwards) should decrease the values (data).
-        // In X, a positive delta (rightwards) should decrease the origin values (shift to the left).
-        // But here AxisRange::pan adds delta_data.
-        // If we move the mouse 10px to the right, we want to "pull" the chart,
-        // so the domain values must DECREASE to show what is on the left.
         let delta_data = if is_y {
             delta_pixels as f64 * ratio
         } else {
             -delta_pixels as f64 * ratio
         };
 
-        range.pan(delta_data);
+        if let Some(g) = gaps {
+            let l_min = g.to_logical(range.min as i64);
+            let new_l_min = l_min + delta_data as i64;
+            let l_span = span as i64;
+
+            range.min = g.to_real(new_l_min) as f64;
+            range.max = g.to_real(new_l_min + l_span) as f64;
+        } else {
+            range.pan(delta_data);
+        }
         range.clamp();
     }
 
     /// Zooms on an axis at a specific pivot point (expressed as a percentage of the domain).
-    pub fn zoom_axis_at(range: &mut AxisRange, pivot_pct: f64, factor: f64) {
+    pub fn zoom_axis_at(
+        range: &mut AxisRange,
+        pivot_pct: f64,
+        factor: f64,
+        gaps: Option<&GapIndex>,
+    ) {
+        let real_span = range.span();
+        let logical_span = if let Some(g) = gaps {
+            (g.to_logical(range.max as i64) - g.to_logical(range.min as i64)) as f64
+        } else {
+            real_span
+        };
+
         let mut new_factor = factor;
         const MIN_SPAN: f64 = 1e-9;
 
-        if range.span() * factor < MIN_SPAN {
-            new_factor = MIN_SPAN / range.span();
+        if logical_span * factor < MIN_SPAN {
+            new_factor = MIN_SPAN / logical_span;
         }
 
-        let pivot_data = range.min + range.span() * pivot_pct;
-        range.zoom_at(pivot_data, pivot_pct, new_factor);
+        if let Some(g) = gaps {
+            let l_min = g.to_logical(range.min as i64);
+            let pivot_l = l_min as f64 + logical_span * pivot_pct;
+            let new_l_span = logical_span * new_factor;
+            let new_l_min = pivot_l - new_l_span * pivot_pct;
+
+            range.min = g.to_real(new_l_min as i64) as f64;
+            range.max = g.to_real((new_l_min + new_l_span) as i64) as f64;
+        } else {
+            let pivot_data = range.min + real_span * pivot_pct;
+            range.zoom_at(pivot_data, pivot_pct, new_factor);
+        }
         range.clamp();
     }
 

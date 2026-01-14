@@ -60,13 +60,19 @@ impl PlotRenderer for CandlestickPlot {
         let max_points = width_px as usize;
 
         let mut buffer = self.buffer.lock();
-        self.source.get_aggregated_data(x_min, x_max, max_points, &mut buffer);
+        self.source.get_aggregated_data(
+            x_min,
+            x_max,
+            max_points,
+            &mut buffer,
+            state.gap_index.as_deref(),
+        );
 
         let count = buffer.len();
         let avg_px_per_point = if count > 0 {
-             width_px / count as f32
+            width_px / count as f32
         } else {
-             width_px
+            width_px
         };
 
         let theme = &state.theme;
@@ -78,11 +84,15 @@ impl PlotRenderer for CandlestickPlot {
             if let PlotData::Ohlcv(candle) = data {
                 let is_up = candle.close >= candle.open;
                 let t_start_px = transform.x_data_to_screen(candle.time).as_f32();
-                
+
                 // 1. Calculate base width
-                let span = if candle.span > 0.0 { candle.span } else { self.source.suggested_x_spacing() };
+                let span = if candle.span > 0.0 {
+                    candle.span
+                } else {
+                    self.source.suggested_x_spacing()
+                };
                 let theoretical_span_px = (span / ms_per_px) as f32;
-                
+
                 let width_px = theoretical_span_px.min(avg_px_per_point * 1.5).max(1.0);
                 let center_x = t_start_px + (theoretical_span_px / 2.0);
 
@@ -90,7 +100,11 @@ impl PlotRenderer for CandlestickPlot {
                 if width_px < 2.0 {
                     let y_h = transform.y_data_to_screen(candle.high).as_f32();
                     let y_l = transform.y_data_to_screen(candle.low).as_f32();
-                    let color = if is_up { theme.up_candle_contour_color } else { theme.down_candle_contour_color };
+                    let color = if is_up {
+                        theme.up_candle_contour_color
+                    } else {
+                        theme.down_candle_contour_color
+                    };
                     window.paint_quad(fill(
                         Bounds::new(
                             Point::new(px(center_x - 0.5), px(y_h)),
@@ -102,8 +116,8 @@ impl PlotRenderer for CandlestickPlot {
                 }
 
                 // 3. Body and Wick calculation
-                let b_w = (width_px * body_pct).max(1.0); 
-                let w_w = (b_w * wick_pct).max(1.0); 
+                let b_w = (width_px * body_pct).max(1.0);
+                let w_w = (b_w * wick_pct).max(1.0);
 
                 let y_h = transform.y_data_to_screen(candle.high).as_f32();
                 let y_l = transform.y_data_to_screen(candle.low).as_f32();
@@ -111,8 +125,16 @@ impl PlotRenderer for CandlestickPlot {
                 let y_c = transform.y_data_to_screen(candle.close).as_f32();
                 let (b_top, b_bot) = if is_up { (y_c, y_o) } else { (y_o, y_c) };
 
-                let body_color = if is_up { theme.up_candle_body_color } else { theme.down_candle_body_color };
-                let contour_color = if is_up { theme.up_candle_contour_color } else { theme.down_candle_contour_color };
+                let body_color = if is_up {
+                    theme.up_candle_body_color
+                } else {
+                    theme.down_candle_body_color
+                };
+                let contour_color = if is_up {
+                    theme.up_candle_contour_color
+                } else {
+                    theme.down_candle_contour_color
+                };
 
                 // Top Wick (High to Body Top)
                 if y_h < b_top {
@@ -144,22 +166,34 @@ impl PlotRenderer for CandlestickPlot {
 
                 // Top border
                 window.paint_quad(fill(
-                    Bounds::new(Point::new(px(b_left), px(b_top)), Size::new(px(b_w), px(contour_thickness))),
+                    Bounds::new(
+                        Point::new(px(b_left), px(b_top)),
+                        Size::new(px(b_w), px(contour_thickness)),
+                    ),
                     contour_color,
                 ));
                 // Bottom border
                 window.paint_quad(fill(
-                    Bounds::new(Point::new(px(b_left), px(b_bot - contour_thickness)), Size::new(px(b_w), px(contour_thickness))),
+                    Bounds::new(
+                        Point::new(px(b_left), px(b_bot - contour_thickness)),
+                        Size::new(px(b_w), px(contour_thickness)),
+                    ),
                     contour_color,
                 ));
                 // Left border
                 window.paint_quad(fill(
-                    Bounds::new(Point::new(px(b_left), px(b_top)), Size::new(px(contour_thickness), px(b_height))),
+                    Bounds::new(
+                        Point::new(px(b_left), px(b_top)),
+                        Size::new(px(contour_thickness), px(b_height)),
+                    ),
                     contour_color,
                 ));
                 // Right border
                 window.paint_quad(fill(
-                    Bounds::new(Point::new(px(b_right - contour_thickness), px(b_top)), Size::new(px(contour_thickness), px(b_height))),
+                    Bounds::new(
+                        Point::new(px(b_right - contour_thickness), px(b_top)),
+                        Size::new(px(contour_thickness), px(b_height)),
+                    ),
                     contour_color,
                 ));
 
@@ -179,4 +213,3 @@ impl PlotRenderer for CandlestickPlot {
         }
     }
 }
-

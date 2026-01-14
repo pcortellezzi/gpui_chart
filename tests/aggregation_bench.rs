@@ -1,9 +1,9 @@
 #[cfg(feature = "polars")]
-use gpui_chart::polars_source::PolarsDataSource;
-#[cfg(feature = "polars")]
-use gpui_chart::data_types::{PlotDataSource, AggregationMode};
-#[cfg(feature = "polars")]
 use gpui_chart::aggregation::decimate_ilttb_arrays_par_into;
+#[cfg(feature = "polars")]
+use gpui_chart::data_types::{AggregationMode, PlotDataSource};
+#[cfg(feature = "polars")]
+use gpui_chart::polars_source::PolarsDataSource;
 #[cfg(feature = "polars")]
 use polars::prelude::*;
 #[cfg(feature = "polars")]
@@ -15,40 +15,59 @@ fn test_compare_aggregations() {
     let n = 1_000_000;
     let x: Vec<f64> = (0..n).map(|i| i as f64).collect();
     let y: Vec<f64> = (0..n).map(|i| (i as f64 * 0.01).sin()).collect();
-    
+
     let df = DataFrame::new(vec![
         Series::new("x".into(), x.clone()).into(),
         Series::new("y".into(), y).into(),
-    ]).unwrap();
+    ])
+    .unwrap();
 
-    let source_minmax = PolarsDataSource::new(df.clone(), "x", "y")
-        .with_aggregation_mode(AggregationMode::MinMax);
-    
-    let source_m4 = PolarsDataSource::new(df.clone(), "x", "y")
-        .with_aggregation_mode(AggregationMode::M4);
+    let source_minmax =
+        PolarsDataSource::new(df.clone(), "x", "y").with_aggregation_mode(AggregationMode::MinMax);
 
-    let source_lttb = PolarsDataSource::new(df, "x", "y")
-        .with_aggregation_mode(AggregationMode::LTTB);
-    
+    let source_m4 =
+        PolarsDataSource::new(df.clone(), "x", "y").with_aggregation_mode(AggregationMode::M4);
+
+    let source_lttb =
+        PolarsDataSource::new(df, "x", "y").with_aggregation_mode(AggregationMode::LTTB);
+
     println!("\n--- Aggregation Benchmark (1M rows) ---");
 
     // MinMax Benchmark
     let start = Instant::now();
-    let res_minmax: Vec<_> = source_minmax.iter_aggregated(0.0, n as f64, 2000).collect();
+    let res_minmax: Vec<_> = source_minmax
+        .iter_aggregated(0.0, n as f64, 2000, None)
+        .collect();
     let dur_minmax = start.elapsed();
-    println!("MinMax (2 pts/bin) took: {:?} (points: {})", dur_minmax, res_minmax.len());
+    println!(
+        "MinMax (2 pts/bin) took: {:?} (points: {})",
+        dur_minmax,
+        res_minmax.len()
+    );
 
     // M4 Benchmark
     let start = Instant::now();
-    let res_m4: Vec<_> = source_m4.iter_aggregated(0.0, n as f64, 2000).collect();
+    let res_m4: Vec<_> = source_m4
+        .iter_aggregated(0.0, n as f64, 2000, None)
+        .collect();
     let dur_m4 = start.elapsed();
-    println!("M4 (4 pts/bin) took:     {:?} (points: {})", dur_m4, res_m4.len());
+    println!(
+        "M4 (4 pts/bin) took:     {:?} (points: {})",
+        dur_m4,
+        res_m4.len()
+    );
 
     // LTTB Benchmark (Sequential)
     let start = Instant::now();
-    let res_lttb: Vec<_> = source_lttb.iter_aggregated(0.0, n as f64, 2000).collect();
+    let res_lttb: Vec<_> = source_lttb
+        .iter_aggregated(0.0, n as f64, 2000, None)
+        .collect();
     let dur_lttb = start.elapsed();
-    println!("LTTB (Sequential) took:  {:?} (points: {})", dur_lttb, res_lttb.len());
+    println!(
+        "LTTB (Sequential) took:  {:?} (points: {})",
+        dur_lttb,
+        res_lttb.len()
+    );
 
     // ILTTB Benchmark (Parallel)
     let mut out_buffer = Vec::with_capacity(2000);
@@ -56,9 +75,13 @@ fn test_compare_aggregations() {
     let x_arr: Vec<f64> = (0..n).map(|i| i as f64).collect();
     let y_arr: Vec<f64> = (0..n).map(|i| (i as f64 * 0.01).sin()).collect();
     let start_ilttb = Instant::now();
-    decimate_ilttb_arrays_par_into(&x_arr, &y_arr, 2000, &mut out_buffer);
+    decimate_ilttb_arrays_par_into(&x_arr, &y_arr, 2000, &mut out_buffer, None);
     let dur_ilttb = start_ilttb.elapsed();
-    println!("ILTTB (Parallel) took:   {:?} (points: {})", dur_ilttb, out_buffer.len());
+    println!(
+        "ILTTB (Parallel) took:   {:?} (points: {})",
+        dur_ilttb,
+        out_buffer.len()
+    );
 
     assert!(res_minmax.len() <= 2000);
     assert!(res_m4.len() <= 2000);
@@ -78,15 +101,22 @@ fn test_compare_aggregations() {
         Series::new("high".into(), high).into(),
         Series::new("low".into(), low).into(),
         Series::new("close".into(), close).into(),
-    ]).unwrap();
+    ])
+    .unwrap();
 
-    let source_ohlcv = PolarsDataSource::new(df_ohlcv, "time", "close")
-        .with_ohlcv("open", "high", "low", "close");
-    
+    let source_ohlcv =
+        PolarsDataSource::new(df_ohlcv, "time", "close").with_ohlcv("open", "high", "low", "close");
+
     let start = Instant::now();
-    let res_ohlcv: Vec<_> = source_ohlcv.iter_aggregated(0.0, n as f64, 2000).collect();
+    let res_ohlcv: Vec<_> = source_ohlcv
+        .iter_aggregated(0.0, n as f64, 2000, None)
+        .collect();
     let dur_ohlcv = start.elapsed();
-    println!("OHLCV (1 pt/bin) took:   {:?} (points: {})", dur_ohlcv, res_ohlcv.len());
-    
+    println!(
+        "OHLCV (1 pt/bin) took:   {:?} (points: {})",
+        dur_ohlcv,
+        res_ohlcv.len()
+    );
+
     assert!(res_ohlcv.len() <= 2000);
 }

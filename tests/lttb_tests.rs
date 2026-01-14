@@ -2,98 +2,120 @@ use gpui_chart::aggregation::decimate_lttb_slice;
 use gpui_chart::data_types::{ColorOp, PlotData, PlotPoint};
 
 #[test]
-fn test_lttb_sine_wave() {
-    let mut data = Vec::new();
-    let count = 100;
-    for i in 0..count {
-        let x = i as f64;
-        let y = (x * 0.1).sin();
+fn test_lttb_decimation_basic() {
+    let n = 1000;
+    let mut data = Vec::with_capacity(n);
+    for i in 0..n {
         data.push(PlotData::Point(PlotPoint {
-            x,
+            x: i as f64,
+            y: (i as f64 * 0.1).sin(),
+            color_op: ColorOp::None,
+        }));
+    }
+
+    let max_points = 100;
+    // LTTB should return exactly max_points (if n >= max_points)
+    let decimated = decimate_lttb_slice(&data, max_points, None);
+
+    assert_eq!(decimated.len(), max_points);
+
+    // First and last points should be preserved
+    if let (PlotData::Point(p_start), PlotData::Point(p_end)) =
+        (&decimated[0], &decimated[max_points - 1])
+    {
+        assert_eq!(p_start.x, 0.0);
+        assert_eq!(p_end.x, (n - 1) as f64);
+    } else {
+        panic!("Expected Point data");
+    }
+}
+
+#[test]
+fn test_lttb_decimation_undersampled() {
+    let data = vec![
+        PlotData::Point(PlotPoint {
+            x: 0.0,
+            y: 0.0,
+            color_op: ColorOp::None,
+        }),
+        PlotData::Point(PlotPoint {
+            x: 1.0,
+            y: 1.0,
+            color_op: ColorOp::None,
+        }),
+    ];
+
+    let max_points = 10;
+    let decimated = decimate_lttb_slice(&data, max_points, None);
+
+    assert_eq!(decimated.len(), 2);
+}
+
+#[test]
+fn test_lttb_preserves_peaks() {
+    // Creating a signal with a sharp peak that MinMax might miss depending on binning,
+    // but LTTB should try to preserve.
+    let n = 1000;
+    let mut data = Vec::with_capacity(n);
+    for i in 0..n {
+        let mut y = 0.0;
+        if i == 505 {
+            y = 100.0; // Sharp peak
+        }
+        data.push(PlotData::Point(PlotPoint {
+            x: i as f64,
             y,
             color_op: ColorOp::None,
         }));
     }
 
-    let max_points = 10;
-    let decimated = decimate_lttb_slice(&data, max_points);
+    let max_points = 50;
+    let decimated = decimate_lttb_slice(&data, max_points, None);
 
-    assert_eq!(decimated.len(), max_points);
+    let has_peak = decimated.iter().any(|p| match p {
+        PlotData::Point(pt) => pt.y == 100.0,
+        _ => false,
+    });
 
-    // Check start and end
-    if let PlotData::Point(p) = &decimated[0] {
-        assert_eq!(p.x, 0.0);
-    } else {
-        panic!("First point is not a Point");
-    }
-
-    if let PlotData::Point(p) = &decimated[max_points - 1] {
-        assert_eq!(p.x, (count - 1) as f64);
-    } else {
-        panic!("Last point is not a Point");
-    }
-
-    // Check monotony of X
-    let mut last_x = -1.0;
-    for p in &decimated {
-        if let PlotData::Point(pt) = p {
-            assert!(pt.x > last_x);
-            last_x = pt.x;
-        }
-    }
+    assert!(
+        has_peak,
+        "LTTB should have preserved the sharp peak at index 505"
+    );
 }
 
 #[test]
-fn test_lttb_small_data() {
-    let mut data = Vec::new();
-    for i in 0..5 {
-        data.push(PlotData::Point(PlotPoint {
-            x: i as f64,
-            y: i as f64,
-            color_op: ColorOp::None,
-        }));
-    }
-
-    let max_points = 10;
-    let decimated = decimate_lttb_slice(&data, max_points);
-
-    assert_eq!(decimated.len(), 5);
-}
-
-#[test]
-fn test_lttb_preserves_peak() {
-    // 0, 0, 100, 0, 0
-    // LTTB with 3 points should keep (0,0), (2,100), (4,0)
+fn test_lttb_with_nans() {
     let data = vec![
-        PlotData::Point(PlotPoint { x: 0.0, y: 0.0, color_op: ColorOp::None }),
-        PlotData::Point(PlotPoint { x: 1.0, y: 0.0, color_op: ColorOp::None }),
-        PlotData::Point(PlotPoint { x: 2.0, y: 100.0, color_op: ColorOp::None }),
-        PlotData::Point(PlotPoint { x: 3.0, y: 0.0, color_op: ColorOp::None }),
-        PlotData::Point(PlotPoint { x: 4.0, y: 0.0, color_op: ColorOp::None }),
+        PlotData::Point(PlotPoint {
+            x: 0.0,
+            y: 0.0,
+            color_op: ColorOp::None,
+        }),
+        PlotData::Point(PlotPoint {
+            x: 1.0,
+            y: f64::NAN,
+            color_op: ColorOp::None,
+        }),
+        PlotData::Point(PlotPoint {
+            x: 2.0,
+            y: 2.0,
+            color_op: ColorOp::None,
+        }),
+        PlotData::Point(PlotPoint {
+            x: 3.0,
+            y: 3.0,
+            color_op: ColorOp::None,
+        }),
     ];
 
     let max_points = 3;
-    let decimated = decimate_lttb_slice(&data, max_points);
+    let decimated = decimate_lttb_slice(&data, max_points, None);
 
     assert_eq!(decimated.len(), 3);
-    
-    // First point
-    if let PlotData::Point(p) = &decimated[0] {
-        assert_eq!(p.x, 0.0);
-        assert_eq!(p.y, 0.0);
-    }
-
-    // Middle point should be the peak
-    if let PlotData::Point(p) = &decimated[1] {
-        assert_eq!(p.x, 2.0);
-        assert_eq!(p.y, 100.0);
-    } else {
-        panic!("Middle point is not a Point");
-    }
-
-    // Last point
-    if let PlotData::Point(p) = &decimated[2] {
-        assert_eq!(p.x, 4.0);
-        assert_eq!(p.y, 0.0);
+    // Should not panic and should return valid points
+    for p in &decimated {
+        if let PlotData::Point(pt) = p {
+            assert!(!pt.x.is_nan());
+        }
     }
 }

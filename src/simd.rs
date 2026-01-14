@@ -2,7 +2,7 @@
 //! Relying on auto-vectorization by LLVM.
 
 use crate::data_types::PlotData;
-use gpui::{Point, Pixels, px};
+use gpui::{px, Pixels, Point};
 
 /// Batch transforms a slice of PlotPoints to screen coordinates.
 pub fn batch_transform_points(
@@ -15,7 +15,7 @@ pub fn batch_transform_points(
 ) {
     output.clear();
     output.reserve(data.len());
-    
+
     for item in data {
         if let PlotData::Point(p) = item {
             let sx = p.x as f32 * x_scale_coeff + x_offset;
@@ -70,18 +70,27 @@ pub fn batch_transform_arrays(
 /// Finds the minimum value in a slice using SIMD auto-vectorization.
 /// Uses f64::min which is more likely to be vectorized.
 pub fn min_f64(data: &[f64]) -> f64 {
-    if data.is_empty() { return f64::NAN; }
-    
+    if data.is_empty() {
+        return f64::NAN;
+    }
+
     let chunks = data.chunks_exact(8);
     let rem = chunks.remainder();
-    
+
     let mut min_val = f64::MAX;
-    
+
     for c in chunks {
-        let m = c[0].min(c[1]).min(c[2]).min(c[3]).min(c[4]).min(c[5]).min(c[6]).min(c[7]);
+        let m = c[0]
+            .min(c[1])
+            .min(c[2])
+            .min(c[3])
+            .min(c[4])
+            .min(c[5])
+            .min(c[6])
+            .min(c[7]);
         min_val = min_val.min(m);
     }
-    
+
     for &val in rem {
         min_val = min_val.min(val);
     }
@@ -90,18 +99,27 @@ pub fn min_f64(data: &[f64]) -> f64 {
 
 /// Finds the maximum value in a slice using SIMD auto-vectorization.
 pub fn max_f64(data: &[f64]) -> f64 {
-    if data.is_empty() { return f64::NAN; }
-    
+    if data.is_empty() {
+        return f64::NAN;
+    }
+
     let chunks = data.chunks_exact(8);
     let rem = chunks.remainder();
-    
+
     let mut max_val = f64::MIN;
-    
+
     for c in chunks {
-        let m = c[0].max(c[1]).max(c[2]).max(c[3]).max(c[4]).max(c[5]).max(c[6]).max(c[7]);
+        let m = c[0]
+            .max(c[1])
+            .max(c[2])
+            .max(c[3])
+            .max(c[4])
+            .max(c[5])
+            .max(c[6])
+            .max(c[7]);
         max_val = max_val.max(m);
     }
-    
+
     for &val in rem {
         max_val = max_val.max(val);
     }
@@ -113,11 +131,11 @@ pub fn sum_f64(data: &[f64]) -> f64 {
     let chunks = data.chunks_exact(8);
     let rem = chunks.remainder();
     let mut total = 0.0;
-    
+
     for c in chunks {
         total += c[0] + c[1] + c[2] + c[3] + c[4] + c[5] + c[6] + c[7];
     }
-    
+
     for &val in rem {
         total += val;
     }
@@ -129,7 +147,9 @@ pub fn sum_f64(data: &[f64]) -> f64 {
 /// Optimized to: |Bx * (Ay - Cy) + By * (Cx - Ax) + (Ax*Cy - Cx*Ay)|
 pub fn find_max_area_index(x: &[f64], y: &[f64], ax: f64, ay: f64, cx: f64, cy: f64) -> usize {
     let len = x.len().min(y.len());
-    if len == 0 { return 0; }
+    if len == 0 {
+        return 0;
+    }
 
     let c1 = ay - cy;
     let c2 = cx - ax;

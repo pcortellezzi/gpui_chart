@@ -38,7 +38,7 @@ fn test_chart_model_manipulation(cx: &mut gpui::TestAppContext) {
         assert_eq!(c.panes[0].weight, 3.0);
     });
 
-    // 3. Réordonnement
+    // 3. Reordering
     cx.update(|cx| {
         chart.update(cx, |c: &mut Chart, cx| {
             c.move_pane_down(0, cx);

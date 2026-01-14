@@ -272,23 +272,38 @@ impl AxisRange {
         self.max - self.min
     }
 
-    pub fn ticks(&mut self, count: usize) -> &[f64] {
+    pub fn ticks(&mut self, count: usize, gaps: Option<&GapIndex>) -> &[f64] {
         let (min, max) = self.clamped_bounds();
         let domain_changed = (min - self.last_tick_domain.0).abs() > (max - min) * 0.001
             || (max - self.last_tick_domain.1).abs() > (max - min) * 0.001;
 
         if domain_changed || self.cached_ticks.is_empty() {
-            self.cached_ticks = LinearScale::new()
-                .domain(min, max)
-                .range(0.0, 1.0)
-                .ticks(count);
+            if let Some(gaps) = gaps {
+                let l_min = gaps.to_logical(min as i64) as f64;
+                let l_max = gaps.to_logical(max as i64) as f64;
+                let logical_ticks = LinearScale::new()
+                    .domain(l_min, l_max)
+                    .range(0.0, 1.0)
+                    .ticks(count);
+
+                self.cached_ticks = logical_ticks
+                    .into_iter()
+                    .map(|t| gaps.to_real(t as i64) as f64)
+                    .filter(|&t| !gaps.is_inside(t as i64))
+                    .collect();
+            } else {
+                self.cached_ticks = LinearScale::new()
+                    .domain(min, max)
+                    .range(0.0, 1.0)
+                    .ticks(count);
+            }
             self.last_tick_domain = (min, max);
         }
         &self.cached_ticks
     }
 
-    pub fn update_ticks_if_needed(&mut self, count: usize) {
-        let _ = self.ticks(count);
+    pub fn update_ticks_if_needed(&mut self, count: usize, gaps: Option<&GapIndex>) {
+        let _ = self.ticks(count, gaps);
     }
 
     /// Returns the clamped bounds for rendering.
@@ -396,6 +411,9 @@ impl AxisDomain {
     }
 }
 
+use crate::gaps::GapIndex;
+use std::sync::Arc;
+
 /// Shared state between multiple charts (Crosshair, etc.).
 #[derive(Debug, Default)]
 pub struct SharedPlotState {
@@ -412,6 +430,9 @@ pub struct SharedPlotState {
 
     pub box_zoom_start: Option<gpui::Point<gpui::Pixels>>,
     pub box_zoom_current: Option<gpui::Point<gpui::Pixels>>,
+
+    /// Optional gap index for X axis compression
+    pub gap_index: Option<Arc<GapIndex>>,
 
     /// Time taken by paint for each pane (ID -> nanoseconds)
     pub pane_paint_times:
@@ -439,6 +460,8 @@ impl PartialEq for SharedPlotState {
             && self.render_version == other.render_version
             && self.box_zoom_start == other.box_zoom_start
             && self.box_zoom_current == other.box_zoom_current
+            && self.gap_index.as_ref().map(|g| g.segments())
+                == other.gap_index.as_ref().map(|g| g.segments())
     }
 }
 
@@ -454,6 +477,7 @@ impl Clone for SharedPlotState {
             render_version: self.render_version,
             box_zoom_start: self.box_zoom_start,
             box_zoom_current: self.box_zoom_current,
+            gap_index: self.gap_index.clone(),
             pane_paint_times: self.pane_paint_times.clone(),
         }
     }
@@ -495,7 +519,7 @@ pub enum PlotData {
 pub enum AggregationMode {
     MinMax, // 2 points par bin
     #[default]
-    M4,     // 4 points par bin (First, Min, Max, Last)
+    M4, // 4 points par bin (First, Min, Max, Last)
     LTTB,   // Largest-Triangle-Three-Buckets
 }
 
@@ -523,23 +547,67 @@ pub trait PlotDataSource: Send + Sync {
         x_min: f64,
         x_max: f64,
         max_points: usize,
+        gaps: Option<&GapIndex>,
     ) -> Box<dyn Iterator<Item = PlotData> + '_> {
         let data: Vec<PlotData> = self.iter_range(x_min, x_max).collect();
-        Box::new(crate::aggregation::decimate_min_max_slice(&data, max_points).into_iter())
+        Box::new(crate::aggregation::decimate_min_max_slice(&data, max_points, gaps).into_iter())
     }
 
     /// Populate a buffer with aggregated data for LOD rendering.
-    /// This avoids allocation by reusing the provided vector.
-    /// Default implementation delegates to iter_aggregated.
     fn get_aggregated_data(
         &self,
         x_min: f64,
         x_max: f64,
         max_points: usize,
         output: &mut Vec<PlotData>,
+        gaps: Option<&GapIndex>,
     ) {
         output.clear();
-        output.extend(self.iter_aggregated(x_min, x_max, max_points));
+
+        if let Some(g) = gaps {
+            let intervals = g.split_range(x_min as i64, x_max as i64);
+            if intervals.len() > 1 {
+                // Scenario B: Aggregate each continuous segment separately.
+                // Divide max_points proportionally to the logical duration of each interval.
+                let total_logical_span: f64 = intervals
+                    .iter()
+                    .map(|(s, e)| (g.to_logical(*e) - g.to_logical(*s)) as f64)
+                    .sum();
+
+                if total_logical_span <= 0.0 {
+                    return;
+                }
+
+                for (s, e) in intervals {
+                    let logical_span = (g.to_logical(e) - g.to_logical(s)) as f64;
+                    let segment_max_points =
+                        ((logical_span / total_logical_span) * max_points as f64).round() as usize;
+                    if segment_max_points > 0 {
+                        let segment_data: Vec<_> = self
+                            .iter_range(s as f64, e as f64)
+                            .filter(|p| {
+                                let x = match p {
+                                    PlotData::Point(pt) => pt.x,
+                                    PlotData::Ohlcv(o) => o.time,
+                                };
+                                x >= s as f64 && x < e as f64
+                            })
+                            .collect();
+
+                        if !segment_data.is_empty() {
+                            output.extend(crate::aggregation::decimate_min_max_slice(
+                                &segment_data,
+                                segment_max_points,
+                                None,
+                            ));
+                        }
+                    }
+                }
+                return;
+            }
+        }
+
+        output.extend(self.iter_aggregated(x_min, x_max, max_points, gaps));
     }
 
     /// Add a single data point
@@ -1083,8 +1151,12 @@ impl PlotDataSource for VecDataSource {
         let start_idx = self.data.partition_point(|p| self.get_x(p) < x_min);
         let end_idx = self.data.partition_point(|p| self.get_x(p) <= x_max);
 
-        let start = start_idx.saturating_sub(1);
-        let end = (end_idx + 1).min(self.data.len());
+        let mut start = start_idx;
+        let mut end = end_idx;
+
+        // Add padding points for line continuity at edges
+        start = start.saturating_sub(1);
+        end = (end + 1).min(self.data.len());
 
         Box::new(self.data[start..end].iter().cloned())
     }
@@ -1094,6 +1166,7 @@ impl PlotDataSource for VecDataSource {
         x_min: f64,
         x_max: f64,
         max_points: usize,
+        gaps: Option<&GapIndex>,
     ) -> Box<dyn Iterator<Item = PlotData> + '_> {
         // 1. Identify raw range
         let start_idx = self.data.partition_point(|p| self.get_x(p) < x_min);
@@ -1104,6 +1177,43 @@ impl PlotDataSource for VecDataSource {
             let start = start_idx.saturating_sub(1);
             let end = (end_idx + 1).min(self.data.len());
             return Box::new(self.data[start..end].iter().cloned());
+        }
+
+        // If gaps are present, we skip the LOD pyramid for now to ensure gap consistency
+        if gaps.is_some() {
+            let start = start_idx.saturating_sub(1);
+            let end = (end_idx + 1).min(self.data.len());
+            let data = &self.data[start..end];
+
+            // Check if we can use the optimized OHLCV kernel
+            if !data.is_empty() {
+                if let PlotData::Ohlcv(_) = &data[0] {
+                    let mut times = Vec::with_capacity(data.len());
+                    let mut opens = Vec::with_capacity(data.len());
+                    let mut highs = Vec::with_capacity(data.len());
+                    let mut lows = Vec::with_capacity(data.len());
+                    let mut closes = Vec::with_capacity(data.len());
+                    for p in data {
+                        if let PlotData::Ohlcv(o) = p {
+                            times.push(o.time);
+                            opens.push(o.open);
+                            highs.push(o.high);
+                            lows.push(o.low);
+                            closes.push(o.close);
+                        }
+                    }
+                    return Box::new(
+                        crate::aggregation::decimate_ohlcv_arrays_par(
+                            &times, &opens, &highs, &lows, &closes, max_points, gaps,
+                        )
+                        .into_iter(),
+                    );
+                }
+            }
+
+            return Box::new(
+                crate::aggregation::decimate_min_max_slice(data, max_points, gaps).into_iter(),
+            );
         }
 
         // 2. Select LOD level
@@ -1140,7 +1250,7 @@ impl PlotDataSource for VecDataSource {
         let start = start_idx.saturating_sub(1);
         let end = (end_idx + 1).min(self.data.len());
         let data = &self.data[start..end];
-        Box::new(crate::aggregation::decimate_min_max_slice(data, max_points).into_iter())
+        Box::new(crate::aggregation::decimate_min_max_slice(data, max_points, gaps).into_iter())
     }
 
     fn add_data(&mut self, data: PlotData) {

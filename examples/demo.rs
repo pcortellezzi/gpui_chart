@@ -127,7 +127,9 @@ impl DemoApp {
                 edge: AxisEdge::Bottom,
                 size: px(25.0),
                 label: "Time".into(),
-                format: gpui_chart::data_types::AxisFormat::Time(gpui_chart::data_types::TimeUnit::Milliseconds),
+                format: gpui_chart::data_types::AxisFormat::Time(
+                    gpui_chart::data_types::TimeUnit::Milliseconds,
+                ),
                 min_label_spacing: px(20.0),
             });
 

@@ -49,10 +49,10 @@ impl PlotTransform {
     pub fn get_scale_coefficients(&self) -> (f32, f32, f32, f32) {
         let (x_m, x_c) = self.x_scale.get_linear_coeffs();
         let (y_m, y_c) = self.y_scale.get_linear_coeffs();
-        
+
         let x_offset = self.bounds.origin.x.as_f32() + x_c;
         let y_offset = self.bounds.origin.y.as_f32() + y_c;
-        
+
         (x_m, x_offset, y_m, y_offset)
     }
 }
