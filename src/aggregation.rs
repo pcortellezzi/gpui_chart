@@ -812,7 +812,7 @@ pub fn decimate_ilttb_arrays_par_into(
     y: &[f64],
     max_points: usize,
     output: &mut Vec<PlotData>,
-    _gaps: Option<&GapIndex>,
+    gaps: Option<&GapIndex>,
 ) {
     output.clear();
     if x.len() <= max_points || max_points < 3 {
@@ -824,6 +824,60 @@ pub fn decimate_ilttb_arrays_par_into(
             })
         }));
         return;
+    }
+
+    // ILTTB is more complex to make fully gap-aware because buckets depend on each other (averages).
+    // The simplest and most correct way is to split by gaps and aggregate each segment.
+    if let Some(gi) = gaps {
+        let segments = gi.segments();
+        if !segments.is_empty() {
+            let intervals = gi.split_range(x[0] as i64, x[x.len() - 1] as i64);
+            if intervals.len() > 1 {
+                let total_logical_span: f64 = intervals
+                    .iter()
+                    .map(|(s, e)| (gi.to_logical(*e) - gi.to_logical(*s)) as f64)
+                    .sum();
+
+                if total_logical_span > 0.0 {
+                    for (s, e) in intervals {
+                        let logical_span = (gi.to_logical(e) - gi.to_logical(s)) as f64;
+                        let segment_max_points =
+                            ((logical_span / total_logical_span) * max_points as f64).round()
+                                as usize;
+
+                        if segment_max_points >= 3 {
+                            let start_idx = x.partition_point(|&val| (val as i64) < s);
+                            let end_idx = x.partition_point(|&val| (val as i64) <= e);
+                            let sub_x = &x[start_idx..end_idx];
+                            let sub_y = &y[start_idx..end_idx];
+
+                            if sub_x.len() > segment_max_points {
+                                let mut sub_output = Vec::with_capacity(segment_max_points);
+                                decimate_ilttb_arrays_par_into(
+                                    sub_x,
+                                    sub_y,
+                                    segment_max_points,
+                                    &mut sub_output,
+                                    None,
+                                );
+                                output.extend(sub_output);
+                            } else {
+                                output.extend(sub_x.iter().zip(sub_y.iter()).map(
+                                    |(x_val, y_val)| {
+                                        PlotData::Point(PlotPoint {
+                                            x: *x_val,
+                                            y: *y_val,
+                                            color_op: ColorOp::None,
+                                        })
+                                    },
+                                ));
+                            }
+                        }
+                    }
+                    return;
+                }
+            }
+        }
     }
 
     let target_bucket_count = max_points - 2;
@@ -852,7 +906,11 @@ pub fn decimate_ilttb_arrays_par_into(
             let start = 1 + (i as f64 * bucket_size).floor() as usize;
             let end = (1 + ((i + 1) as f64 * bucket_size).floor() as usize).min(x.len() - 1);
 
-            let (a_x, a_y) = if i > 0 { averages[i - 1] } else { (x[0], y[0]) };
+            let (a_x, a_y) = if i > 0 {
+                averages[i - 1]
+            } else {
+                (x[0], y[0])
+            };
 
             let (c_x, c_y) = if i < target_bucket_count - 1 {
                 averages[i + 1]

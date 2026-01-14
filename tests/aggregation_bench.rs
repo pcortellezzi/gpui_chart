@@ -117,6 +117,16 @@ fn test_compare_aggregations() {
         out_buffer.len()
     );
 
+    let mut out_buffer_gaps = Vec::with_capacity(2000);
+    let start_ilttb_gaps = Instant::now();
+    decimate_ilttb_arrays_par_into(&x_arr, &y_arr, 2000, &mut out_buffer_gaps, Some(&gaps));
+    let dur_ilttb_gaps = start_ilttb_gaps.elapsed();
+    println!(
+        "ILTTB WITH GAPS took:         {:?} (points: {})",
+        dur_ilttb_gaps,
+        out_buffer_gaps.len()
+    );
+
     // OHLCV Benchmark
     let open: Vec<f64> = (0..n).map(|i| (i as f64).sin()).collect();
     let high: Vec<f64> = (0..n).map(|i| (i as f64).sin() + 1.0).collect();
