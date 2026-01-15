@@ -1157,11 +1157,9 @@ pub fn decimate_ilttb_arrays_par_into(
     output: &mut Vec<PlotData>,
     gaps: Option<&GapIndex>,
 ) {
-    // ILTTB is strictly fixed size (max_points), so we don't truncate based on original length + max_points
-    // because it doesn't append variably like buckets. But wait, it calls extend.
-    // Actually, ILTTB produces exactly max_points (or close to it).
-    let _initial_len = output.len();
-    // output.clear(); // REMOVED
+    if x.is_empty() || y.is_empty() || x.len() != y.len() {
+        return;
+    }
 
     if x.len() <= max_points || max_points < 3 {
         output.extend(x.iter().zip(y.iter()).map(|(x_val, y_val)| {
@@ -1174,34 +1172,40 @@ pub fn decimate_ilttb_arrays_par_into(
         return;
     }
 
-    let target_bucket_count = max_points - 2;
-    let bucket_size = (x.len() - 2) as f64 / target_bucket_count as f64;
+    let real_range = x[x.len() - 1] - x[0];
+    let logical_range = if let Some(g) = gaps {
+        (g.to_logical(x[x.len() - 1] as i64) - g.to_logical(x[0] as i64)) as f64
+    } else {
+        real_range
+    };
 
-    let averages: Vec<(f64, f64)> = (0..target_bucket_count)
-        .into_par_iter()
-        .map(|i| {
-            let start = 1 + (i as f64 * bucket_size).floor() as usize;
-            let end = (1 + ((i + 1) as f64 * bucket_size).floor() as usize).min(x.len() - 1);
-            if start >= end {
-                let idx = start.min(x.len() - 1);
-                // For single point, use its logical coordinate if gaps exist
-                if let Some(g) = gaps {
-                     return (g.to_logical(x[idx] as i64) as f64, y[idx]);
-                } else {
-                     return (x[idx], y[idx]);
-                }
+    let target_bucket_count = max_points - 2;
+    let stable_bin_size = calculate_stable_bin_size(logical_range, target_bucket_count);
+    let avg_items_per_bin = (x.len() as f64 * (stable_bin_size / logical_range)).ceil() as usize;
+    let bin_size = avg_items_per_bin.max(1);
+
+    // Pre-calculate buckets that respect gaps
+    let buckets = calculate_gap_aware_buckets(x, gaps, bin_size);
+    let n_buckets = buckets.len();
+
+    if n_buckets == 0 {
+        return;
+    }
+
+    let averages: Vec<(f64, f64)> = buckets
+        .par_iter()
+        .map(|range| {
+            let start = range.start;
+            let end = range.end;
+            let count = (end - start) as f64;
+
+            if count == 0.0 {
+                return (0.0, 0.0);
             }
 
-            let count = (end - start) as f64;
-            
             // Calculate sum of LOGICAL X
             let sum_x = if let Some(g) = gaps {
                 let mut cursor = g.cursor();
-                // Seek to start (optimization: to_logical handles arbitrary start efficiently enough for buckets)
-                // Actually to_logical is O(G) worst case if sequential from 0. 
-                // But we can just use the cursor.
-                // Since this is a new cursor, it starts at 0. Calling to_logical(x[start]) will scan to x[start].
-                // Then subsequent calls x[start+1]... will be O(1).
                 let mut s = 0.0;
                 for &val in &x[start..end] {
                     s += cursor.to_logical(val as i64) as f64;
@@ -1216,29 +1220,30 @@ pub fn decimate_ilttb_arrays_par_into(
         })
         .collect();
 
-    let mut sampled: Vec<PlotPoint> = (0..target_bucket_count)
-        .into_par_iter()
-        .map(|i| {
-            let start = 1 + (i as f64 * bucket_size).floor() as usize;
-            let end = (1 + ((i + 1) as f64 * bucket_size).floor() as usize).min(x.len() - 1);
+    let mut sampled: Vec<PlotPoint> = buckets
+        .par_iter()
+        .enumerate()
+        .map(|(i, range)| {
+            let start = range.start;
+            let end = range.end;
 
             let (a_x, a_y) = if i > 0 {
                 averages[i - 1]
             } else {
                 if let Some(g) = gaps {
-                     (g.to_logical(x[0] as i64) as f64, y[0])
+                    (g.to_logical(x[0] as i64) as f64, y[0])
                 } else {
-                     (x[0], y[0])
+                    (x[0], y[0])
                 }
             };
 
-            let (c_x, c_y) = if i < target_bucket_count - 1 {
+            let (c_x, c_y) = if i < n_buckets - 1 {
                 averages[i + 1]
             } else {
                 if let Some(g) = gaps {
-                     (g.to_logical(x[x.len() - 1] as i64) as f64, y[y.len() - 1])
+                    (g.to_logical(x[x.len() - 1] as i64) as f64, y[y.len() - 1])
                 } else {
-                     (x[x.len() - 1], y[y.len() - 1])
+                    (x[x.len() - 1], y[y.len() - 1])
                 }
             };
 
@@ -1255,7 +1260,7 @@ pub fn decimate_ilttb_arrays_par_into(
                 );
                 start + local
             } else {
-                 let local = crate::simd::find_max_area_index(
+                let local = crate::simd::find_max_area_index(
                     &x[start..end],
                     &y[start..end],
                     a_x,
@@ -1531,7 +1536,7 @@ pub fn decimate_lttb_generic<T, FX, FY, FC>(
     get_x: FX,
     get_y: FY,
     create_point: FC,
-    _gaps: Option<&GapIndex>,
+    gaps: Option<&GapIndex>,
 ) -> Vec<PlotData>
 where
     FX: Fn(&T) -> f64,
@@ -1542,51 +1547,145 @@ where
         return data.iter().map(create_point).collect();
     }
 
-    let mut sampled = Vec::with_capacity(max_points);
+    let real_range = get_x(&data[data.len() - 1]) - get_x(&data[0]);
+    let logical_range = if let Some(g) = gaps {
+        (g.to_logical(get_x(&data[data.len() - 1]) as i64) - g.to_logical(get_x(&data[0]) as i64))
+            as f64
+    } else {
+        real_range
+    };
 
-    let bucket_size = (data.len() - 2) as f64 / (max_points - 2) as f64;
+    let target_bucket_count = max_points - 2;
+    let stable_bin_size = calculate_stable_bin_size(logical_range, target_bucket_count);
+    let avg_items_per_bin = (data.len() as f64 * (stable_bin_size / logical_range)).ceil() as usize;
+    let bin_size = avg_items_per_bin.max(1);
+
+    // This is generic, so we don't have calculate_gap_aware_buckets_data for generic T
+    // but we can implement a local version or use indices.
+    let mut current_start = 1;
+    let n = data.len();
+    let mut buckets = Vec::new();
+
+    if let Some(gi) = gaps {
+        let segments = gi.segments();
+        let mut seg_idx = 0;
+
+        while current_start < n - 1 {
+            let next_target = (current_start + bin_size).min(n - 1);
+
+            while seg_idx < segments.len()
+                && segments[seg_idx].end_real <= get_x(&data[current_start]) as i64
+            {
+                seg_idx += 1;
+            }
+
+            if seg_idx < segments.len()
+                && segments[seg_idx].start_real < get_x(&data[next_target - 1]) as i64
+            {
+                let gap_start_real = segments[seg_idx].start_real;
+                let mut split_idx = current_start;
+                for j in current_start..next_target {
+                    if (get_x(&data[j]) as i64) >= gap_start_real {
+                        break;
+                    }
+                    split_idx = j + 1;
+                }
+
+                if split_idx > current_start {
+                    buckets.push(current_start..split_idx);
+                    current_start = split_idx;
+                } else {
+                    let gap_end_real = segments[seg_idx].end_real;
+                    let mut skip_idx = current_start;
+                    for j in current_start..n - 1 {
+                        if (get_x(&data[j]) as i64) >= gap_end_real {
+                            break;
+                        }
+                        skip_idx = j + 1;
+                    }
+                    current_start = skip_idx;
+                    seg_idx += 1;
+                }
+            } else {
+                buckets.push(current_start..next_target);
+                current_start = next_target;
+            }
+        }
+    } else {
+        for i in (1..n - 1).step_by(bin_size) {
+            buckets.push(i..(i + bin_size).min(n - 1));
+        }
+    }
+
+    if buckets.is_empty() {
+        return vec![create_point(&data[0]), create_point(&data[data.len() - 1])];
+    }
+
+    let mut sampled = Vec::with_capacity(max_points);
+    sampled.push(create_point(&data[0]));
+
+    let averages: Vec<(f64, f64)> = buckets
+        .iter()
+        .map(|range| {
+            let mut sum_x = 0.0;
+            let mut sum_y = 0.0;
+            let count = range.len() as f64;
+            if let Some(g) = gaps {
+                let mut cursor = g.cursor();
+                for j in range.clone() {
+                    sum_x += cursor.to_logical(get_x(&data[j]) as i64) as f64;
+                    sum_y += get_y(&data[j]);
+                }
+            } else {
+                for j in range.clone() {
+                    sum_x += get_x(&data[j]);
+                    sum_y += get_y(&data[j]);
+                }
+            }
+            (sum_x / count, sum_y / count)
+        })
+        .collect();
 
     let mut a_idx = 0;
-    sampled.push(create_point(&data[a_idx]));
+    let n_buckets = buckets.len();
 
-    for i in 0..(max_points - 2) {
-        let bucket_start = 1 + (i as f64 * bucket_size).floor() as usize;
-        let bucket_end = 1 + ((i + 1) as f64 * bucket_size).floor() as usize;
-
-        let next_bucket_start = bucket_end;
-        let next_bucket_end =
-            (1 + ((i + 2) as f64 * bucket_size).floor() as usize).min(data.len() - 1);
-
-        let mut avg_x = 0.0;
-        let mut avg_y = 0.0;
-        let mut avg_count = 0;
-
-        for j in next_bucket_start..next_bucket_end {
-            avg_x += get_x(&data[j]);
-            avg_y += get_y(&data[j]);
-            avg_count += 1;
-        }
-
-        if avg_count > 0 {
-            avg_x /= avg_count as f64;
-            avg_y /= avg_count as f64;
+    for i in 0..n_buckets {
+        let range = &buckets[i];
+        let (c_x, c_y) = if i < n_buckets - 1 {
+            averages[i + 1]
         } else {
-            avg_x = get_x(&data[next_bucket_start.min(data.len() - 1)]);
-            avg_y = get_y(&data[next_bucket_start.min(data.len() - 1)]);
-        }
+            if let Some(g) = gaps {
+                (
+                    g.to_logical(get_x(&data[n - 1]) as i64) as f64,
+                    get_y(&data[n - 1]),
+                )
+            } else {
+                (get_x(&data[n - 1]), get_y(&data[n - 1]))
+            }
+        };
 
-        let p_a_x = get_x(&data[a_idx]);
+        let p_a_x = if let Some(g) = gaps {
+            g.to_logical(get_x(&data[a_idx]) as i64) as f64
+        } else {
+            get_x(&data[a_idx])
+        };
         let p_a_y = get_y(&data[a_idx]);
 
         let mut max_area = -1.0;
-        let mut next_a_idx = bucket_start;
+        let mut next_a_idx = range.start;
 
-        for j in bucket_start..bucket_end {
-            let p_b_x = get_x(&data[j]);
+        let mut cursor = gaps.map(|g| g.cursor());
+
+        for j in range.clone() {
+            let p_b_x = if let Some(ref mut c) = cursor {
+                c.to_logical(get_x(&data[j]) as i64) as f64
+            } else {
+                get_x(&data[j])
+            };
             let p_b_y = get_y(&data[j]);
 
             let area =
-                (p_a_x * (p_b_y - avg_y) + p_b_x * (avg_y - p_a_y) + avg_x * (p_a_y - p_b_y)).abs();
+                (p_a_x * (p_b_y - c_y) + p_b_x * (c_y - p_a_y) + c_x * (p_a_y - p_b_y)).abs();
 
             if area > max_area {
                 max_area = area;
@@ -1598,8 +1697,7 @@ where
         sampled.push(create_point(&data[a_idx]));
     }
 
-    sampled.push(create_point(&data[data.len() - 1]));
-
+    sampled.push(create_point(&data[n - 1]));
     sampled
 }
 

@@ -27,7 +27,10 @@ The library features a sophisticated **Logical Time System** designed specifical
     - **Fixed**: Specific UTC ranges (e.g., specific holidays).
     - **Recurring (Temporal)**: Weekly schedules with timezone support (e.g., "Market closed every Friday 17:00 to Monday 09:00 NY time"). Gaps automatically adjust for DST.
     - **Recurring (Numeric)**: Modulo-based gaps for non-temporal axes.
-- **Gap-Aware Aggregation**: The decimation engine (Scenario B) ensures that data buckets never bridge across a gap, preventing artificial "smearing" of prices across session closures.
+- **Gap-Aware Aggregation**: The decimation engine (Scenario B) ensures that data buckets never bridge across a gap, preventing artificial "smearing" of prices across session closures. Both **M4** and **LTTB** algorithms are fully gap-aware.
+- **Gap-Aware Annotations**: 
+    - **Vertical Lines** are automatically hidden if they fall within an exclusion gap.
+    - **Rectangles** are intelligently split into multiple segments when spanning across gaps, ensuring background highlights only appear over active data periods.
 - **High Performance Mapping**: $O(\log n)$ coordinate transformation allows for thousands of gap segments without impacting 60fps performance.
 
 ### 📊 Aggregation Algorithms

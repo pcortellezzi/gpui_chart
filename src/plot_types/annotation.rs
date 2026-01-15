@@ -35,6 +35,16 @@ impl PlotRenderer for AnnotationPlot {
                     width,
                     label,
                 } => {
+                    let is_inside = transform
+                        .x_scale
+                        .gap_index()
+                        .map(|g| g.is_inside(*x as i64))
+                        .unwrap_or(false);
+
+                    if is_inside {
+                        continue;
+                    }
+
                     let screen_x = transform.x_data_to_screen(*x);
 
                     // Only draw if within (or close to) X bounds
@@ -145,15 +155,26 @@ impl PlotRenderer for AnnotationPlot {
                     color,
                     fill,
                 } => {
-                    let p1 = transform.data_to_screen(Point::new(*x_min, *y_max)); // Top-Left (since Y grows down, max Y is top)
-                    let p2 = transform.data_to_screen(Point::new(*x_max, *y_min)); // Bottom-Right
-
-                    let rect = Bounds::from_corners(p1, p2);
-
-                    if *fill {
-                        window.paint_quad(gpui::fill(rect, *color));
+                    let ranges = if let Some(gaps) = transform.x_scale.gap_index() {
+                        gaps.split_range(*x_min as i64, *x_max as i64)
                     } else {
-                        window.paint_quad(gpui::outline(rect, *color, gpui::BorderStyle::Solid));
+                        vec![(*x_min as i64, *x_max as i64)]
+                    };
+
+                    for (r_start, r_end) in ranges {
+                        let p1 = transform.data_to_screen(Point::new(r_start as f64, *y_max));
+                        let p2 = transform.data_to_screen(Point::new(r_end as f64, *y_min));
+
+                        let rect = Bounds::from_corners(p1, p2);
+
+                        if rect.size.width > px(0.0) {
+                            if *fill {
+                                window.paint_quad(gpui::fill(rect, *color));
+                            } else {
+                                window
+                                    .paint_quad(gpui::outline(rect, *color, gpui::BorderStyle::Solid));
+                            }
+                        }
                     }
                 }
                 Annotation::Text {
