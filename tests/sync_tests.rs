@@ -25,7 +25,7 @@ fn test_polars_sync_with_manual() {
     let polars_res: Vec<PlotData> = polars_source
         .iter_aggregated(0.0, (n - 1) as f64, max_points, None)
         .collect();
-    let manual_res = gpui_chart::aggregation::decimate_m4_arrays_par(&x, &y, max_points, None);
+    let manual_res = gpui_chart::decimation::decimate_m4_arrays_par(&x, &y, max_points, None, 0);
 
     assert_eq!(polars_res.len(), manual_res.len());
 

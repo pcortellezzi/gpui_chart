@@ -74,7 +74,7 @@ fn test_ohlcv_aggregation_respects_gaps_zero_copy() {
 
 #[test]
 fn test_calculate_gap_aware_buckets() {
-    use gpui_chart::aggregation::calculate_gap_aware_buckets;
+    use gpui_chart::decimation::calculate_gap_aware_buckets;
 
     let time = vec![10.0, 20.0, 30.0, 100.0, 110.0, 120.0];
     let segments = vec![GapSegment {
@@ -86,7 +86,7 @@ fn test_calculate_gap_aware_buckets() {
 
     // bin_size = 2.
     // Buckets: [10, 20], [30] (gap follows), [100, 110], [120]
-    let buckets = calculate_gap_aware_buckets(&time, Some(&gaps), 2);
+    let buckets = calculate_gap_aware_buckets(&time, Some(&gaps), 2, 0);
 
     assert_eq!(buckets.len(), 4);
     assert_eq!(buckets[0], 0..2); // [10, 20]
@@ -97,7 +97,7 @@ fn test_calculate_gap_aware_buckets() {
 
 #[test]
 fn test_m4_kernel_respects_gaps() {
-    use gpui_chart::aggregation::decimate_m4_arrays_par_into;
+    use gpui_chart::decimation::decimate_m4_arrays_par_into;
 
     let time = vec![10.0, 20.0, 30.0, 100.0, 110.0, 120.0];
     let y = vec![1.0, 2.0, 3.0, 4.0, 5.0, 6.0];
@@ -109,7 +109,7 @@ fn test_m4_kernel_respects_gaps() {
     let gaps = GapIndex::new(segments);
 
     let mut output = Vec::new();
-    decimate_m4_arrays_par_into(&time, &y, 10, &mut output, Some(&gaps));
+    decimate_m4_arrays_par_into(&time, &y, 10, &mut output, Some(&gaps), 0);
 
     // Even if max_points is 10, it should split at the gap.
     // Buckets: [10, 20, 30] and [100, 110, 120]

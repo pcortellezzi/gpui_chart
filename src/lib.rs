@@ -18,7 +18,7 @@ mod rendering;
 mod utils;
 
 /// Public modules (exposed to the user)
-pub mod aggregation;
+pub mod decimation;
 pub mod chart;
 pub mod chart_view;
 pub mod data_types;

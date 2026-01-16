@@ -66,6 +66,9 @@ impl PolarsDataSource {
         let start_idx = start_idx_ca.get(0).unwrap_or(0) as usize;
         let end_idx = end_idx_ca.get(0).unwrap_or(self.df.height() as u32) as usize;
 
+        // Ensure we include at least one point beyond x_max to avoid disappearing points at the edge
+        let end_idx = (end_idx + 1).min(self.df.height());
+
         (start_idx, end_idx)
     }
 
@@ -506,18 +509,18 @@ impl PlotDataSource for PolarsDataSource {
 
                     match self.mode {
                         crate::data_types::AggregationMode::M4 => {
-                            crate::aggregation::decimate_m4_arrays_par_into(
-                                x_slice, y_slice, max_points, output, gaps,
+                            crate::decimation::decimate_m4_arrays_par_into(
+                                x_slice, y_slice, max_points, output, gaps, start,
                             )
                         }
                         crate::data_types::AggregationMode::MinMax => {
-                            crate::aggregation::decimate_min_max_arrays_par_into(
-                                x_slice, y_slice, max_points, output, gaps,
+                            crate::decimation::decimate_min_max_arrays_par_into(
+                                x_slice, y_slice, max_points, output, gaps, start,
                             )
                         }
                         crate::data_types::AggregationMode::LTTB => {
-                            crate::aggregation::decimate_ilttb_arrays_par_into(
-                                x_slice, y_slice, max_points, output, gaps,
+                            crate::decimation::decimate_ilttb_arrays_par_into(
+                                x_slice, y_slice, max_points, output, gaps, start,
                             )
                         }
                     };
@@ -605,8 +608,8 @@ impl PlotDataSource for PolarsDataSource {
                         &c_vec
                     };
 
-                    crate::aggregation::decimate_ohlcv_arrays_par_into(
-                        x_slice, o_slice, h_slice, l_slice, c_slice, max_points, output, gaps,
+                    crate::decimation::decimate_ohlcv_arrays_par_into(
+                        x_slice, o_slice, h_slice, l_slice, c_slice, max_points, output, gaps, start,
                     );
                     return;
                 }

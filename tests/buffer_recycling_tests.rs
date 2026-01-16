@@ -1,4 +1,4 @@
-use gpui_chart::aggregation::decimate_m4_arrays_par_into;
+use gpui_chart::decimation::decimate_m4_arrays_par_into;
 use gpui_chart::data_types::{ColorOp, PlotData, PlotPoint};
 
 #[test]
@@ -26,7 +26,7 @@ fn test_decimate_into_appends_to_buffer() {
         }),
     ];
 
-    decimate_m4_arrays_par_into(&x, &y, max_points, &mut buffer, None);
+    decimate_m4_arrays_par_into(&x, &y, max_points, &mut buffer, None, 0);
 
     // Should append 2 points to existing 3
     assert_eq!(buffer.len(), 5);
@@ -49,7 +49,7 @@ fn test_decimate_into_reserves_capacity() {
 
     let mut buffer = Vec::new();
     // Capacity should grow
-    decimate_m4_arrays_par_into(&x, &y, max_points, &mut buffer, None);
+    decimate_m4_arrays_par_into(&x, &y, max_points, &mut buffer, None, 0);
 
     assert_eq!(buffer.len(), 5);
 }

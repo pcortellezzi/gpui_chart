@@ -1,4 +1,4 @@
-use gpui_chart::aggregation::decimate_ohlcv_arrays_par;
+use gpui_chart::decimation::decimate_ohlcv_arrays_par;
 use gpui_chart::data_types::PlotData;
 
 #[test]
@@ -11,7 +11,7 @@ fn test_ohlcv_decimation_basic() {
     let close: Vec<f64> = (0..n).map(|_| 15.0).collect();
 
     // Decimate to 10 points (10 bins of 10 items each)
-    let result = decimate_ohlcv_arrays_par(&time, &open, &high, &low, &close, 10, None);
+    let result = decimate_ohlcv_arrays_par(&time, &open, &high, &low, &close, 10, None, 0);
 
     assert_eq!(result.len(), 10);
 
@@ -31,7 +31,7 @@ fn test_ohlcv_decimation_basic() {
 
 #[test]
 fn test_ohlcv_decimation_empty() {
-    let result = decimate_ohlcv_arrays_par(&[], &[], &[], &[], &[], 10, None);
+    let result = decimate_ohlcv_arrays_par(&[], &[], &[], &[], &[], 10, None, 0);
     assert!(result.is_empty());
 }
 
@@ -44,7 +44,7 @@ fn test_ohlcv_decimation_undersampled() {
     let close = vec![11.0, 11.0];
 
     // Max points 10 > len 2 -> return 1:1
-    let result = decimate_ohlcv_arrays_par(&time, &open, &high, &low, &close, 10, None);
+    let result = decimate_ohlcv_arrays_par(&time, &open, &high, &low, &close, 10, None, 0);
     assert_eq!(result.len(), 2);
     if let PlotData::Ohlcv(c) = &result[0] {
         assert_eq!(c.time, 1.0);
@@ -61,7 +61,7 @@ fn test_ohlcv_decimation_nan_handling() {
     let close = vec![f64::NAN, 15.0, f64::NAN, 16.0];
 
     // 1 bin
-    let result = decimate_ohlcv_arrays_par(&time, &open, &high, &low, &close, 1, None);
+    let result = decimate_ohlcv_arrays_par(&time, &open, &high, &low, &close, 1, None, 0);
     assert_eq!(result.len(), 1);
 
     if let PlotData::Ohlcv(c) = &result[0] {

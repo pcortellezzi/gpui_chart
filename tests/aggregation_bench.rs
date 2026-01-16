@@ -1,5 +1,5 @@
 #[cfg(feature = "polars")]
-use gpui_chart::aggregation::decimate_ilttb_arrays_par_into;
+use gpui_chart::decimation::decimate_ilttb_arrays_par_into;
 #[cfg(feature = "polars")]
 use gpui_chart::data_types::{AggregationMode, PlotDataSource};
 #[cfg(feature = "polars")]
@@ -109,7 +109,7 @@ fn test_compare_aggregations() {
     let x_arr: Vec<f64> = (0..n).map(|i| i as f64).collect();
     let y_arr: Vec<f64> = (0..n).map(|i| (i as f64 * 0.01).sin()).collect();
     let start_ilttb = Instant::now();
-    decimate_ilttb_arrays_par_into(&x_arr, &y_arr, 2000, &mut out_buffer, None);
+    decimate_ilttb_arrays_par_into(&x_arr, &y_arr, 2000, &mut out_buffer, None, 0);
     let dur_ilttb = start_ilttb.elapsed();
     println!(
         "ILTTB (Parallel) took:        {:?} (points: {})",
@@ -119,7 +119,7 @@ fn test_compare_aggregations() {
 
     let mut out_buffer_gaps = Vec::with_capacity(2000);
     let start_ilttb_gaps = Instant::now();
-    decimate_ilttb_arrays_par_into(&x_arr, &y_arr, 2000, &mut out_buffer_gaps, Some(&gaps));
+    decimate_ilttb_arrays_par_into(&x_arr, &y_arr, 2000, &mut out_buffer_gaps, Some(&gaps), 0);
     let dur_ilttb_gaps = start_ilttb_gaps.elapsed();
     println!(
         "ILTTB WITH GAPS took:         {:?} (points: {})",
