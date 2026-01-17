@@ -466,6 +466,12 @@ impl PlotDataSource for PolarsDataSource {
             return;
         }
 
+        let view_logical_range = if let Some(g) = gaps {
+            (g.to_logical(x_max as i64) - g.to_logical(x_min as i64)) as f64
+        } else {
+            x_max - x_min
+        };
+
         // Optimized Zero-Copy Path for Points (M4, MinMax, LTTB)
         // This path bypasses Polars Lazy API and allocations by accessing contiguous memory slices directly.
         // It writes directly into the recycling `output` buffer.
@@ -510,17 +516,17 @@ impl PlotDataSource for PolarsDataSource {
                     match self.mode {
                         crate::data_types::AggregationMode::M4 => {
                             crate::decimation::decimate_m4_arrays_par_into(
-                                x_slice, y_slice, max_points, output, gaps,
+                                x_slice, y_slice, max_points, output, gaps, Some(view_logical_range),
                             )
                         }
                         crate::data_types::AggregationMode::MinMax => {
                             crate::decimation::decimate_min_max_arrays_par_into(
-                                x_slice, y_slice, max_points, output, gaps,
+                                x_slice, y_slice, max_points, output, gaps, Some(view_logical_range),
                             )
                         }
                         crate::data_types::AggregationMode::LTTB => {
                             crate::decimation::decimate_ilttb_arrays_par_into(
-                                x_slice, y_slice, max_points, output, gaps,
+                                x_slice, y_slice, max_points, output, gaps, Some(view_logical_range),
                             )
                         }
                     };
@@ -609,7 +615,7 @@ impl PlotDataSource for PolarsDataSource {
                     };
 
                     crate::decimation::decimate_ohlcv_arrays_par_into(
-                        x_slice, o_slice, h_slice, l_slice, c_slice, max_points, output, gaps,
+                        x_slice, o_slice, h_slice, l_slice, c_slice, max_points, output, gaps, Some(view_logical_range),
                     );
                     return;
                 }

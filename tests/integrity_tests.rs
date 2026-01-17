@@ -14,7 +14,7 @@ fn test_y_bound_integrity() {
     y[7890] = min_val;
 
     let max_points = 100; // High compression ratio (100:1)
-    let decimated = decimate_m4_arrays_par(&x, &y, max_points, None);
+    let decimated = decimate_m4_arrays_par(&x, &y, max_points, None, None);
 
     let mut dec_min = f64::INFINITY;
     let mut dec_max = f64::NEG_INFINITY;

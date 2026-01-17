@@ -239,6 +239,7 @@ pub fn calculate_stable_buckets_generic<F>(
     gaps: Option<&GapIndex>,
     max_points: usize,
     points_per_bucket: usize,
+    reference_logical_range: Option<f64>,
 ) -> (f64, Vec<Range<usize>>)
 where
     F: Fn(usize) -> f64,
@@ -247,14 +248,16 @@ where
         return (1.0, Vec::new());
     }
 
-    let start_x = get_x_at(0);
-    let end_x = get_x_at(n - 1);
-    
-    let real_range = end_x - start_x;
-    let logical_range = if let Some(g) = gaps {
-        (g.to_logical(end_x as i64) - g.to_logical(start_x as i64)) as f64
+    let logical_range = if let Some(r) = reference_logical_range {
+        r
     } else {
-        real_range
+        let start_x = get_x_at(0);
+        let end_x = get_x_at(n - 1);
+        if let Some(g) = gaps {
+            (g.to_logical(end_x as i64) - g.to_logical(start_x as i64)) as f64
+        } else {
+            end_x - start_x
+        }
     };
     
     let target_buckets = (max_points / points_per_bucket).max(1);
@@ -270,8 +273,9 @@ pub fn calculate_stable_buckets(
     gaps: Option<&GapIndex>,
     max_points: usize,
     points_per_bucket: usize,
+    reference_logical_range: Option<f64>,
 ) -> (f64, Vec<Range<usize>>) {
-    calculate_stable_buckets_generic(x.len(), |i| x[i], gaps, max_points, points_per_bucket)
+    calculate_stable_buckets_generic(x.len(), |i| x[i], gaps, max_points, points_per_bucket, reference_logical_range)
 }
 
 pub fn calculate_stable_buckets_data(
@@ -279,6 +283,7 @@ pub fn calculate_stable_buckets_data(
     gaps: Option<&GapIndex>,
     max_points: usize,
     points_per_bucket: usize,
+    reference_logical_range: Option<f64>,
 ) -> (f64, Vec<Range<usize>>) {
     calculate_stable_buckets_generic(
         data.len(),
@@ -286,5 +291,6 @@ pub fn calculate_stable_buckets_data(
         gaps,
         max_points,
         points_per_bucket,
+        reference_logical_range,
     )
 }

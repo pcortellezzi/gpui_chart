@@ -8,13 +8,13 @@ fn test_extreme_zoom_precision() {
     let x_tiny: Vec<f64> = (0..n).map(|i| 1_000_000.0 + i as f64 * 1e-12).collect();
     let y: Vec<f64> = (0..n).map(|i| i as f64).collect();
 
-    let res_tiny = decimate_m4_arrays_par(&x_tiny, &y, 100, None);
+    let res_tiny = decimate_m4_arrays_par(&x_tiny, &y, 100, None, None);
     assert!(res_tiny.len() > 0);
     assert!(!res_tiny.is_empty());
 
     // Huge range
     let x_huge: Vec<f64> = (0..n).map(|i| i as f64 * 1e15).collect();
-    let res_huge = decimate_m4_arrays_par(&x_huge, &y, 100, None);
+    let res_huge = decimate_m4_arrays_par(&x_huge, &y, 100, None, None);
     assert!(res_huge.len() > 0);
 
     // Verify no NaNs in output
@@ -36,7 +36,7 @@ fn test_zero_range_stability() {
     let x = vec![1.0; n];
     let y: Vec<f64> = (0..n).map(|i| i as f64).collect();
 
-    let res = decimate_m4_arrays_par(&x, &y, 10, None);
+    let res = decimate_m4_arrays_par(&x, &y, 10, None, None);
     // Should not panic or return NaN
     assert!(res.len() <= 10);
 }

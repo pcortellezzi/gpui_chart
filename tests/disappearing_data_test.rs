@@ -27,7 +27,7 @@ fn test_m4_disappearing_tail() {
     let y_slice = &y[0..701];
 
     let mut output = Vec::new();
-    decimate_m4_arrays_par_into(x_slice, y_slice, max_points, &mut output, None);
+    decimate_m4_arrays_par_into(x_slice, y_slice, max_points, &mut output, None, None);
 
     let last_x = match output.last().unwrap() {
         PlotData::Point(p) => p.x,

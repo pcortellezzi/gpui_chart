@@ -15,7 +15,7 @@ fn test_lttb_decimation_basic() {
 
     let max_points = 100;
     // LTTB should return approximately max_points
-    let decimated = decimate_lttb_slice(&data, max_points, None);
+    let decimated = decimate_lttb_slice(&data, max_points, None, None);
 
     assert!(decimated.len() >= 10);
 
@@ -47,7 +47,7 @@ fn test_lttb_decimation_undersampled() {
     ];
 
     let max_points = 10;
-    let decimated = decimate_lttb_slice(&data, max_points, None);
+    let decimated = decimate_lttb_slice(&data, max_points, None, None);
 
     assert_eq!(decimated.len(), 2);
 }
@@ -71,7 +71,7 @@ fn test_lttb_preserves_peaks() {
     }
 
     let max_points = 50;
-    let decimated = decimate_lttb_slice(&data, max_points, None);
+    let decimated = decimate_lttb_slice(&data, max_points, None, None);
 
     let has_peak = decimated.iter().any(|p| match p {
         PlotData::Point(pt) => pt.y == 100.0,
@@ -110,7 +110,7 @@ fn test_lttb_with_nans() {
     ];
 
     let max_points = 3;
-    let decimated = decimate_lttb_slice(&data, max_points, None);
+    let decimated = decimate_lttb_slice(&data, max_points, None, None);
 
     assert!(decimated.len() >= 2);
     // Should not panic and should return valid points

@@ -11,6 +11,7 @@ pub fn decimate_ohlcv_arrays_par_into(
     max_points: usize,
     output: &mut Vec<PlotData>,
     gaps: Option<&GapIndex>,
+    reference_logical_range: Option<f64>,
 ) {
     let initial_len = output.len();
     if time.is_empty() {
@@ -35,7 +36,7 @@ pub fn decimate_ohlcv_arrays_par_into(
     }
 
     // We calculate stable_bin_size based on the visible range.
-    let (stable_bin_size, buckets) = super::bucketing::calculate_stable_buckets(time, gaps, max_points, 1);
+    let (stable_bin_size, buckets) = super::bucketing::calculate_stable_buckets(time, gaps, max_points, 1, reference_logical_range);
 
     let chunks: Vec<PlotData> = buckets
         .into_par_iter()
@@ -113,9 +114,10 @@ pub fn decimate_ohlcv_arrays_par(
     close: &[f64],
     max_points: usize,
     gaps: Option<&GapIndex>,
+    reference_logical_range: Option<f64>,
 ) -> Vec<PlotData> {
     let mut output = Vec::with_capacity(max_points);
-    decimate_ohlcv_arrays_par_into(time, open, high, low, close, max_points, &mut output, gaps);
+    decimate_ohlcv_arrays_par_into(time, open, high, low, close, max_points, &mut output, gaps, reference_logical_range);
     output
 }
 
@@ -127,6 +129,7 @@ pub fn decimate_ohlcv_slice_into(
     max_points: usize,
     output: &mut Vec<PlotData>,
     gaps: Option<&GapIndex>,
+    reference_logical_range: Option<f64>,
 ) {
     let initial_len = output.len();
     if data.is_empty() {
@@ -138,7 +141,7 @@ pub fn decimate_ohlcv_slice_into(
         return;
     }
 
-    let (stable_bin_size, buckets) = super::bucketing::calculate_stable_buckets_data(data, gaps, max_points, 1);
+    let (stable_bin_size, buckets) = super::bucketing::calculate_stable_buckets_data(data, gaps, max_points, 1, reference_logical_range);
 
     let chunks: Vec<PlotData> = buckets
         .into_par_iter()

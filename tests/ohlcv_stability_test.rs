@@ -45,6 +45,7 @@ mod tests {
             &c[0..slice1_len],
             max_points,
             None,
+            None,
         );
 
         // Run 2 (Pan right by 10 points)
@@ -57,6 +58,7 @@ mod tests {
             &l[offset..offset+slice2_len],
             &c[offset..offset+slice2_len],
             max_points,
+            None,
             None,
         );
 
@@ -88,5 +90,54 @@ mod tests {
         
         println!("Verified {} matching candles", matches);
         assert!(matches > 0);
+    }
+
+    #[test]
+    fn test_ohlcv_range_jitter_stability() {
+        let (t, o, h, l, c) = generate_data(2000);
+        let max_points = 100;
+        
+        // Threshold case: ideal bin size is 10.0.
+        // Call 1: range exactly 1000.0.
+        // Call 2: range slightly more 1000.1.
+        
+        // Without reference range, Call 2 would jump to 20.0 bin size.
+        // With reference range, both should use exactly the same grid.
+        
+        let stable_range = 1000.0;
+
+        let res1 = decimate_ohlcv_arrays_par(
+            &t[0..1001],
+            &o[0..1001],
+            &h[0..1001],
+            &l[0..1001],
+            &c[0..1001],
+            max_points,
+            None,
+            Some(stable_range),
+        );
+
+        let res2 = decimate_ohlcv_arrays_par(
+            &t[0..1002],
+            &o[0..1002],
+            &h[0..1002],
+            &l[0..1002],
+            &c[0..1002],
+            max_points,
+            None,
+            Some(stable_range),
+        );
+
+        // Verify count is same
+        assert_eq!(res1.len(), res2.len(), "Counts should be identical with stable reference range");
+        
+        // Verify values of overlapping candles are identical
+        for (p1, p2) in res1.iter().zip(res2.iter()) {
+            if let (PlotData::Ohlcv(c1), PlotData::Ohlcv(c2)) = (p1, p2) {
+                assert_eq!(c1.time, c2.time);
+                assert_eq!(c1.open, c2.open);
+                assert_eq!(c1.close, c2.close);
+            }
+        }
     }
 }

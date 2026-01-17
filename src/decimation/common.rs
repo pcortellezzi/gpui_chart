@@ -9,12 +9,15 @@ pub fn calculate_stable_bin_size(range: f64, max_points: usize) -> f64 {
     let exponent = ideal.log10().floor();
     let base = 10.0f64.powf(exponent);
     let rel = ideal / base;
+    // Use a small epsilon to avoid threshold jitter due to floating point noise.
+    // This is especially important near 1.0, 2.0, 5.0 boundaries to prevent resolution jumps.
+    const EPS: f64 = 1e-9;
 
-    let stable_rel = if rel <= 1.0 {
+    let stable_rel = if rel <= 1.0 + EPS {
         1.0
-    } else if rel <= 2.0 {
+    } else if rel <= 2.0 + EPS {
         2.0
-    } else if rel <= 5.0 {
+    } else if rel <= 5.0 + EPS {
         5.0
     } else {
         10.0

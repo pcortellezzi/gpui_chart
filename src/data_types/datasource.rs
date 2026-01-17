@@ -30,7 +30,7 @@ pub trait PlotDataSource: Send + Sync {
         gaps: Option<&GapIndex>,
     ) -> Box<dyn Iterator<Item = PlotData> + '_> {
         let data: Vec<PlotData> = self.iter_range(x_min, x_max).collect();
-        Box::new(crate::decimation::decimate_min_max_slice(&data, max_points, gaps).into_iter())
+        Box::new(crate::decimation::decimate_min_max_slice(&data, max_points, gaps, None).into_iter())
     }
 
     /// Populate a buffer with aggregated data for LOD rendering.
@@ -303,7 +303,7 @@ impl PlotDataSource for StreamingDataSource {
             x < x_min
         });
         let data: Vec<_> = self.iter_range(x_min, x_max).collect();
-        Box::new(crate::decimation::decimate_min_max_slice(&data, max_points, gaps).into_iter())
+        Box::new(crate::decimation::decimate_min_max_slice(&data, max_points, gaps, None).into_iter())
     }
 
     fn add_data(&mut self, data: PlotData) {
@@ -726,6 +726,7 @@ impl VecDataSource {
                 max_points,
                 output,
                 None, // No gaps inside this segment
+                None,
             );
         }
     }

@@ -8,9 +8,10 @@ pub fn decimate_lttb_arrays(
     y: &[f64],
     max_points: usize,
     gaps: Option<&GapIndex>,
+    reference_logical_range: Option<f64>,
 ) -> Vec<PlotData> {
     let mut output = Vec::with_capacity(max_points);
-    decimate_lttb_arrays_into(x, y, max_points, &mut output, gaps);
+    decimate_lttb_arrays_into(x, y, max_points, &mut output, gaps, reference_logical_range);
     output
 }
 
@@ -20,6 +21,7 @@ pub fn decimate_lttb_arrays_into(
     max_points: usize,
     output: &mut Vec<PlotData>,
     gaps: Option<&GapIndex>,
+    reference_logical_range: Option<f64>,
 ) {
     if x.is_empty() || y.is_empty() || x.len() != y.len() {
         return;
@@ -39,7 +41,7 @@ pub fn decimate_lttb_arrays_into(
     // Use stable time-based bucketing
     // target_bucket_count is approx max_points - 2.
     // We request buckets based on max_points. The exact number might vary slightly.
-    let (_, buckets) = super::bucketing::calculate_stable_buckets(x, gaps, max_points.saturating_sub(2).max(1), 1);
+    let (_, buckets) = super::bucketing::calculate_stable_buckets(x, gaps, max_points.saturating_sub(2).max(1), 1, reference_logical_range);
     let n_buckets = buckets.len();
 
     if n_buckets == 0 {
@@ -134,12 +136,13 @@ pub fn decimate_lttb_slice(
     data: &[PlotData],
     max_points: usize,
     gaps: Option<&GapIndex>,
+    reference_logical_range: Option<f64>,
 ) -> Vec<PlotData> {
     if data.is_empty() {
         return vec![];
     }
     if let PlotData::Ohlcv(_) = data[0] {
-        return decimate_min_max_slice(data, max_points, gaps);
+        return decimate_min_max_slice(data, max_points, gaps, reference_logical_range);
     }
 
     let mut all_points = true;
@@ -166,7 +169,7 @@ pub fn decimate_lttb_slice(
             })
             .collect();
         let mut output = Vec::with_capacity(max_points);
-        decimate_ilttb_arrays_par_into(&x, &y, max_points, &mut output, gaps);
+        decimate_ilttb_arrays_par_into(&x, &y, max_points, &mut output, gaps, reference_logical_range);
         return output;
     }
 
@@ -183,6 +186,7 @@ pub fn decimate_lttb_slice(
         },
         |p| p.clone(),
         gaps,
+        reference_logical_range,
     )
 }
 
@@ -191,9 +195,10 @@ pub fn decimate_ilttb_arrays_par(
     y: &[f64],
     max_points: usize,
     gaps: Option<&GapIndex>,
+    reference_logical_range: Option<f64>,
 ) -> Vec<PlotData> {
     let mut output = Vec::with_capacity(max_points);
-    decimate_ilttb_arrays_par_into(x, y, max_points, &mut output, gaps);
+    decimate_ilttb_arrays_par_into(x, y, max_points, &mut output, gaps, reference_logical_range);
     output
 }
 
@@ -203,6 +208,7 @@ pub fn decimate_ilttb_arrays_par_into(
     max_points: usize,
     output: &mut Vec<PlotData>,
     gaps: Option<&GapIndex>,
+    reference_logical_range: Option<f64>,
 ) {
     if x.is_empty() || y.is_empty() || x.len() != y.len() {
         return;
@@ -220,7 +226,7 @@ pub fn decimate_ilttb_arrays_par_into(
     }
 
     // Use stable time-based bucketing
-    let (_, buckets) = super::bucketing::calculate_stable_buckets(x, gaps, max_points.saturating_sub(2).max(1), 1);
+    let (_, buckets) = super::bucketing::calculate_stable_buckets(x, gaps, max_points.saturating_sub(2).max(1), 1, reference_logical_range);
     let n_buckets = buckets.len();
 
     if n_buckets == 0 {
@@ -356,6 +362,7 @@ pub fn decimate_lttb_generic<T, FX, FY, FC>(
     get_y: FY,
     create_point: FC,
     gaps: Option<&GapIndex>,
+    reference_logical_range: Option<f64>,
 ) -> Vec<PlotData>
 where
     FX: Fn(&T) -> f64,
@@ -388,6 +395,7 @@ where
         gaps,
         max_points.saturating_sub(2).max(1),
         1,
+        reference_logical_range,
     );
 
     // Map buckets back to absolute indices

@@ -9,9 +9,10 @@ pub fn decimate_m4_arrays_par(
     y: &[f64],
     max_points: usize,
     gaps: Option<&GapIndex>,
+    reference_logical_range: Option<f64>,
 ) -> Vec<PlotData> {
     let mut output = Vec::with_capacity(max_points);
-    decimate_m4_arrays_par_into(x, y, max_points, &mut output, gaps);
+    decimate_m4_arrays_par_into(x, y, max_points, &mut output, gaps, reference_logical_range);
     output
 }
 
@@ -109,6 +110,7 @@ pub fn decimate_m4_arrays_par_into(
     max_points: usize,
     output: &mut Vec<PlotData>,
     gaps: Option<&GapIndex>,
+    reference_logical_range: Option<f64>,
 ) {
     let initial_len = output.len();
     if x.is_empty() || y.is_empty() || x.len() != y.len() {
@@ -127,7 +129,7 @@ pub fn decimate_m4_arrays_par_into(
     }
 
     // Use stable time-based bucketing to prevent jitter
-    let (_stable_bin_size, buckets) = super::bucketing::calculate_stable_buckets(x, gaps, max_points, 4);
+    let (_stable_bin_size, buckets) = super::bucketing::calculate_stable_buckets(x, gaps, max_points, 4, reference_logical_range);
 
     // Process buckets in parallel, returning fixed-size arrays to avoid allocations.
     let chunks: Vec<([PlotPoint; 4], usize)> = buckets
@@ -157,9 +159,10 @@ pub fn decimate_m4_slice(
     data: &[PlotData],
     max_points: usize,
     gaps: Option<&GapIndex>,
+    reference_logical_range: Option<f64>,
 ) -> Vec<PlotData> {
     let mut output = Vec::with_capacity(max_points);
-    decimate_m4_slice_into(data, max_points, &mut output, gaps);
+    decimate_m4_slice_into(data, max_points, &mut output, gaps, reference_logical_range);
     output
 }
 
@@ -168,13 +171,14 @@ pub fn decimate_m4_slice_into(
     max_points: usize,
     output: &mut Vec<PlotData>,
     gaps: Option<&GapIndex>,
+    reference_logical_range: Option<f64>,
 ) {
     let initial_len = output.len();
     if data.is_empty() { return; }
 
     if let PlotData::Ohlcv(_) = data[0] {
         use crate::decimation::ohlcv::decimate_ohlcv_slice_into; // Resolve circular dep
-        decimate_ohlcv_slice_into(data, max_points, output, gaps);
+        decimate_ohlcv_slice_into(data, max_points, output, gaps, reference_logical_range);
         return;
     }
 
@@ -183,7 +187,7 @@ pub fn decimate_m4_slice_into(
         return;
     }
 
-    let (_stable_bin_size, buckets) = super::bucketing::calculate_stable_buckets_data(data, gaps, max_points, 4);
+    let (_stable_bin_size, buckets) = super::bucketing::calculate_stable_buckets_data(data, gaps, max_points, 4, reference_logical_range);
 
     let chunks: Vec<([PlotData; 4], usize)> = buckets
         .into_par_iter()
@@ -248,6 +252,7 @@ pub fn decimate_m4_generic<T, FX, FY, FC>(
     get_y: FY,
     create_point: FC,
     gaps: Option<&GapIndex>,
+    reference_logical_range: Option<f64>,
 ) -> Vec<PlotData>
 where
     FX: Fn(&T) -> f64,
@@ -265,6 +270,7 @@ where
         gaps,
         max_points,
         4,
+        reference_logical_range,
     );
 
     let mut aggregated = Vec::with_capacity(max_points);
