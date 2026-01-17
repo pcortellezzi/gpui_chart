@@ -15,6 +15,7 @@ pub fn decimate_min_max_arrays_par(
     output
 }
 
+#[inline(always)]
 fn aggregate_min_max_bucket_to_array(x_chunk: &[f64], y_chunk: &[f64]) -> ([PlotPoint; 2], usize) {
     let n = x_chunk.len();
     if n == 0 {
@@ -34,50 +35,9 @@ fn aggregate_min_max_bucket_to_array(x_chunk: &[f64], y_chunk: &[f64]) -> ([Plot
         );
     }
 
-    // Reuse generic finder? Or keep specialized for array? 
-    // Specialized is slightly faster as it doesn't need closure call
-    // But for maintainability let's use specialized inline logic as it's small here.
-    
-    let mut min_idx = 0;
-    let mut max_idx = 0;
-    let mut min_y = y_chunk[0];
-    let mut max_y = min_y;
-
-    let start_search = if min_y.is_nan() {
-        let mut found = false;
-        let mut idx = 0;
-        for (i, val) in y_chunk.iter().enumerate().skip(1) {
-            if !val.is_nan() {
-                min_y = *val;
-                max_y = *val;
-                min_idx = i;
-                max_idx = i;
-                idx = i;
-                found = true;
-                break;
-            }
-        }
-        if found {
-            idx + 1
-        } else {
-            n
-        }
-    } else {
-        1
-    };
-
-    for (i, val) in y_chunk.iter().enumerate().skip(start_search) {
-        if val.is_nan() {
-            continue;
-        }
-        if *val < min_y {
-            min_y = *val;
-            min_idx = i;
-        }
-        if *val > max_y {
-            max_y = *val;
-            max_idx = i;
-        }
+    let (min_idx, max_idx) = super::common::find_extrema_indices_f64(y_chunk);
+    if y_chunk[min_idx].is_nan() {
+        return ([PlotPoint::default(); 2], 0);
     }
 
     let mut result = [PlotPoint::default(); 2];

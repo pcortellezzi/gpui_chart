@@ -43,6 +43,7 @@ pub fn get_data_y(p: &PlotData) -> f64 {
 /// Scans a slice to find the indices of the minimum and maximum values.
 /// Handles NaN values by skipping them.
 /// Returns (min_idx, max_idx).
+#[inline(always)]
 pub fn find_extrema_indices_generic<T, FY>(chunk: &[T], get_y: FY) -> (usize, usize)
 where
     FY: Fn(&T) -> f64,
@@ -57,40 +58,75 @@ where
     let mut min_y = get_y(&chunk[0]);
     let mut max_y = min_y;
 
-    let start_search_idx = if min_y.is_nan() {
+    let mut start = 1;
+    if min_y.is_nan() {
         let mut found = false;
-        let mut idx = 0;
-        for (i, item) in chunk.iter().enumerate().skip(1) {
-            let val = get_y(item);
+        for i in 1..n {
+            let val = get_y(&chunk[i]);
             if !val.is_nan() {
                 min_y = val;
                 max_y = val;
                 min_idx = i;
                 max_idx = i;
-                idx = i;
+                start = i + 1;
                 found = true;
                 break;
             }
         }
-        if found {
-            idx + 1
-        } else {
-            n
-        }
-    } else {
-        1
-    };
+        if !found { return (0, 0); }
+    }
 
-    for (i, item) in chunk.iter().enumerate().skip(start_search_idx) {
-        let val = get_y(item);
-        if val.is_nan() {
-            continue;
-        }
+    for i in start..n {
+        let val = get_y(&chunk[i]);
+        if val.is_nan() { continue; }
         if val < min_y {
             min_y = val;
             min_idx = i;
+        } else if val > max_y {
+            max_y = val;
+            max_idx = i;
         }
-        if val > max_y {
+    }
+
+    (min_idx, max_idx)
+}
+
+/// Specialized version for raw f64 slices (avoiding closure overhead).
+#[inline(always)]
+pub fn find_extrema_indices_f64(chunk: &[f64]) -> (usize, usize) {
+    let n = chunk.len();
+    if n == 0 { return (0, 0); }
+    
+    let mut min_idx = 0;
+    let mut max_idx = 0;
+    let mut min_y = chunk[0];
+    let mut max_y = min_y;
+
+    let mut start = 1;
+    if min_y.is_nan() {
+        let mut found = false;
+        for i in 1..n {
+            let val = chunk[i];
+            if !val.is_nan() {
+                min_y = val;
+                max_y = val;
+                min_idx = i;
+                max_idx = i;
+                start = i + 1;
+                found = true;
+                break;
+            }
+        }
+        if !found { return (0, 0); }
+    }
+
+    for i in start..n {
+        let val = chunk[i];
+        if val.is_nan() { continue; }
+        if val < min_y {
+            min_y = val;
+            min_idx = i;
+        } else if val > max_y {
             max_y = val;
             max_idx = i;
         }

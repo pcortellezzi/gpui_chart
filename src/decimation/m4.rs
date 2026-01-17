@@ -16,6 +16,7 @@ pub fn decimate_m4_arrays_par(
     output
 }
 
+#[inline(always)]
 fn aggregate_m4_bucket_to_array(x_chunk: &[f64], y_chunk: &[f64]) -> ([PlotPoint; 4], usize) {
     let n = x_chunk.len();
     if n == 0 {
@@ -37,49 +38,13 @@ fn aggregate_m4_bucket_to_array(x_chunk: &[f64], y_chunk: &[f64]) -> ([PlotPoint
         );
     }
 
+    let (min_idx, max_idx) = super::common::find_extrema_indices_f64(y_chunk);
+    if y_chunk[min_idx].is_nan() {
+        return ([PlotPoint::default(); 4], 0);
+    }
+
     let first_idx = 0;
     let last_idx = n - 1;
-    let mut min_idx = 0;
-    let mut max_idx = 0;
-    let mut min_y = y_chunk[0];
-    let mut max_y = min_y;
-
-    let start_search = if min_y.is_nan() {
-        let mut found = false;
-        let mut idx = 0;
-        for (i, val) in y_chunk.iter().enumerate().skip(1) {
-            if !val.is_nan() {
-                min_y = *val;
-                max_y = *val;
-                min_idx = i;
-                max_idx = i;
-                idx = i;
-                found = true;
-                break;
-            }
-        }
-        if found {
-            idx + 1
-        } else {
-            n
-        }
-    } else {
-        1
-    };
-
-    for (i, val) in y_chunk.iter().enumerate().skip(start_search) {
-        if val.is_nan() {
-            continue;
-        }
-        if *val < min_y {
-            min_y = *val;
-            min_idx = i;
-        }
-        if *val > max_y {
-            max_y = *val;
-            max_idx = i;
-        }
-    }
 
     let mut idxs = [first_idx, min_idx, max_idx, last_idx];
     idxs.sort_unstable();

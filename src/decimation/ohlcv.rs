@@ -49,12 +49,21 @@ pub fn decimate_ohlcv_arrays_par_into(
                 return None;
             }
 
+            // Group memory accesses
             let o_chunk = &open[start_idx..end_idx.min(open.len())];
             let h_chunk = &high[start_idx..end_idx.min(high.len())];
             let l_chunk = &low[start_idx..end_idx.min(low.len())];
             let c_chunk = &close[start_idx..end_idx.min(close.len())];
 
             if o_chunk.is_empty() {
+                return None;
+            }
+
+            // SIMD find extremas first
+            let agg_high = crate::simd::max_f64(h_chunk);
+            let agg_low = crate::simd::min_f64(l_chunk);
+
+            if agg_high.is_nan() {
                 return None;
             }
 
@@ -74,9 +83,6 @@ pub fn decimate_ohlcv_arrays_par_into(
                 }
             }
 
-            let agg_high = crate::simd::max_f64(h_chunk);
-            let agg_low = crate::simd::min_f64(l_chunk);
-
             let first_time_real = t_chunk[0];
             // Snap to grid
             let candle_time = if let Some(g) = gaps {
@@ -91,8 +97,8 @@ pub fn decimate_ohlcv_arrays_par_into(
                 time: candle_time,
                 span: stable_bin_size,
                 open: agg_open,
-                high: if agg_high.is_nan() { 0.0 } else { agg_high },
-                low: if agg_low.is_nan() { 0.0 } else { agg_low },
+                high: agg_high,
+                low: agg_low,
                 close: agg_close,
                 volume: 0.0,
             }))
