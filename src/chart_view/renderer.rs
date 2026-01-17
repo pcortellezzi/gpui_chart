@@ -483,7 +483,6 @@ impl ChartRenderer {
                 })
                 .on_scroll_wheel({
                     let axis_entity = axis_entity.clone();
-                    let shared_state = shared_state_handle.clone();
                     move |event, _, cx| {
                         cx.stop_propagation();
                         let dy = match event.delta {
@@ -494,7 +493,6 @@ impl ChartRenderer {
                         axis_entity.update(cx, |r, _| {
                             crate::view_controller::ViewController::zoom_axis_at(r, 0.5, factor, None);
                         });
-                        // shared_state.update(cx, |s: &mut SharedPlotState, _| s.request_render());
                     }
                 })
                 .into_any_element();

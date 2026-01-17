@@ -24,12 +24,12 @@ impl ChartScale {
     }
 
     pub fn with_gaps(mut self, gaps: Option<Arc<GapIndex>>) -> Self {
+        // Force refresh domain if gaps changed
+        let (d_min, d_max) = self.domain();
         match &mut self {
             Self::Linear(_, g) => *g = gaps,
             Self::Log(_, g) => *g = gaps,
         }
-        // Force refresh domain if gaps changed
-        let (d_min, d_max) = self.domain();
         self.update_domain(d_min, d_max);
         self
     }
@@ -177,10 +177,10 @@ impl ChartScale {
         }
         match self {
             Self::Linear(s, _) => {
-                s.domain(d_min, d_max);
+                *s = s.domain(d_min, d_max);
             }
             Self::Log(s, _) => {
-                s.domain(d_min, d_max);
+                *s = s.domain(d_min, d_max);
             }
         }
     }
