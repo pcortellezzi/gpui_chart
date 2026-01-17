@@ -3,7 +3,6 @@
 mod tests {
     use gpui_chart::decimation::ohlcv::decimate_ohlcv_arrays_par;
     use gpui_chart::data_types::{PlotData, Ohlcv};
-    use gpui_chart::gaps::GapIndex;
 
     fn generate_data(count: usize) -> (Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>, Vec<f64>) {
         let mut time = Vec::with_capacity(count);
