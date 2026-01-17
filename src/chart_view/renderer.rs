@@ -1,7 +1,7 @@
 use crate::utils::PixelsExt;
 use crate::axis_renderer::AxisRenderer;
 use crate::chart::Chart;
-use crate::data_types::{AxisEdge, AxisRange, LegendConfig, LegendPosition, Orientation, SharedPlotState};
+use crate::data_types::{AxisEdge, AxisRange, LegendConfig, LegendPosition, Orientation};
 use crate::gutter_manager::GutterManager;
 use crate::theme::ChartTheme;
 use crate::Series;
@@ -301,9 +301,7 @@ impl ChartRenderer {
         // Debug mode frame request is handled by the View via notify/update generally, 
         // but here we can schedule next frame if needed.
         if shared_state.debug_mode {
-            let shared_state_handle = shared_state_handle.clone();
             cx.on_next_frame(window, move |_, _, cx| {
-                shared_state_handle.update(cx, |s, _| s.request_render());
                 cx.notify();
             });
         }
@@ -436,8 +434,7 @@ impl ChartRenderer {
                                         }
                                     }
                                 }
-                                c.shared_state
-                                    .update(cx, |s: &mut SharedPlotState, _| s.request_render());
+                                cx.notify();
                             });
                             return;
                         }
@@ -454,8 +451,7 @@ impl ChartRenderer {
                                     pivot_pct: 1.0 - pct,
                                 });
                                 c.last_mouse_pos = Some(event.position);
-                                c.shared_state
-                                    .update(cx, |s: &mut SharedPlotState, _| s.request_render());
+                                cx.notify();
                             });
                         }
                     })
@@ -480,8 +476,7 @@ impl ChartRenderer {
                                     pivot_pct: 1.0 - pct,
                                 });
                                 c.last_mouse_pos = Some(event.position);
-                                c.shared_state
-                                    .update(cx, |s: &mut SharedPlotState, _| s.request_render());
+                                cx.notify();
                             });
                         }
                     })
@@ -499,7 +494,7 @@ impl ChartRenderer {
                         axis_entity.update(cx, |r, _| {
                             crate::view_controller::ViewController::zoom_axis_at(r, 0.5, factor, None);
                         });
-                        shared_state.update(cx, |s: &mut SharedPlotState, _| s.request_render());
+                        // shared_state.update(cx, |s: &mut SharedPlotState, _| s.request_render());
                     }
                 })
                 .into_any_element();
@@ -574,8 +569,7 @@ impl ChartRenderer {
                                     r.update_ticks_if_needed(10, gaps.as_deref());
                                 });
                             }
-                            c.shared_state
-                                .update(cx, |s: &mut SharedPlotState, _| s.request_render());
+                            cx.notify();
                         });
                         return;
                     }
@@ -592,8 +586,7 @@ impl ChartRenderer {
                                 pivot_pct: pct,
                             });
                             c.last_mouse_pos = Some(event.position);
-                            c.shared_state
-                                .update(cx, |s: &mut SharedPlotState, _| s.request_render());
+                            cx.notify();
                         });
                     }
                 })
@@ -617,8 +610,7 @@ impl ChartRenderer {
                                 pivot_pct: pct,
                             });
                             c.last_mouse_pos = Some(event.position);
-                            c.shared_state
-                                .update(cx, |s: &mut SharedPlotState, _| s.request_render());
+                            cx.notify();
                         });
                     }
                 })
@@ -637,7 +629,6 @@ impl ChartRenderer {
                     axis_entity.update(cx, |r, _| {
                         crate::view_controller::ViewController::zoom_axis_at(r, 0.5, factor, gaps.as_deref());
                     });
-                    shared_state.update(cx, |s: &mut SharedPlotState, _| s.request_render());
                 }
             });
             let axis_div = match x_axis.edge {
@@ -657,65 +648,67 @@ impl ChartRenderer {
         }
 
         let mut tags = Vec::new();
-        if let (Some(_pos), Some(hx)) = (mouse_pos, hover_x) {
-            let container_origin = self.bounds.borrow().origin;
-            for (i, x_a) in x_axes.iter().enumerate() {
-                let key = AxisKey::X(i).key();
-                if let Some(b) = last_render_axis_bounds.borrow().get(&key) {
-                    let r = x_a.entity.read(cx);
-                    let scale = crate::scales::ChartScale::new_linear(
-                        r.clamped_bounds(),
-                        (0.0, b.size.width.as_f32()),
-                    );
-                    let sx = b.origin.x - container_origin.x + px(scale.map(hx));
-                    tags.push(
-                        div()
-                            .absolute()
-                            .top(b.origin.y - container_origin.y - px(1.0))
-                            .left(sx)
-                            .ml(px(-40.0))
-                            .w(px(80.0))
-                            .h(x_a.size)
-                            .child(crate::rendering::create_axis_tag(
-                                scale.format_tick(hx, &x_a.format),
-                                px(40.0),
-                                true,
-                                &theme,
-                            ))
-                            .into_any_element(),
-                    );
+        if shared_state.crosshair_enabled {
+            if let (Some(_pos), Some(hx)) = (mouse_pos, hover_x) {
+                let container_origin = self.bounds.borrow().origin;
+                for (i, x_a) in x_axes.iter().enumerate() {
+                    let key = AxisKey::X(i).key();
+                    if let Some(b) = last_render_axis_bounds.borrow().get(&key) {
+                        let r = x_a.entity.read(cx);
+                        let scale = crate::scales::ChartScale::new_linear(
+                            r.clamped_bounds(),
+                            (0.0, b.size.width.as_f32()),
+                        );
+                        let sx = b.origin.x - container_origin.x + px(scale.map(hx));
+                        tags.push(
+                            div()
+                                .absolute()
+                                .top(b.origin.y - container_origin.y - px(1.0))
+                                .left(sx)
+                                .ml(px(-40.0))
+                                .w(px(80.0))
+                                .h(x_a.size)
+                                .child(crate::rendering::create_axis_tag(
+                                    scale.format_tick(hx, &x_a.format),
+                                    px(40.0),
+                                    true,
+                                    &theme,
+                                ))
+                                .into_any_element(),
+                        );
+                    }
                 }
-            }
-            for ps in panes.iter() {
-                for (a_idx, y_a) in ps.y_axes.iter().enumerate() {
-                    let key = AxisKey::Y(ps.id.clone(), a_idx).key();
-                    if let (Some(b), Some(p)) =
-                        (last_render_axis_bounds.borrow().get(&key), mouse_pos)
-                    {
-                        if p.y >= b.origin.y && p.y <= b.origin.y + b.size.height {
-                            let r = y_a.entity.read(cx);
-                            let scale = crate::scales::ChartScale::new_linear(
-                                r.clamped_bounds(),
-                                (b.size.height.as_f32(), 0.0),
-                            );
-                            let val = scale.invert((p.y - b.origin.y).as_f32());
-                            tags.push(
-                                div()
-                                    .absolute()
-                                    .top(p.y - container_origin.y - px(10.0))
-                                    .left(b.origin.x - container_origin.x)
-                                    .w(y_a.size)
-                                    .h(px(20.0))
-                                    .bg(theme.tag_background)
-                                    .text_color(theme.tag_text)
-                                    .rounded_sm()
-                                    .text_size(px(11.0))
-                                    .flex()
-                                    .items_center()
-                                    .justify_center()
-                                    .child(scale.format_tick(val, &y_a.format))
-                                    .into_any_element(),
-                            );
+                for ps in panes.iter() {
+                    for (a_idx, y_a) in ps.y_axes.iter().enumerate() {
+                        let key = AxisKey::Y(ps.id.clone(), a_idx).key();
+                        if let (Some(b), Some(p)) =
+                            (last_render_axis_bounds.borrow().get(&key), mouse_pos)
+                        {
+                            if p.y >= b.origin.y && p.y <= b.origin.y + b.size.height {
+                                let r = y_a.entity.read(cx);
+                                let scale = crate::scales::ChartScale::new_linear(
+                                    r.clamped_bounds(),
+                                    (b.size.height.as_f32(), 0.0),
+                                );
+                                let val = scale.invert((p.y - b.origin.y).as_f32());
+                                tags.push(
+                                    div()
+                                        .absolute()
+                                        .top(p.y - container_origin.y - px(10.0))
+                                        .left(b.origin.x - container_origin.x)
+                                        .w(y_a.size)
+                                        .h(px(20.0))
+                                        .bg(theme.tag_background)
+                                        .text_color(theme.tag_text)
+                                        .rounded_sm()
+                                        .text_size(px(11.0))
+                                        .flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .child(scale.format_tick(val, &y_a.format))
+                                        .into_any_element(),
+                                );
+                            }
                         }
                     }
                 }
@@ -848,38 +841,41 @@ impl ChartRenderer {
                                         cx,
                                         &shared_state_for_paint,
                                     );
-                                    if let Some(hx) = hx_val {
-                                        let sx = x_scale.map(hx);
-                                        let mut builder = PathBuilder::stroke(px(1.0));
-                                        builder.move_to(Point::new(
-                                            bounds.origin.x + px(sx),
-                                            bounds.origin.y,
-                                        ));
-                                        builder.line_to(Point::new(
-                                            bounds.origin.x + px(sx),
-                                            bounds.origin.y + bounds.size.height,
-                                        ));
-                                        if let Ok(path) = builder.build() {
-                                            window
-                                                .paint_path(path, theme_for_canvas.crosshair_line);
-                                        }
-                                    }
-
-                                    if let Some(mp) = mouse_pos {
-                                        if mp.y >= bounds.origin.y
-                                            && mp.y <= bounds.origin.y + bounds.size.height
-                                        {
+                                    
+                                    if shared_state_for_paint.crosshair_enabled {
+                                        if let Some(hx) = hx_val {
+                                            let sx = x_scale.map(hx);
                                             let mut builder = PathBuilder::stroke(px(1.0));
-                                            builder.move_to(Point::new(bounds.origin.x, mp.y));
+                                            builder.move_to(Point::new(
+                                                bounds.origin.x + px(sx),
+                                                bounds.origin.y,
+                                            ));
                                             builder.line_to(Point::new(
-                                                bounds.origin.x + bounds.size.width,
-                                                mp.y,
+                                                bounds.origin.x + px(sx),
+                                                bounds.origin.y + bounds.size.height,
                                             ));
                                             if let Ok(path) = builder.build() {
-                                                window.paint_path(
-                                                    path,
-                                                    theme_for_canvas.crosshair_line,
-                                                );
+                                                window
+                                                    .paint_path(path, theme_for_canvas.crosshair_line);
+                                            }
+                                        }
+
+                                        if let Some(mp) = mouse_pos {
+                                            if mp.y >= bounds.origin.y
+                                                && mp.y <= bounds.origin.y + bounds.size.height
+                                            {
+                                                let mut builder = PathBuilder::stroke(px(1.0));
+                                                builder.move_to(Point::new(bounds.origin.x, mp.y));
+                                                builder.line_to(Point::new(
+                                                    bounds.origin.x + bounds.size.width,
+                                                    mp.y,
+                                                ));
+                                                if let Ok(path) = builder.build() {
+                                                    window.paint_path(
+                                                        path,
+                                                        theme_for_canvas.crosshair_line,
+                                                    );
+                                                }
                                             }
                                         }
                                     }
@@ -1026,7 +1022,6 @@ impl ChartRenderer {
                         "Total Paint: {:.2?}",
                         std::time::Duration::from_nanos(shared_state.total_paint_nanos())
                     ))
-                    .child(format!("Render Version: {}", shared_state.render_version))
                     .child(format!("Panes: {}", panes.len()))
                     .child(format!("Hover X: {:?}", shared_state.hover_x)),
             );

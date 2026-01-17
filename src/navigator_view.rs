@@ -117,7 +117,7 @@ impl NavigatorView {
         cx: &mut Context<Self>,
     ) {
         self.is_dragging = false;
-        self.shared_state.update(cx, |s, _| s.request_render());
+        cx.notify();
     }
 
     fn move_to_pos(&mut self, pos: Point<Pixels>, cx: &mut Context<Self>) {
@@ -171,7 +171,7 @@ impl NavigatorView {
                 ViewController::move_to_center(y, center_y, limit);
             });
         }
-        self.shared_state.update(cx, |s, _| s.request_render());
+        cx.notify();
     }
 }
 

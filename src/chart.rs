@@ -98,10 +98,12 @@ impl Chart {
         cx: &mut Context<Self>,
     ) -> Self {
         cx.observe(&shared_x_axis, |_, _, cx| cx.notify()).detach();
-        cx.observe(&shared_state, |_, _, cx| cx.notify()).detach();
 
         let theme = ChartTheme::default();
-        shared_state.update(cx, |s, _| s.theme = theme.clone());
+        shared_state.update(cx, |s, _| {
+            s.theme = theme.clone();
+            s.crosshair_enabled = true;
+        });
 
         Self {
             shared_x_axis,
@@ -295,6 +297,13 @@ impl Chart {
         self.notify_render(cx);
     }
 
+    pub fn set_crosshair_enabled(&mut self, enabled: bool, cx: &mut Context<Self>) {
+        self.shared_state.update(cx, |s, _| {
+            s.crosshair_enabled = enabled;
+        });
+        self.notify_render(cx);
+    }
+
     pub fn set_x_axis_format(
         &mut self,
         axis_idx: usize,
@@ -350,7 +359,6 @@ impl Chart {
     }
 
     pub fn notify_render(&self, cx: &mut Context<Self>) {
-        self.shared_state.update(cx, |s, _| s.request_render());
         cx.notify();
     }
 }

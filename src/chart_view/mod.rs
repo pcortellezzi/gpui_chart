@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 pub use renderer::AxisKey;
-pub use actions::{PanLeft, PanRight, PanUp, PanDown, ZoomIn, ZoomOut, ResetView, ToggleDebug};
+pub use actions::{PanLeft, PanRight, PanUp, PanDown, ZoomIn, ZoomOut, ResetView, ToggleDebug, ToggleCrosshair};
 
 use self::renderer::ChartRenderer;
 use self::input::ChartInputHandler;
@@ -41,7 +41,10 @@ impl ChartView {
     pub fn new(chart: Entity<Chart>, cx: &mut Context<Self>) -> Self {
         cx.observe(&chart, |_, _, cx| cx.notify()).detach();
         let shared_state = chart.read(cx).shared_state.clone();
-        cx.observe(&shared_state, |_, _, cx| cx.notify()).detach();
+        cx.observe(&shared_state, |_, _, cx| {
+            eprintln!("DEBUG: ChartView observed shared_state update");
+            cx.notify()
+        }).detach();
 
         let focus_handle = cx.focus_handle();
         
@@ -155,6 +158,10 @@ impl Render for ChartView {
             .on_action({
                 let actions = actions.clone();
                 move |a, w, c| actions.handle_toggle_debug(a, w, c)
+            })
+            .on_action({
+                let actions = actions.clone();
+                move |a, w, c| actions.handle_toggle_crosshair(a, w, c)
             })
     }
 }

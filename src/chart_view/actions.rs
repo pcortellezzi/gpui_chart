@@ -13,7 +13,8 @@ actions!(
         ZoomIn,
         ZoomOut,
         ResetView,
-        ToggleDebug
+        ToggleDebug,
+        ToggleCrosshair
     ]
 );
 
@@ -34,7 +35,7 @@ impl ChartActionHandler {
                 ViewController::pan_axis(r, -20.0, 200.0, false, gaps.as_deref());
                 r.update_ticks_if_needed(10, gaps.as_deref());
             });
-            c.shared_state.update(cx, |s, _| s.request_render());
+            cx.notify();
         });
     }
     
@@ -45,8 +46,7 @@ impl ChartActionHandler {
                 ViewController::pan_axis(r, 20.0, 200.0, false, gaps.as_deref());
                 r.update_ticks_if_needed(10, gaps.as_deref());
             });
-            c.shared_state
-                .update(cx, |s: &mut SharedPlotState, _| s.request_render());
+            cx.notify();
         });
     }
     
@@ -57,7 +57,7 @@ impl ChartActionHandler {
                 ViewController::zoom_axis_at(r, 0.5, 0.9, gaps.as_deref());
                 r.update_ticks_if_needed(10, gaps.as_deref());
             });
-            c.shared_state.update(cx, |s, _| s.request_render());
+            cx.notify();
         });
     }
     
@@ -68,7 +68,7 @@ impl ChartActionHandler {
                 ViewController::zoom_axis_at(r, 0.5, 1.1, gaps.as_deref());
                 r.update_ticks_if_needed(10, gaps.as_deref());
             });
-            c.shared_state.update(cx, |s, _| s.request_render());
+            cx.notify();
         });
     }
     
@@ -116,8 +116,7 @@ impl ChartActionHandler {
                     }
                 }
             }
-            c.shared_state
-                .update(cx, |s: &mut SharedPlotState, _| s.request_render());
+            cx.notify();
         });
     }
 
@@ -125,8 +124,21 @@ impl ChartActionHandler {
         self.chart.update(cx, |c, cx| {
             c.shared_state.update(cx, |s: &mut SharedPlotState, _| {
                 s.debug_mode = !s.debug_mode;
-                s.request_render();
             });
+            cx.notify();
+        });
+    }
+
+    pub fn handle_toggle_crosshair(&self, _: &ToggleCrosshair, _win: &mut Window, cx: &mut App) {
+        self.chart.update(cx, |c, cx| {
+            c.shared_state.update(cx, |s: &mut SharedPlotState, _| {
+                s.crosshair_enabled = !s.crosshair_enabled;
+                if !s.crosshair_enabled {
+                    s.hover_x = None;
+                    s.mouse_pos = None;
+                }
+            });
+            cx.notify();
         });
     }
 }

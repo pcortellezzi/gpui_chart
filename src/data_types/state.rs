@@ -68,8 +68,8 @@ pub struct SharedPlotState {
     pub active_chart_id: Option<gpui::EntityId>,
     pub is_dragging: bool,
     pub debug_mode: bool,
+    pub crosshair_enabled: bool,
     pub theme: crate::theme::ChartTheme,
-    pub render_version: u64,
 
     pub box_zoom_start: Option<gpui::Point<gpui::Pixels>>,
     pub box_zoom_current: Option<gpui::Point<gpui::Pixels>>,
@@ -83,28 +83,8 @@ pub struct SharedPlotState {
 }
 
 impl SharedPlotState {
-    pub fn request_render(&mut self) {
-        self.render_version = self.render_version.wrapping_add(1);
-    }
-
     pub fn total_paint_nanos(&self) -> u64 {
         self.pane_paint_times.read().values().sum()
-    }
-}
-
-impl PartialEq for SharedPlotState {
-    fn eq(&self, other: &Self) -> bool {
-        self.hover_x == other.hover_x
-            && self.mouse_pos == other.mouse_pos
-            && self.active_chart_id == other.active_chart_id
-            && self.is_dragging == other.is_dragging
-            && self.debug_mode == other.debug_mode
-            && self.theme == other.theme
-            && self.render_version == other.render_version
-            && self.box_zoom_start == other.box_zoom_start
-            && self.box_zoom_current == other.box_zoom_current
-            && self.gap_index.as_ref().map(|g| g.segments())
-                == other.gap_index.as_ref().map(|g| g.segments())
     }
 }
 
@@ -116,8 +96,8 @@ impl Clone for SharedPlotState {
             active_chart_id: self.active_chart_id,
             is_dragging: self.is_dragging,
             debug_mode: self.debug_mode,
+            crosshair_enabled: self.crosshair_enabled,
             theme: self.theme.clone(),
-            render_version: self.render_version,
             box_zoom_start: self.box_zoom_start,
             box_zoom_current: self.box_zoom_current,
             gap_index: self.gap_index.clone(),

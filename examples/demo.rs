@@ -2,7 +2,7 @@ use gpui::prelude::*;
 use gpui::*;
 use gpui_chart::data_types::{ColorOp, PlotPoint};
 use gpui_chart::{
-    chart_view::ToggleDebug,
+    chart_view::{ToggleDebug, ToggleCrosshair},
     data_types::{
         Annotation, AxisEdge, AxisId, AxisRange, HeatmapCell, PlotData, SharedPlotState,
         StreamingDataSource,
@@ -222,7 +222,7 @@ impl DemoApp {
         let y = 500.0;
         let rng_stream = rand::rngs::StdRng::from_os_rng();
         let app_entity = cx.entity().clone();
-        let shared_state_clone = shared_plot_state.clone();
+        let chart_clone = chart.clone();
         let momentum_plot_clone = momentum_plot.clone();
 
         window.on_next_frame(move |window, cx| {
@@ -230,7 +230,7 @@ impl DemoApp {
                 stream_update(
                     window,
                     cx,
-                    shared_state_clone,
+                    chart_clone,
                     momentum_plot_clone,
                     x,
                     y,
@@ -250,7 +250,7 @@ impl DemoApp {
 fn stream_update(
     window: &mut Window,
     cx: &mut Context<DemoApp>,
-    shared_state: Entity<SharedPlotState>,
+    chart: Entity<Chart>,
     plot: Arc<RwLock<AreaPlot>>,
     mut x: f64,
     mut y: f64,
@@ -267,20 +267,18 @@ fn stream_update(
         color_op: ColorOp::None,
     }));
 
-    shared_state.update(cx, |s, _cx| {
-        s.request_render();
-    });
+    chart.update(cx, |_, cx| cx.notify());
     cx.notify();
 
     let app_entity = cx.entity().clone();
-    let shared_state_clone = shared_state.clone();
+    let chart_clone = chart.clone();
     let plot_clone = plot.clone();
     window.on_next_frame(move |window, cx| {
         app_entity.update(cx, |_, cx| {
             stream_update(
                 window,
                 cx,
-                shared_state_clone,
+                chart_clone,
                 plot_clone,
                 x,
                 y,
@@ -314,6 +312,8 @@ fn main() {
         cx.bind_keys([
             KeyBinding::new("ctrl-d", ToggleDebug, None),
             KeyBinding::new("cmd-d", ToggleDebug, None),
+            KeyBinding::new("ctrl-h", ToggleCrosshair, None),
+            KeyBinding::new("cmd-h", ToggleCrosshair, None),
         ]);
         cx.open_window(WindowOptions::default(), |window, cx| {
             cx.new(|cx| DemoApp::new(window, cx))

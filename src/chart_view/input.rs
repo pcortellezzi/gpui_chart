@@ -11,7 +11,7 @@ use super::renderer::AxisKey;
 pub struct ChartInputHandler {
     pub chart: Entity<Chart>,
     pub focus_handle: FocusHandle,
-    
+
     // Shared bounds
     pub last_render_axis_bounds: Rc<RefCell<HashMap<String, Bounds<Pixels>>>>,
     pub bounds: Rc<RefCell<Bounds<Pixels>>>,
@@ -74,7 +74,7 @@ impl ChartInputHandler {
                                     });
                                 }
                             }
-                            c.shared_state.update(cx, |s, _| s.request_render());
+                            cx.notify();
                             return;
                         }
 
@@ -87,15 +87,15 @@ impl ChartInputHandler {
                                 ps.velocity = Point::default();
                                 c.shared_state.update(cx, |s: &mut SharedPlotState, _| {
                                     s.is_dragging = true;
-                                    s.request_render();
                                 });
+                                cx.notify();
                             }
                             MouseButton::Right => {
                                 c.shared_state.update(cx, |s: &mut SharedPlotState, _| {
                                     s.box_zoom_start = Some(event.position);
                                     s.box_zoom_current = Some(event.position);
-                                    s.request_render();
                                 });
+                                cx.notify();
                             }
                             _ => {}
                         }
@@ -107,528 +107,275 @@ impl ChartInputHandler {
     }
 
             pub fn handle_global_mouse_move(
-
                 &self,
-
                 event: &MouseMoveEvent,
-
                 _win: &mut Window,
-
                 cx: &mut App,
-
                 view_entity_id: EntityId,
-
             ) {
-
                 let axis_bounds_rc = self.last_render_axis_bounds.clone();
-
                 let pane_bounds_ref = self.pane_bounds.borrow(); // No clone!
-
                 let bh = self.bounds.borrow().size.height.as_f32();
-
                 let estimated_height = if bh > 0.0 { bh } else { 600.0 };
-
                 
-
-                let mut did_update = false;
-
+                struct PendingSharedState {
+                    mouse_pos: Option<Option<Point<Pixels>>>,
+                    hover_x: Option<Option<f64>>,
+                    active_chart_id: Option<Option<EntityId>>,
+                    box_zoom_current: Option<Point<Pixels>>,
+                }
+                
+                impl Default for PendingSharedState {
+                    fn default() -> Self {
+                        Self {
+                            mouse_pos: None,
+                            hover_x: None,
+                            active_chart_id: None,
+                            box_zoom_current: None,
+                        }
+                    }
+                }
         
-
+                let mut pending = PendingSharedState::default();
+                let mut chart_needs_notify = false;
+        
                 self.chart.update(cx, |c, cx| {
-
                     if let Some(index) = c.dragging_splitter {
-
                         if let Some(last_y) = c.last_mouse_y {
-
                             let delta = event.position.y - last_y;
-
                             if delta.abs() > px(0.5) {
-
                                 let mut weights: Vec<f32> = c.panes.iter().map(|p| p.weight).collect();
-
                                 ViewController::resize_panes(
-
                                     &mut weights,
-
                                     index,
-
                                     delta.as_f32(),
-
                                     estimated_height,
-
                                 );
-
                                 for (i, p) in c.panes.iter_mut().enumerate() {
-
                                     p.weight = weights[i];
-
                                 }
-
-                                c.shared_state
-
-                                    .update(cx, |s: &mut SharedPlotState, _| s.request_render());
-
                                 c.last_mouse_y = Some(event.position.y);
-
-                                did_update = true;
-
+                                chart_needs_notify = true;
                             }
-
                         }
-
                         return;
-
                     }
-
         
-
                     if let Some(drag_info) = c.dragging_axis.clone() {
-
                         if let Some(last_pos) = c.last_mouse_pos {
-
                             let delta = event.position - last_pos;
-
                             let key = if let Some(id) = &drag_info.pane_id {
-
                                 AxisKey::Y(id.clone(), drag_info.axis_idx).key()
-
                             } else {
-
                                 AxisKey::X(drag_info.axis_idx).key()
-
                             };
-
                             let axis_entity = if let Some(id) = &drag_info.pane_id {
-
                                 c.panes
-
                                     .iter()
-
                                     .find(|p| &p.id == id)
-
                                     .and_then(|p| p.y_axes.get(drag_info.axis_idx))
-
                                     .map(|a| a.entity.clone())
-
                             } else {
-
                                 c.x_axes.get(drag_info.axis_idx).map(|a| a.entity.clone())
-
                             };
-
         
-
                             if let (Some(axis), Some(bounds)) =
-
                                 (axis_entity, axis_bounds_rc.borrow().get(&key).cloned())
-
                             {
-
                                 let gaps = if drag_info.is_y {
-
                                     None
-
                                 } else {
-
                                     c.shared_state.read(cx).gap_index.clone()
-
                                 };
-
                                 axis.update(cx, |r: &mut AxisRange, _| {
-
                                     match drag_info.button {
-
                                         MouseButton::Left => {
-
                                             let total_size = if drag_info.is_y {
-
                                                 bounds.size.height
-
                                             } else {
-
                                                 bounds.size.width
-
                                             };
-
                                             ViewController::pan_axis(
-
                                                 r,
-
                                                 (if drag_info.is_y { delta.y } else { delta.x }).as_f32(),
-
                                                 total_size.as_f32(),
-
                                                 drag_info.is_y,
-
                                                 gaps.as_deref(),
-
                                             );
-
                                         }
-
                                         MouseButton::Middle => {
-
                                             let factor = ViewController::compute_zoom_factor(
-
                                                 (if drag_info.is_y { delta.y } else { -delta.x }).as_f32(),
-
                                                 100.0,
-
                                             );
-
                                             ViewController::zoom_axis_at(
-
                                                 r,
-
                                                 drag_info.pivot_pct,
-
                                                 factor,
-
                                                 gaps.as_deref(),
-
                                             );
-
                                         }
-
                                         _ => {}
-
                                     }
-
                                     r.update_ticks_if_needed(10, gaps.as_deref());
-
                                 });
-
-                                c.shared_state
-
-                                    .update(cx, |s: &mut SharedPlotState, _| s.request_render());
-
-                                did_update = true;
-
+                                chart_needs_notify = true;
                             }
-
                             c.last_mouse_pos = Some(event.position);
-
                         }
-
                         return;
-
                     }
-
         
-
-                    let mut any_drag = false;
-
                     for ps in c.panes.iter_mut() {
-
                         if let Some(start) = ps.drag_start {
-
                             if let Some(bounds) = pane_bounds_ref.get(&ps.id) {
-
                                 let delta = event.position - start;
-
                                 let pw = bounds.size.width.as_f32();
-
                                 let ph = bounds.size.height.as_f32();
-
                                 let gaps = c.shared_state.read(cx).gap_index.clone();
-
                                 match ps.drag_button {
-
                                     Some(MouseButton::Left) => {
-
                                         let gaps_x = gaps.clone();
-
                                         c.shared_x_axis.update(cx, move |x, _| {
-
                                             ViewController::pan_axis(
-
                                                 x,
-
                                                 delta.x.as_f32(),
-
                                                 pw,
-
                                                 false,
-
                                                 gaps_x.as_deref(),
-
                                             );
-
                                         });
-
                                         for y_axis in &ps.y_axes {
-
                                             y_axis.entity.update(cx, |y, _| {
-
                                                 ViewController::pan_axis(
-
                                                     y,
-
                                                     delta.y.as_f32(),
-
                                                     ph,
-
                                                     true,
-
                                                     None,
-
                                                 );
-
                                             });
-
                                         }
-
                                     }
-
                                     Some(MouseButton::Middle) => {
-
                                         let factor_x =
-
                                             ViewController::compute_zoom_factor(delta.x.as_f32(), 100.0);
-
                                         let factor_y =
-
                                             ViewController::compute_zoom_factor(-delta.y.as_f32(), 100.0);
-
         
-
                                         let pivot_source = ps.initial_drag_start.unwrap_or(start);
-
                                         let pivot_x =
-
                                             (pivot_source.x - bounds.origin.x).as_f32() as f64 / pw as f64;
-
                                         let pivot_y =
-
                                             (pivot_source.y - bounds.origin.y).as_f32() as f64 / ph as f64;
-
         
-
                                         let gaps_x = gaps.clone();
-
                                         c.shared_x_axis.update(cx, move |x, _| {
-
                                             ViewController::zoom_axis_at(
-
                                                 x,
-
                                                 pivot_x,
-
                                                 factor_x,
-
                                                 gaps_x.as_deref(),
-
                                             );
-
                                         });
-
                                         for y_axis in &ps.y_axes {
-
                                             y_axis.entity.update(cx, |y, _| {
-
                                                 ViewController::zoom_axis_at(
-
                                                     y,
-
                                                     1.0 - pivot_y,
-
                                                     factor_y,
-
                                                     None,
-
                                                 );
-
                                             });
-
                                         }
-
                                     }
-
                                     _ => {}
-
                                 }
-
                                 let now = std::time::Instant::now();
-
                                 if let Some(last_time) = ps.last_drag_time {
-
                                     let dt = now.duration_since(last_time).as_secs_f64();
-
                                     if dt > 0.001 {
-
                                         let new_velocity = Point::new(
-
                                             delta.x.as_f32() as f64 / dt,
-
                                             delta.y.as_f32() as f64 / dt,
-
                                         );
-
                                         ps.velocity = Point::new(
-
                                             ps.velocity.x * 0.3 + new_velocity.x * 0.7,
-
                                             ps.velocity.y * 0.3 + new_velocity.y * 0.7,
-
                                         );
-
                                     }
-
                                 }
-
                                 ps.drag_start = Some(event.position);
-
                                 ps.last_drag_time = Some(now);
-
-                                any_drag = true;
-
+                                chart_needs_notify = true;
                             }
-
                         }
-
                     }
-
         
-
-                    if any_drag {
-
-                        c.shared_state
-
-                            .update(cx, |s: &mut SharedPlotState, _| s.request_render());
-
-                        did_update = true;
-
-                        return;
-
-                    }
-
-        
-
                     if c.shared_state.read(cx).box_zoom_start.is_some() {
-
-                        c.shared_state.update(cx, |s: &mut SharedPlotState, _| {
-
-                            s.box_zoom_current = Some(event.position);
-
-                            s.request_render();
-
-                        });
-
-                        did_update = true;
-
+                        pending.box_zoom_current = Some(event.position);
+                        chart_needs_notify = true;
                         return;
-
                     }
-
         
-
                     let mut inside_any_pane = false;
-
                     for ps in &c.panes {
-
                         if let Some(bounds) = pane_bounds_ref.get(&ps.id) {
-
                             if bounds.contains(&event.position) {
-
                                 inside_any_pane = true;
-
                                 let x_range = c.shared_x_axis.read(cx);
-
                                 let gaps = c.shared_state.read(cx).gap_index.clone();
-
                                 let hover_x = ViewController::map_pixels_to_value(
-
                                     (event.position.x - bounds.origin.x).as_f32(),
-
                                     bounds.size.width.as_f32(),
-
                                     x_range.min,
-
                                     x_range.max,
-
                                     false,
-
                                     gaps.as_deref(),
-
                                 );
-
                                 
-
-                                // Check if state actually changed before updating
-
                                 let current_state = c.shared_state.read(cx);
-
-                                let current_hover_x = current_state.hover_x;
-
-                                let current_pos = current_state.mouse_pos;
-
+                                // Always track position and value so toggle works immediately
+                                pending.mouse_pos = Some(Some(event.position));
+                                pending.hover_x = Some(Some(hover_x));
+                                pending.active_chart_id = Some(Some(view_entity_id));
                                 
-
-                                // Simple equality check for Option<f64> and Point
-
-                                // For float, checking exact equality is risky but here likely fine for "did it change"
-
-                                // Or use a small epsilon if needed, but strict eq is usually fast for early exit.
-
-                                let changed = current_hover_x != Some(hover_x) 
-
-                                    || current_pos != Some(event.position)
-
-                                    || current_state.active_chart_id != Some(view_entity_id);
-
-        
-
-                                if changed {
-
-                                    c.shared_state.update(cx, |s: &mut SharedPlotState, _| {
-
-                                        s.mouse_pos = Some(event.position);
-
-                                        s.hover_x = Some(hover_x);
-
-                                        s.active_chart_id = Some(view_entity_id);
-
-                                        s.request_render();
-
-                                    });
-
-                                    did_update = true;
-
+                                if current_state.crosshair_enabled {
+                                    chart_needs_notify = true;
                                 }
-
                                 break;
-
                             }
-
                         }
-
                     }
-
-                                if !inside_any_pane {
-
-                                    let state = c.shared_state.read(cx);
-
-                                    if !state.is_dragging && state.mouse_pos.is_some() {
-
-                                        c.shared_state.update(cx, |s: &mut SharedPlotState, _| {
-
-                                            s.mouse_pos = None;
-
-                                            s.hover_x = None;
-
-                                            s.request_render();
-
-                                        });
-
-                                    }
-
-                                }
-
-                            });
-
+        
+                    if !inside_any_pane {
+                        let state = c.shared_state.read(cx);
+                        if !state.is_dragging && state.mouse_pos.is_some() {
+                             pending.mouse_pos = Some(None);
+                             pending.hover_x = Some(None);
+                             if state.crosshair_enabled {
+                                 chart_needs_notify = true;
+                             }
                         }
-
+                    }
                     
+                    if chart_needs_notify {
+                        cx.notify();
+                    }
+                });
+
+                if pending.mouse_pos.is_some() || pending.hover_x.is_some() || pending.active_chart_id.is_some() || pending.box_zoom_current.is_some() {
+                    let shared_state = self.chart.read(cx).shared_state.clone();
+                    shared_state.update(cx, |s, _| {
+                        if let Some(mp) = pending.mouse_pos { s.mouse_pos = mp; }
+                        if let Some(hx) = pending.hover_x { s.hover_x = hx; }
+                        if let Some(id) = pending.active_chart_id { s.active_chart_id = id; }
+                        if let Some(bz) = pending.box_zoom_current { s.box_zoom_current = Some(bz); }
+                    });
+                }
+            }
+
+
 
                         pub fn handle_global_mouse_up(
         &self,
@@ -697,8 +444,8 @@ impl ChartInputHandler {
                 c.shared_state.update(cx, |s: &mut SharedPlotState, _| {
                     s.box_zoom_start = None;
                     s.box_zoom_current = None;
-                    s.request_render();
                 });
+                cx.notify();
             }
 
             let now = std::time::Instant::now();
@@ -722,8 +469,8 @@ impl ChartInputHandler {
             c.last_mouse_y = None;
             c.shared_state.update(cx, |s: &mut SharedPlotState, _| {
                 s.is_dragging = false;
-                s.request_render();
             });
+            cx.notify();
         });
 
         if needs_inertia {
@@ -761,8 +508,7 @@ impl ChartInputHandler {
                 }
             }
             if active {
-                c.shared_state
-                    .update(cx, |s: &mut SharedPlotState, _| s.request_render());
+                cx.notify();
             }
         });
         if active {
@@ -834,8 +580,7 @@ impl ChartInputHandler {
                     }
                 }
             }
-            c.shared_state
-                .update(cx, |s: &mut SharedPlotState, _| s.request_render());
+            cx.notify();
         });
     }
 }
