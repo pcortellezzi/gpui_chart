@@ -145,45 +145,65 @@ where
     }
 
     let mut buckets = Vec::with_capacity(n.min(2048));
-    let mut start_idx = 0;
+    let mut current_idx = 0;
     
-    let mut cursor = gaps.map(|g| g.cursor());
-    
-    // We can't move the closure into the loop if it captures a mutable cursor if we were parallel, 
-    // but here it is sequential.
-    // However, Rust closures can be tricky with mutable captures in a loop if not careful.
-    // We'll update the cursor manually or wrap it.
-    
-    let first_x = get_x_at(0);
-    let first_logical = if let Some(c) = &mut cursor {
-        c.to_logical(first_x as i64) as f64
-    } else {
-        first_x
+    // Helper to get logical time without cursor (for binary search)
+    let get_logical_at = |idx: usize| -> f64 {
+        let x = get_x_at(idx);
+        if let Some(g) = gaps {
+            g.to_logical(x as i64) as f64
+        } else {
+            x
+        }
     };
 
-    let mut current_boundary = (first_logical / logical_bin_size).floor() * logical_bin_size + logical_bin_size;
+    let first_logical = get_logical_at(0);
+    // Align to global grid
+    let mut next_boundary = (first_logical / logical_bin_size).floor() * logical_bin_size + logical_bin_size;
     
-    for i in 0..n {
-        let val = get_x_at(i);
-        let logical = if let Some(c) = &mut cursor {
-            c.to_logical(val as i64) as f64
-        } else {
-            val
-        };
+    while current_idx < n {
+        let mut left = current_idx;
+        let mut right = n;
         
-        if logical >= current_boundary {
-            if i > start_idx {
-                buckets.push(start_idx..i);
+        if let Some(g) = gaps {
+            // Optimization: compute real boundary once per bucket to avoid to_logical in inner loop
+            let target_real = g.to_real_first(next_boundary as i64) as f64;
+            while left < right {
+                let mid = left + (right - left) / 2;
+                if get_x_at(mid) < target_real {
+                    left = mid + 1;
+                }
+                else {
+                    right = mid;
+                }
             }
-            while logical >= current_boundary {
-                current_boundary += logical_bin_size;
+        } else {
+            // Faster binary search without conversion
+            while left < right {
+                let mid = left + (right - left) / 2;
+                if get_x_at(mid) < next_boundary {
+                    left = mid + 1;
+                }
+                else {
+                    right = mid;
+                }
             }
-            start_idx = i;
         }
-    }
-
-    if start_idx < n {
-        buckets.push(start_idx..n);
+        
+        let end_idx = left;
+        
+        if end_idx > current_idx {
+            buckets.push(current_idx..end_idx);
+        }
+        
+        current_idx = end_idx;
+        if current_idx < n {
+            // Advance boundary to cover current point's logical time
+            let logical = get_logical_at(current_idx);
+            while logical >= next_boundary {
+                next_boundary += logical_bin_size;
+            }
+        }
     }
 
     buckets

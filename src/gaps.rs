@@ -90,7 +90,7 @@ impl GapIndex {
         }
     }
 
-    /// Converts logical time back to real time.
+    /// Converts logical time back to real time (maps to the END of a gap if logical_ms is a gap boundary).
     pub fn to_real(&self, logical_ms: i64) -> i64 {
         if self.segments.is_empty() {
             return logical_ms;
@@ -120,6 +120,36 @@ impl GapIndex {
         } else {
             let segment = &self.segments[low - 1];
             logical_ms + (segment.cumulative_before + segment.duration())
+        }
+    }
+
+    /// Converts logical time back to the SMALLEST real time that maps to it.
+    /// If logical_ms corresponds to a gap boundary, returns the START of that gap.
+    pub fn to_real_first(&self, logical_ms: i64) -> i64 {
+        if self.segments.is_empty() {
+            return logical_ms;
+        }
+        let mut low = 0;
+        let mut high = self.segments.len();
+        while low < high {
+            let mid = low + (high - low) / 2;
+            let log_start = self.segments[mid].start_real - self.segments[mid].cumulative_before;
+            if log_start < logical_ms {
+                low = mid + 1;
+            } else {
+                high = mid;
+            }
+        }
+        if low == 0 {
+            logical_ms
+        } else {
+            let seg = &self.segments[low - 1];
+            let log_start = seg.start_real - seg.cumulative_before;
+            if log_start == logical_ms {
+                seg.start_real
+            } else {
+                logical_ms + (seg.cumulative_before + seg.duration())
+            }
         }
     }
 
