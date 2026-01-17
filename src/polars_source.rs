@@ -510,17 +510,17 @@ impl PlotDataSource for PolarsDataSource {
                     match self.mode {
                         crate::data_types::AggregationMode::M4 => {
                             crate::decimation::decimate_m4_arrays_par_into(
-                                x_slice, y_slice, max_points, output, gaps, start,
+                                x_slice, y_slice, max_points, output, gaps,
                             )
                         }
                         crate::data_types::AggregationMode::MinMax => {
                             crate::decimation::decimate_min_max_arrays_par_into(
-                                x_slice, y_slice, max_points, output, gaps, start,
+                                x_slice, y_slice, max_points, output, gaps,
                             )
                         }
                         crate::data_types::AggregationMode::LTTB => {
                             crate::decimation::decimate_ilttb_arrays_par_into(
-                                x_slice, y_slice, max_points, output, gaps, start,
+                                x_slice, y_slice, max_points, output, gaps,
                             )
                         }
                     };
@@ -609,7 +609,7 @@ impl PlotDataSource for PolarsDataSource {
                     };
 
                     crate::decimation::decimate_ohlcv_arrays_par_into(
-                        x_slice, o_slice, h_slice, l_slice, c_slice, max_points, output, gaps, start,
+                        x_slice, o_slice, h_slice, l_slice, c_slice, max_points, output, gaps,
                     );
                     return;
                 }

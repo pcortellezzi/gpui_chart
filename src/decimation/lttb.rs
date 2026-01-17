@@ -1,8 +1,6 @@
 use crate::data_types::{ColorOp, PlotData, PlotPoint};
 use crate::gaps::{GapIndex, MappingCursor};
 use rayon::prelude::*;
-use super::common::{calculate_stable_bin_size};
-use super::bucketing::{calculate_gap_aware_buckets, calculate_gap_aware_buckets_generic};
 use super::min_max::decimate_min_max_slice;
 
 pub fn decimate_lttb_arrays(
@@ -10,10 +8,9 @@ pub fn decimate_lttb_arrays(
     y: &[f64],
     max_points: usize,
     gaps: Option<&GapIndex>,
-    offset: usize,
 ) -> Vec<PlotData> {
     let mut output = Vec::with_capacity(max_points);
-    decimate_lttb_arrays_into(x, y, max_points, &mut output, gaps, offset);
+    decimate_lttb_arrays_into(x, y, max_points, &mut output, gaps);
     output
 }
 
@@ -23,7 +20,6 @@ pub fn decimate_lttb_arrays_into(
     max_points: usize,
     output: &mut Vec<PlotData>,
     gaps: Option<&GapIndex>,
-    offset: usize,
 ) {
     if x.is_empty() || y.is_empty() || x.len() != y.len() {
         return;
@@ -40,26 +36,10 @@ pub fn decimate_lttb_arrays_into(
         return;
     }
 
-    let real_range = x[x.len() - 1] - x[0];
-    let logical_range = if let Some(g) = gaps {
-        (g.to_logical(x[x.len() - 1] as i64) - g.to_logical(x[0] as i64)) as f64
-    } else {
-        real_range
-    };
-
-    let target_bucket_count = max_points.saturating_sub(2).max(1);
-    let stable_bin_size = calculate_stable_bin_size(logical_range, target_bucket_count);
-    
-    // Calculate stable index-based bin size based on value range
-    let bin_size = if logical_range > 0.0 {
-        let ratio = (stable_bin_size / logical_range).min(1.0);
-        (x.len() as f64 * ratio).ceil() as usize
-    } else {
-        x.len()
-    }.max(1);
-
-    // Pre-calculate buckets that respect gaps and are aligned to global offset
-    let buckets = calculate_gap_aware_buckets(x, gaps, bin_size, offset);
+    // Use stable time-based bucketing
+    // target_bucket_count is approx max_points - 2.
+    // We request buckets based on max_points. The exact number might vary slightly.
+    let (_, buckets) = super::bucketing::calculate_stable_buckets(x, gaps, max_points.saturating_sub(2).max(1), 1);
     let n_buckets = buckets.len();
 
     if n_buckets == 0 {
@@ -154,13 +134,12 @@ pub fn decimate_lttb_slice(
     data: &[PlotData],
     max_points: usize,
     gaps: Option<&GapIndex>,
-    offset: usize,
 ) -> Vec<PlotData> {
     if data.is_empty() {
         return vec![];
     }
     if let PlotData::Ohlcv(_) = data[0] {
-        return decimate_min_max_slice(data, max_points, gaps, offset);
+        return decimate_min_max_slice(data, max_points, gaps);
     }
 
     let mut all_points = true;
@@ -187,7 +166,7 @@ pub fn decimate_lttb_slice(
             })
             .collect();
         let mut output = Vec::with_capacity(max_points);
-        decimate_ilttb_arrays_par_into(&x, &y, max_points, &mut output, gaps, offset);
+        decimate_ilttb_arrays_par_into(&x, &y, max_points, &mut output, gaps);
         return output;
     }
 
@@ -204,7 +183,6 @@ pub fn decimate_lttb_slice(
         },
         |p| p.clone(),
         gaps,
-        offset,
     )
 }
 
@@ -213,10 +191,9 @@ pub fn decimate_ilttb_arrays_par(
     y: &[f64],
     max_points: usize,
     gaps: Option<&GapIndex>,
-    offset: usize,
 ) -> Vec<PlotData> {
     let mut output = Vec::with_capacity(max_points);
-    decimate_ilttb_arrays_par_into(x, y, max_points, &mut output, gaps, offset);
+    decimate_ilttb_arrays_par_into(x, y, max_points, &mut output, gaps);
     output
 }
 
@@ -226,7 +203,6 @@ pub fn decimate_ilttb_arrays_par_into(
     max_points: usize,
     output: &mut Vec<PlotData>,
     gaps: Option<&GapIndex>,
-    offset: usize,
 ) {
     if x.is_empty() || y.is_empty() || x.len() != y.len() {
         return;
@@ -243,21 +219,8 @@ pub fn decimate_ilttb_arrays_par_into(
         return;
     }
 
-    let real_range = x[x.len() - 1] - x[0];
-    let logical_range = if let Some(g) = gaps {
-        (g.to_logical(x[x.len() - 1] as i64) - g.to_logical(x[0] as i64)) as f64
-    } else {
-        real_range
-    };
-
-    // Use stable binning for LTTB to prevent flickering.
-    // target_bucket_count is approx max_points - 2.
-    let stable_bin_size = calculate_stable_bin_size(logical_range, max_points.saturating_sub(2).max(1));
-    let avg_items_per_bin = (x.len() as f64 * (stable_bin_size / logical_range)).ceil() as usize;
-    let bin_size = avg_items_per_bin.max(1);
-
-    // Pre-calculate buckets that respect gaps and are aligned to global offset
-    let buckets = calculate_gap_aware_buckets(x, gaps, bin_size, offset);
+    // Use stable time-based bucketing
+    let (_, buckets) = super::bucketing::calculate_stable_buckets(x, gaps, max_points.saturating_sub(2).max(1), 1);
     let n_buckets = buckets.len();
 
     if n_buckets == 0 {
@@ -393,7 +356,6 @@ pub fn decimate_lttb_generic<T, FX, FY, FC>(
     get_y: FY,
     create_point: FC,
     gaps: Option<&GapIndex>,
-    offset: usize,
 ) -> Vec<PlotData>
 where
     FX: Fn(&T) -> f64,
@@ -405,31 +367,27 @@ where
         return data.iter().map(create_point).collect();
     }
 
-    let real_range = get_x(&data[n - 1]) - get_x(&data[0]);
-    let logical_range = if let Some(g) = gaps {
-        (g.to_logical(get_x(&data[n - 1]) as i64) - g.to_logical(get_x(&data[0]) as i64)) as f64
-    } else {
-        real_range
-    };
-
-    let target_bucket_count = max_points.saturating_sub(2).max(1);
-    let stable_bin_size = calculate_stable_bin_size(logical_range, target_bucket_count);
-    let avg_items_per_bin = (n as f64 * (stable_bin_size / logical_range)).ceil() as usize;
-    let bin_size = avg_items_per_bin.max(1);
-
-    // Use the generic bucket calculator for the inner range (1..n-1)
-    // We effectively shift the view by 1 index.
+    // Use stable time-based bucketing
+    // Inner range bucketing: we skip first and last point.
     let inner_len = n.saturating_sub(2);
     if inner_len == 0 {
          return vec![create_point(&data[0]), create_point(&data[n - 1])];
     }
-
-    let buckets_relative = calculate_gap_aware_buckets_generic(
+    
+    // We want buckets on the inner range.
+    // The "x" values are at data[1], data[2]...
+    // The offsets are 1..n-1
+    
+    // We can just use the generic helper on the sub-slice logic.
+    // But generic helper takes "n" and "get_x_at(i)".
+    // So we pass inner_len, and get_x_at(i) maps to data[i+1].
+    
+    let (_, buckets_relative) = super::bucketing::calculate_stable_buckets_generic(
         inner_len,
         |i| get_x(&data[i + 1]),
         gaps,
-        bin_size,
-        offset + 1,
+        max_points.saturating_sub(2).max(1),
+        1,
     );
 
     // Map buckets back to absolute indices

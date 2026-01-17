@@ -12,9 +12,9 @@ use std::time::Instant;
 fn test_aggregation_edge_cases_generic() {
     // 0 points
     let data: Vec<PlotData> = vec![];
-    assert_eq!(decimate_min_max_slice(&data, 100, None, 0).len(), 0);
-    assert_eq!(decimate_m4_slice(&data, 100, None, 0).len(), 0);
-    assert_eq!(decimate_lttb_slice(&data, 100, None, 0).len(), 0);
+    assert_eq!(decimate_min_max_slice(&data, 100, None).len(), 0);
+    assert_eq!(decimate_m4_slice(&data, 100, None).len(), 0);
+    assert_eq!(decimate_lttb_slice(&data, 100, None).len(), 0);
 
     // 1 point
     let data = vec![PlotData::Point(PlotPoint {
@@ -22,9 +22,9 @@ fn test_aggregation_edge_cases_generic() {
         y: 0.0,
         color_op: ColorOp::None,
     })];
-    assert_eq!(decimate_min_max_slice(&data, 100, None, 0).len(), 1);
-    assert_eq!(decimate_m4_slice(&data, 100, None, 0).len(), 1);
-    assert_eq!(decimate_lttb_slice(&data, 100, None, 0).len(), 1);
+    assert_eq!(decimate_min_max_slice(&data, 100, None).len(), 1);
+    assert_eq!(decimate_m4_slice(&data, 100, None).len(), 1);
+    assert_eq!(decimate_lttb_slice(&data, 100, None).len(), 1);
 
     // 2 points
     let data = vec![
@@ -39,12 +39,12 @@ fn test_aggregation_edge_cases_generic() {
             color_op: ColorOp::None,
         }),
     ];
-    assert_eq!(decimate_min_max_slice(&data, 100, None, 0).len(), 2);
-    assert_eq!(decimate_m4_slice(&data, 100, None, 0).len(), 2);
-    assert_eq!(decimate_lttb_slice(&data, 100, None, 0).len(), 2);
+    assert_eq!(decimate_min_max_slice(&data, 100, None).len(), 2);
+    assert_eq!(decimate_m4_slice(&data, 100, None).len(), 2);
+    assert_eq!(decimate_lttb_slice(&data, 100, None).len(), 2);
 
     // Max points < 1
-    assert_eq!(decimate_min_max_slice(&data, 0, None, 0).len(), 0);
+    assert_eq!(decimate_min_max_slice(&data, 0, None).len(), 0);
     // M4 with max_points = 2 should still handle it (it uses max_points/4 which is 0, but max(1))
     let data_many: Vec<PlotData> = (0..100)
         .map(|i| {
@@ -55,7 +55,7 @@ fn test_aggregation_edge_cases_generic() {
             })
         })
         .collect();
-    assert!(decimate_m4_slice(&data_many, 2, None, 0).len() <= 2);
+    assert!(decimate_m4_slice(&data_many, 2, None).len() <= 2);
 }
 
 #[test]
@@ -84,16 +84,16 @@ fn test_aggregation_nan_inf_generic() {
     ];
 
     // Min/Max
-    let decimated = decimate_min_max_slice(&data, 2, None, 0);
+    let decimated = decimate_min_max_slice(&data, 2, None);
     assert_eq!(decimated.len(), 2);
     // Should not crash
 
     // M4
-    let decimated = decimate_m4_slice(&data, 4, None, 0);
+    let decimated = decimate_m4_slice(&data, 4, None);
     assert!(decimated.len() > 0);
 
     // LTTB
-    let decimated = decimate_lttb_slice(&data, 3, None, 0);
+    let decimated = decimate_lttb_slice(&data, 3, None);
     assert!(decimated.len() > 0);
 }
 
@@ -260,7 +260,7 @@ fn test_lttb_visual_stability() {
             })
         })
         .collect();
-    let decimated = decimate_lttb_slice(&data, 10, None, 0);
+    let decimated = decimate_lttb_slice(&data, 10, None);
     assert!(decimated.len() >= 2);
 
     // First and last points should be preserved
@@ -291,11 +291,11 @@ fn test_ilttb_parallel_correctness() {
 
     // 1. Reference: Sequential LTTB
     let mut res_seq = Vec::new();
-    decimate_lttb_arrays_into(&x, &y, 100, &mut res_seq, None, 0);
+    decimate_lttb_arrays_into(&x, &y, 100, &mut res_seq, None);
 
     // 2. Target: Parallel ILTTB
     let mut res_par = Vec::new();
-    decimate_ilttb_arrays_par_into(&x, &y, 100, &mut res_par, None, 0);
+    decimate_ilttb_arrays_par_into(&x, &y, 100, &mut res_par, None);
 
     // Both must preserve the extreme peaks
     let has_top_peak_par = res_par.iter().any(|p| match p {

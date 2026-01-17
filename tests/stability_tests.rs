@@ -10,7 +10,7 @@ fn test_m4_visual_stability_panning() {
     let max_points = 200;
 
     // Decimate original range
-    let res1 = decimate_m4_arrays_par(&x, &y, max_points, None, 0);
+    let res1 = decimate_m4_arrays_par(&x, &y, max_points, None);
 
     // Shift data by a small amount (simulate panning)
     // We take a slice that is slightly offset
@@ -18,7 +18,7 @@ fn test_m4_visual_stability_panning() {
     let x_shifted = &x[offset..];
     let y_shifted = &y[offset..];
 
-    let res2 = decimate_m4_arrays_par(x_shifted, y_shifted, max_points, None, 0);
+    let res2 = decimate_m4_arrays_par(x_shifted, y_shifted, max_points, None);
 
     // In a stable binning system, the majority of points (except maybe at the edges)
     // should be identical or very close because they belong to the same "stable" bins.

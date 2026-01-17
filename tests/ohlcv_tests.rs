@@ -11,19 +11,19 @@ fn test_ohlcv_decimation_basic() {
     let close: Vec<f64> = (0..n).map(|_| 15.0).collect();
 
     // Decimate to 10 points (10 bins of 10 items each)
-    let result = decimate_ohlcv_arrays_par(&time, &open, &high, &low, &close, 10, None, 0);
+    let result = decimate_ohlcv_arrays_par(&time, &open, &high, &low, &close, 10, None);
 
     assert_eq!(result.len(), 10);
 
-    // Check first bin (indices 0..11 because of ceil)
+    // Check first bin (indices 0..10 because of stable 10.0 bin size)
     if let PlotData::Ohlcv(c) = &result[0] {
         assert_eq!(c.time, 0.0);
         assert_eq!(c.open, 10.0);
         assert_eq!(c.close, 15.0);
-        // High should be max of 0..11 -> 20 + 10 = 30.0
-        assert_eq!(c.high, 30.0);
-        // Low should be min of 0..11 -> 5.0 - 10.0 = -5.0
-        assert_eq!(c.low, -5.0);
+        // High should be max of 0..10 -> 20 + 9 = 29.0
+        assert_eq!(c.high, 29.0);
+        // Low should be min of 0..10 -> 5.0 - 9.0 = -4.0
+        assert_eq!(c.low, -4.0);
     } else {
         panic!("Expected Ohlcv data");
     }
@@ -31,7 +31,7 @@ fn test_ohlcv_decimation_basic() {
 
 #[test]
 fn test_ohlcv_decimation_empty() {
-    let result = decimate_ohlcv_arrays_par(&[], &[], &[], &[], &[], 10, None, 0);
+    let result = decimate_ohlcv_arrays_par(&[], &[], &[], &[], &[], 10, None);
     assert!(result.is_empty());
 }
 
@@ -44,7 +44,7 @@ fn test_ohlcv_decimation_undersampled() {
     let close = vec![11.0, 11.0];
 
     // Max points 10 > len 2 -> return 1:1
-    let result = decimate_ohlcv_arrays_par(&time, &open, &high, &low, &close, 10, None, 0);
+    let result = decimate_ohlcv_arrays_par(&time, &open, &high, &low, &close, 10, None);
     assert_eq!(result.len(), 2);
     if let PlotData::Ohlcv(c) = &result[0] {
         assert_eq!(c.time, 1.0);
@@ -61,7 +61,7 @@ fn test_ohlcv_decimation_nan_handling() {
     let close = vec![f64::NAN, 15.0, f64::NAN, 16.0];
 
     // 1 bin
-    let result = decimate_ohlcv_arrays_par(&time, &open, &high, &low, &close, 1, None, 0);
+    let result = decimate_ohlcv_arrays_par(&time, &open, &high, &low, &close, 1, None);
     assert_eq!(result.len(), 1);
 
     if let PlotData::Ohlcv(c) = &result[0] {

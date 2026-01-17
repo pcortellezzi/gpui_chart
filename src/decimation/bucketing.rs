@@ -130,3 +130,141 @@ pub fn calculate_gap_aware_buckets(
 ) -> Vec<Range<usize>> {
     calculate_gap_aware_buckets_generic(x.len(), |i| x[i], gap_index, bin_size, offset)
 }
+
+pub fn calculate_logical_time_buckets_generic<F>(
+    n: usize,
+    get_x_at: F,
+    gaps: Option<&GapIndex>,
+    logical_bin_size: f64,
+) -> Vec<Range<usize>>
+where
+    F: Fn(usize) -> f64,
+{
+    if n == 0 || logical_bin_size <= 0.0 {
+        return Vec::new();
+    }
+
+    let mut buckets = Vec::with_capacity(n.min(2048));
+    let mut start_idx = 0;
+    
+    let mut cursor = gaps.map(|g| g.cursor());
+    
+    // We can't move the closure into the loop if it captures a mutable cursor if we were parallel, 
+    // but here it is sequential.
+    // However, Rust closures can be tricky with mutable captures in a loop if not careful.
+    // We'll update the cursor manually or wrap it.
+    
+    let first_x = get_x_at(0);
+    let first_logical = if let Some(c) = &mut cursor {
+        c.to_logical(first_x as i64) as f64
+    } else {
+        first_x
+    };
+
+    let mut current_boundary = (first_logical / logical_bin_size).floor() * logical_bin_size + logical_bin_size;
+    
+    for i in 0..n {
+        let val = get_x_at(i);
+        let logical = if let Some(c) = &mut cursor {
+            c.to_logical(val as i64) as f64
+        } else {
+            val
+        };
+        
+        if logical >= current_boundary {
+            if i > start_idx {
+                buckets.push(start_idx..i);
+            }
+            while logical >= current_boundary {
+                current_boundary += logical_bin_size;
+            }
+            start_idx = i;
+        }
+    }
+
+    if start_idx < n {
+        buckets.push(start_idx..n);
+    }
+
+    buckets
+}
+
+/// Calculates buckets based on Logical Time rather than index count.
+pub fn calculate_logical_time_buckets(
+    x: &[f64],
+    gaps: Option<&GapIndex>,
+    logical_bin_size: f64,
+) -> Vec<Range<usize>> {
+    calculate_logical_time_buckets_generic(x.len(), |i| x[i], gaps, logical_bin_size)
+}
+
+pub fn calculate_logical_time_buckets_data(
+    data: &[PlotData],
+    gaps: Option<&GapIndex>,
+    logical_bin_size: f64,
+) -> Vec<Range<usize>> {
+    calculate_logical_time_buckets_generic(
+        data.len(),
+        |i| get_data_x(&data[i]),
+        gaps,
+        logical_bin_size,
+    )
+}
+
+/// Helper to calculate stable buckets for any decimation algorithm.
+/// Returns (stable_bin_size, buckets).
+pub fn calculate_stable_buckets_generic<F>(
+    n: usize,
+    get_x_at: F,
+    gaps: Option<&GapIndex>,
+    max_points: usize,
+    points_per_bucket: usize,
+) -> (f64, Vec<Range<usize>>)
+where
+    F: Fn(usize) -> f64,
+{
+    if n == 0 {
+        return (1.0, Vec::new());
+    }
+
+    let start_x = get_x_at(0);
+    let end_x = get_x_at(n - 1);
+    
+    let real_range = end_x - start_x;
+    let logical_range = if let Some(g) = gaps {
+        (g.to_logical(end_x as i64) - g.to_logical(start_x as i64)) as f64
+    } else {
+        real_range
+    };
+    
+    let target_buckets = (max_points / points_per_bucket).max(1);
+    // Use fully qualified path or import
+    let stable_bin_size = crate::decimation::common::calculate_stable_bin_size(logical_range, target_buckets);
+
+    let buckets = calculate_logical_time_buckets_generic(n, get_x_at, gaps, stable_bin_size);
+    (stable_bin_size, buckets)
+}
+
+pub fn calculate_stable_buckets(
+    x: &[f64],
+    gaps: Option<&GapIndex>,
+    max_points: usize,
+    points_per_bucket: usize,
+) -> (f64, Vec<Range<usize>>) {
+    calculate_stable_buckets_generic(x.len(), |i| x[i], gaps, max_points, points_per_bucket)
+}
+
+pub fn calculate_stable_buckets_data(
+    data: &[PlotData],
+    gaps: Option<&GapIndex>,
+    max_points: usize,
+    points_per_bucket: usize,
+) -> (f64, Vec<Range<usize>>) {
+    calculate_stable_buckets_generic(
+        data.len(),
+        |i| get_data_x(&data[i]),
+        gaps,
+        max_points,
+        points_per_bucket,
+    )
+}

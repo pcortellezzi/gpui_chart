@@ -109,7 +109,7 @@ fn test_m4_kernel_respects_gaps() {
     let gaps = GapIndex::new(segments);
 
     let mut output = Vec::new();
-    decimate_m4_arrays_par_into(&time, &y, 10, &mut output, Some(&gaps), 0);
+    decimate_m4_arrays_par_into(&time, &y, 10, &mut output, Some(&gaps));
 
     // Even if max_points is 10, it should split at the gap.
     // Buckets: [10, 20, 30] and [100, 110, 120]

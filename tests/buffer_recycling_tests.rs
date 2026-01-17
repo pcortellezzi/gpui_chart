@@ -26,7 +26,7 @@ fn test_decimate_into_appends_to_buffer() {
         }),
     ];
 
-    decimate_m4_arrays_par_into(&x, &y, max_points, &mut buffer, None, 0);
+    decimate_m4_arrays_par_into(&x, &y, max_points, &mut buffer, None);
 
     // Should append 2 points to existing 3
     assert_eq!(buffer.len(), 5);
@@ -49,7 +49,7 @@ fn test_decimate_into_reserves_capacity() {
 
     let mut buffer = Vec::new();
     // Capacity should grow
-    decimate_m4_arrays_par_into(&x, &y, max_points, &mut buffer, None, 0);
+    decimate_m4_arrays_par_into(&x, &y, max_points, &mut buffer, None);
 
     assert_eq!(buffer.len(), 5);
 }

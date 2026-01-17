@@ -1,5 +1,4 @@
 use crate::data_types::{Ohlcv, PlotData, PlotPoint, ColorOp};
-use crate::gaps::GapIndex;
 
 /// Calculates a stable bin size (power of 10 or 2) that is just above the ideal resolution.
 pub fn calculate_stable_bin_size(range: f64, max_points: usize) -> f64 {
@@ -22,34 +21,6 @@ pub fn calculate_stable_bin_size(range: f64, max_points: usize) -> f64 {
     };
 
     base * stable_rel
-}
-
-/// Calculates the target bin size based on ranges and gaps.
-/// Used to unify binning logic across all decimation strategies.
-pub fn calculate_dynamic_bin_size(
-    start_x: f64,
-    end_x: f64,
-    n_points: usize,
-    max_points: usize,
-    points_per_bucket: usize,
-    gaps: Option<&GapIndex>,
-) -> usize {
-    let real_range = end_x - start_x;
-    let logical_range = if let Some(g) = gaps {
-        (g.to_logical(end_x as i64) - g.to_logical(start_x as i64)) as f64
-    } else {
-        real_range
-    };
-
-    let target_buckets = (max_points / points_per_bucket).max(1);
-    let stable_bin_size = calculate_stable_bin_size(logical_range, target_buckets);
-    
-    if logical_range > 0.0 {
-        let ratio = (stable_bin_size / logical_range).min(1.0);
-        (n_points as f64 * ratio).ceil() as usize
-    } else {
-        n_points
-    }.max(1)
 }
 
 pub fn get_data_x(p: &PlotData) -> f64 {

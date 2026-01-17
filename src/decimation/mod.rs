@@ -6,7 +6,10 @@ pub mod lttb;
 pub mod ohlcv;
 
 // Re-export public functions to maintain API compatibility
-pub use bucketing::{calculate_gap_aware_buckets, calculate_gap_aware_buckets_data};
+pub use bucketing::{
+    calculate_gap_aware_buckets, calculate_gap_aware_buckets_data,
+    calculate_stable_buckets, calculate_stable_buckets_data, calculate_stable_buckets_generic
+};
 pub use min_max::{
     decimate_min_max_arrays_par, decimate_min_max_arrays_par_into,
     decimate_min_max_slice, decimate_min_max_slice_into,

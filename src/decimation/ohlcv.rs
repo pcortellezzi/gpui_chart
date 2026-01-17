@@ -1,8 +1,6 @@
 use crate::data_types::{PlotData, Ohlcv};
 use crate::gaps::GapIndex;
 use rayon::prelude::*;
-use super::common::{calculate_stable_bin_size, calculate_dynamic_bin_size};
-use super::bucketing::calculate_gap_aware_buckets;
 
 pub fn decimate_ohlcv_arrays_par_into(
     time: &[f64],
@@ -13,13 +11,14 @@ pub fn decimate_ohlcv_arrays_par_into(
     max_points: usize,
     output: &mut Vec<PlotData>,
     gaps: Option<&GapIndex>,
-    offset: usize,
 ) {
     let initial_len = output.len();
     if time.is_empty() {
         return;
     }
 
+    // Direct pass if enough space (this logic might need revisit if we want strict grid alignment even for few points,
+    // but usually exact display is preferred when zoomed in).
     if time.len() <= max_points {
         for i in 0..time.len() {
             output.push(PlotData::Ohlcv(Ohlcv {
@@ -35,27 +34,8 @@ pub fn decimate_ohlcv_arrays_par_into(
         return;
     }
 
-    // Use centralized dynamic bin size logic (points_per_bucket = 1 for OHLCV usually, or treated as 1 candle)
-    let bin_size = calculate_dynamic_bin_size(
-        time[0],
-        time[time.len() - 1],
-        time.len(),
-        max_points,
-        1,
-        gaps,
-    );
-    
-    // We need stable_bin_size for candle width calculation
-    let real_range = time[time.len() - 1] - time[0];
-    let logical_range = if let Some(g) = gaps {
-        (g.to_logical(time[time.len() - 1] as i64) - g.to_logical(time[0] as i64)) as f64
-    } else {
-        real_range
-    };
-    let stable_bin_size = calculate_stable_bin_size(logical_range, max_points.max(1));
-
-    // Pre-calculate buckets that respect gaps and are aligned to global offset
-    let buckets = calculate_gap_aware_buckets(time, gaps, bin_size, offset);
+    // We calculate stable_bin_size based on the visible range.
+    let (stable_bin_size, buckets) = super::bucketing::calculate_stable_buckets(time, gaps, max_points, 1);
 
     let chunks: Vec<PlotData> = buckets
         .into_par_iter()
@@ -97,6 +77,7 @@ pub fn decimate_ohlcv_arrays_par_into(
             let agg_low = crate::simd::min_f64(l_chunk);
 
             let first_time_real = t_chunk[0];
+            // Snap to grid
             let candle_time = if let Some(g) = gaps {
                 let logical = g.to_logical(first_time_real as i64) as f64;
                 let snapped = (logical / stable_bin_size).floor() * stable_bin_size;
@@ -132,23 +113,20 @@ pub fn decimate_ohlcv_arrays_par(
     close: &[f64],
     max_points: usize,
     gaps: Option<&GapIndex>,
-    offset: usize,
 ) -> Vec<PlotData> {
     let mut output = Vec::with_capacity(max_points);
-    decimate_ohlcv_arrays_par_into(time, open, high, low, close, max_points, &mut output, gaps, offset);
+    decimate_ohlcv_arrays_par_into(time, open, high, low, close, max_points, &mut output, gaps);
     output
 }
 
 // Re-export common dependencies needed by other modules or used here
 use super::common::{aggregate_chunk, get_data_x};
-use super::bucketing::calculate_gap_aware_buckets_data;
 
 pub fn decimate_ohlcv_slice_into(
     data: &[PlotData],
     max_points: usize,
     output: &mut Vec<PlotData>,
     gaps: Option<&GapIndex>,
-    offset: usize,
 ) {
     let initial_len = output.len();
     if data.is_empty() {
@@ -160,22 +138,40 @@ pub fn decimate_ohlcv_slice_into(
         return;
     }
 
-    let bin_size = calculate_dynamic_bin_size(
-        get_data_x(&data[0]),
-        get_data_x(&data[data.len() - 1]),
-        data.len(),
-        max_points,
-        1,
-        gaps,
-    );
-
-    let buckets = calculate_gap_aware_buckets_data(data, gaps, bin_size, offset);
+    let (stable_bin_size, buckets) = super::bucketing::calculate_stable_buckets_data(data, gaps, max_points, 1);
 
     let chunks: Vec<PlotData> = buckets
         .into_par_iter()
         .filter_map(|range| {
             let chunk = &data[range.start..range.end];
-            aggregate_chunk(chunk)
+            // aggregate_chunk usually returns Point or OHLCV.
+            // But we might need to snap the time of the result to the grid?
+            // aggregate_chunk preserves the time of the first point.
+            // If we want grid alignment, we should modify the time.
+            
+            let mut res = aggregate_chunk(chunk)?;
+            
+            // Snap time
+            let time = get_data_x(&res);
+            let snapped_time = if let Some(g) = gaps {
+                let logical = g.to_logical(time as i64) as f64;
+                let s = (logical / stable_bin_size).floor() * stable_bin_size;
+                g.to_real(s as i64) as f64
+            } else {
+                (time / stable_bin_size).floor() * stable_bin_size
+            };
+            
+            match &mut res {
+                PlotData::Ohlcv(o) => {
+                    o.time = snapped_time;
+                    o.span = stable_bin_size;
+                }
+                PlotData::Point(p) => {
+                    // Points usually don't have span, but we snap x
+                    p.x = snapped_time;
+                }
+            }
+            Some(res)
         })
         .collect();
     

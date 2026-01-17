@@ -1,8 +1,7 @@
 use crate::data_types::{ColorOp, PlotData, PlotPoint};
 use crate::gaps::GapIndex;
 use rayon::prelude::*;
-use super::common::{calculate_dynamic_bin_size, find_extrema_indices_generic, get_data_x, get_data_y};
-use super::bucketing::{calculate_gap_aware_buckets, calculate_gap_aware_buckets_data, calculate_gap_aware_buckets_generic};
+use super::common::{find_extrema_indices_generic, get_data_y};
 
 /// Decimates parallel arrays (Structure of Arrays) using M4 and Rayon.
 pub fn decimate_m4_arrays_par(
@@ -10,10 +9,9 @@ pub fn decimate_m4_arrays_par(
     y: &[f64],
     max_points: usize,
     gaps: Option<&GapIndex>,
-    offset: usize,
 ) -> Vec<PlotData> {
     let mut output = Vec::with_capacity(max_points);
-    decimate_m4_arrays_par_into(x, y, max_points, &mut output, gaps, offset);
+    decimate_m4_arrays_par_into(x, y, max_points, &mut output, gaps);
     output
 }
 
@@ -111,7 +109,6 @@ pub fn decimate_m4_arrays_par_into(
     max_points: usize,
     output: &mut Vec<PlotData>,
     gaps: Option<&GapIndex>,
-    offset: usize,
 ) {
     let initial_len = output.len();
     if x.is_empty() || y.is_empty() || x.len() != y.len() {
@@ -129,18 +126,8 @@ pub fn decimate_m4_arrays_par_into(
         return;
     }
 
-    // Use centralized dynamic bin size logic
-    let bin_size = calculate_dynamic_bin_size(
-        x[0],
-        x[x.len() - 1],
-        x.len(),
-        max_points,
-        4,
-        gaps,
-    );
-
-    // Pre-calculate buckets that respect gaps and are aligned to global offset
-    let buckets = calculate_gap_aware_buckets(x, gaps, bin_size, offset);
+    // Use stable time-based bucketing to prevent jitter
+    let (_stable_bin_size, buckets) = super::bucketing::calculate_stable_buckets(x, gaps, max_points, 4);
 
     // Process buckets in parallel, returning fixed-size arrays to avoid allocations.
     let chunks: Vec<([PlotPoint; 4], usize)> = buckets
@@ -170,10 +157,9 @@ pub fn decimate_m4_slice(
     data: &[PlotData],
     max_points: usize,
     gaps: Option<&GapIndex>,
-    offset: usize,
 ) -> Vec<PlotData> {
     let mut output = Vec::with_capacity(max_points);
-    decimate_m4_slice_into(data, max_points, &mut output, gaps, offset);
+    decimate_m4_slice_into(data, max_points, &mut output, gaps);
     output
 }
 
@@ -182,14 +168,13 @@ pub fn decimate_m4_slice_into(
     max_points: usize,
     output: &mut Vec<PlotData>,
     gaps: Option<&GapIndex>,
-    offset: usize,
 ) {
     let initial_len = output.len();
     if data.is_empty() { return; }
 
     if let PlotData::Ohlcv(_) = data[0] {
         use crate::decimation::ohlcv::decimate_ohlcv_slice_into; // Resolve circular dep
-        decimate_ohlcv_slice_into(data, max_points, output, gaps, offset);
+        decimate_ohlcv_slice_into(data, max_points, output, gaps);
         return;
     }
 
@@ -198,16 +183,7 @@ pub fn decimate_m4_slice_into(
         return;
     }
 
-    let bin_size = calculate_dynamic_bin_size(
-        get_data_x(&data[0]),
-        get_data_x(&data[data.len() - 1]),
-        data.len(),
-        max_points,
-        4,
-        gaps,
-    );
-
-    let buckets = calculate_gap_aware_buckets_data(data, gaps, bin_size, offset);
+    let (_stable_bin_size, buckets) = super::bucketing::calculate_stable_buckets_data(data, gaps, max_points, 4);
 
     let chunks: Vec<([PlotData; 4], usize)> = buckets
         .into_par_iter()
@@ -272,7 +248,6 @@ pub fn decimate_m4_generic<T, FX, FY, FC>(
     get_y: FY,
     create_point: FC,
     gaps: Option<&GapIndex>,
-    offset: usize,
 ) -> Vec<PlotData>
 where
     FX: Fn(&T) -> f64,
@@ -284,21 +259,12 @@ where
         return data.iter().map(create_point).collect();
     }
 
-    let bin_size = calculate_dynamic_bin_size(
-        get_x(&data[0]),
-        get_x(&data[n - 1]),
-        n,
-        max_points,
-        4,
-        gaps,
-    );
-
-    let buckets = calculate_gap_aware_buckets_generic(
+    let (_stable_bin_size, buckets) = super::bucketing::calculate_stable_buckets_generic(
         n,
         |i| get_x(&data[i]),
         gaps,
-        bin_size,
-        offset,
+        max_points,
+        4,
     );
 
     let mut aggregated = Vec::with_capacity(max_points);
