@@ -89,7 +89,6 @@ pub fn decimate_min_max_arrays_par_into(
     gaps: Option<&GapIndex>,
     reference_logical_range: Option<f64>,
 ) {
-    let initial_len = output.len();
     if x.is_empty() || y.is_empty() || x.len() != y.len() {
         return;
     }
@@ -106,14 +105,18 @@ pub fn decimate_min_max_arrays_par_into(
     }
 
     // Use stable time-based bucketing
-    let (_stable_bin_size, buckets) = super::bucketing::calculate_stable_buckets(x, gaps, max_points, 2, reference_logical_range);
+    let (stable_bin_size, buckets) = super::bucketing::calculate_stable_buckets(x, gaps, max_points, 2, reference_logical_range);
 
     let chunks: Vec<([PlotPoint; 2], usize)> = buckets
         .into_par_iter()
         .map(|range| {
             let x_chunk = &x[range.start..range.end];
             let y_chunk = &y[range.start..range.end];
-            aggregate_min_max_bucket_to_array(x_chunk, y_chunk)
+            let (mut pts, n) = aggregate_min_max_bucket_to_array(x_chunk, y_chunk);
+            for i in 0..n {
+                pts[i].x = super::common::snap_to_grid(pts[i].x, stable_bin_size, gaps);
+            }
+            (pts, n)
         })
         .collect();
 
@@ -121,10 +124,6 @@ pub fn decimate_min_max_arrays_par_into(
         for i in 0..n {
             output.push(PlotData::Point(pts[i]));
         }
-    }
-
-    if output.len() > initial_len + max_points {
-        output.truncate(initial_len + max_points);
     }
 }
 
@@ -146,7 +145,6 @@ pub fn decimate_min_max_slice_into(
     gaps: Option<&GapIndex>,
     reference_logical_range: Option<f64>,
 ) {
-    let initial_len = output.len();
     if data.is_empty() {
         return;
     }
@@ -177,10 +175,6 @@ pub fn decimate_min_max_slice_into(
         for i in 0..n {
             output.push(pts[i].clone());
         }
-    }
-
-    if output.len() > initial_len + max_points {
-        output.truncate(initial_len + max_points);
     }
 }
 
@@ -260,10 +254,6 @@ where
                 aggregated.push(create_point(p1));
             }
         }
-    }
-
-    if aggregated.len() > max_points {
-        aggregated.truncate(max_points);
     }
 
     aggregated

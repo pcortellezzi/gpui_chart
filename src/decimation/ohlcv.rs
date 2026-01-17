@@ -13,25 +13,7 @@ pub fn decimate_ohlcv_arrays_par_into(
     gaps: Option<&GapIndex>,
     reference_logical_range: Option<f64>,
 ) {
-    let initial_len = output.len();
     if time.is_empty() {
-        return;
-    }
-
-    // Direct pass if enough space (this logic might need revisit if we want strict grid alignment even for few points,
-    // but usually exact display is preferred when zoomed in).
-    if time.len() <= max_points {
-        for i in 0..time.len() {
-            output.push(PlotData::Ohlcv(Ohlcv {
-                time: time[i],
-                span: 0.0,
-                open: open.get(i).copied().unwrap_or(0.0),
-                high: high.get(i).copied().unwrap_or(0.0),
-                low: low.get(i).copied().unwrap_or(0.0),
-                close: close.get(i).copied().unwrap_or(0.0),
-                volume: 0.0,
-            }));
-        }
         return;
     }
 
@@ -76,22 +58,16 @@ pub fn decimate_ohlcv_arrays_par_into(
             }
 
             let mut agg_close = 0.0;
-            for &v in c_chunk.iter().rev() {
-                if !v.is_nan() {
-                    agg_close = v;
+            for i in (0..c_chunk.len()).rev() {
+                if !c_chunk[i].is_nan() {
+                    agg_close = c_chunk[i];
                     break;
                 }
             }
 
             let first_time_real = t_chunk[0];
-            // Snap to grid
-            let candle_time = if let Some(g) = gaps {
-                let logical = g.to_logical(first_time_real as i64) as f64;
-                let snapped = (logical / stable_bin_size).floor() * stable_bin_size;
-                g.to_real(snapped as i64) as f64
-            } else {
-                (first_time_real / stable_bin_size).floor() * stable_bin_size
-            };
+            // Snap to grid using centralized logic
+            let candle_time = super::common::snap_to_grid(first_time_real, stable_bin_size, gaps);
 
             Some(PlotData::Ohlcv(Ohlcv {
                 time: candle_time,
@@ -106,10 +82,6 @@ pub fn decimate_ohlcv_arrays_par_into(
         .collect();
 
     output.extend(chunks);
-
-    if output.len() > initial_len + max_points {
-        output.truncate(initial_len + max_points);
-    }
 }
 
 pub fn decimate_ohlcv_arrays_par(
@@ -137,7 +109,6 @@ pub fn decimate_ohlcv_slice_into(
     gaps: Option<&GapIndex>,
     reference_logical_range: Option<f64>,
 ) {
-    let initial_len = output.len();
     if data.is_empty() {
         return;
     }
@@ -160,15 +131,9 @@ pub fn decimate_ohlcv_slice_into(
             
             let mut res = aggregate_chunk(chunk)?;
             
-            // Snap time
+            // Snap time using centralized logic
             let time = get_data_x(&res);
-            let snapped_time = if let Some(g) = gaps {
-                let logical = g.to_logical(time as i64) as f64;
-                let s = (logical / stable_bin_size).floor() * stable_bin_size;
-                g.to_real(s as i64) as f64
-            } else {
-                (time / stable_bin_size).floor() * stable_bin_size
-            };
+            let snapped_time = super::common::snap_to_grid(time, stable_bin_size, gaps);
             
             match &mut res {
                 PlotData::Ohlcv(o) => {
@@ -185,8 +150,4 @@ pub fn decimate_ohlcv_slice_into(
         .collect();
     
     output.extend(chunks);
-
-    if output.len() > initial_len + max_points {
-        output.truncate(initial_len + max_points);
-    }
 }

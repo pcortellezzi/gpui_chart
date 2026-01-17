@@ -1,4 +1,20 @@
 use crate::data_types::{Ohlcv, PlotData, PlotPoint, ColorOp};
+use crate::gaps::GapIndex;
+
+/// Snaps a real timestamp to a stable grid defined by bin_size, respecting gaps.
+pub fn snap_to_grid(time: f64, bin_size: f64, gaps: Option<&GapIndex>) -> f64 {
+    // Add a tiny epsilon to handle floating point precision issues with large timestamps (ms)
+    // 1e-7 is enough for ms precision at 1e12 magnitude.
+    let epsilon = bin_size * 1e-7;
+    
+    if let Some(g) = gaps {
+        let logical = g.to_logical(time as i64) as f64;
+        let snapped = ((logical + epsilon) / bin_size).floor() * bin_size;
+        g.to_real_first(snapped as i64) as f64
+    } else {
+        ((time + epsilon) / bin_size).floor() * bin_size
+    }
+}
 
 /// Calculates a stable bin size (power of 10 or 2) that is just above the ideal resolution.
 pub fn calculate_stable_bin_size(range: f64, max_points: usize) -> f64 {
@@ -9,9 +25,8 @@ pub fn calculate_stable_bin_size(range: f64, max_points: usize) -> f64 {
     let exponent = ideal.log10().floor();
     let base = 10.0f64.powf(exponent);
     let rel = ideal / base;
-    // Use a small epsilon to avoid threshold jitter due to floating point noise.
-    // This is especially important near 1.0, 2.0, 5.0 boundaries to prevent resolution jumps.
-    const EPS: f64 = 1e-9;
+    // Use a larger epsilon (1e-6) safe for timestamps in the order of 1e12 ms.
+    const EPS: f64 = 1e-6;
 
     let stable_rel = if rel <= 1.0 + EPS {
         1.0
@@ -164,17 +179,14 @@ pub fn aggregate_chunk(chunk: &[PlotData]) -> Option<PlotData> {
         let mut low = f64::INFINITY;
         let mut volume = 0.0;
         let mut first_time = 0.0;
-        let mut last_time_end = 0.0;
 
-        for (i, p) in chunk.iter().enumerate() {
+        let mut found_open = false;
+        for p in chunk {
             if let PlotData::Ohlcv(o) = p {
-                if i == 0 {
+                if !o.open.is_nan() && !found_open {
                     open = o.open;
                     first_time = o.time;
-                }
-                if i == chunk.len() - 1 {
-                    close = o.close;
-                    last_time_end = o.time + o.span;
+                    found_open = true;
                 }
                 high = high.max(o.high);
                 low = low.min(o.low);
@@ -182,9 +194,18 @@ pub fn aggregate_chunk(chunk: &[PlotData]) -> Option<PlotData> {
             }
         }
 
+        for p in chunk.iter().rev() {
+            if let PlotData::Ohlcv(o) = p {
+                if !o.close.is_nan() {
+                    close = o.close;
+                    break;
+                }
+            }
+        }
+
         Some(PlotData::Ohlcv(Ohlcv {
             time: first_time,
-            span: last_time_end - first_time,
+            span: chunk.get(0).and_then(|p| if let PlotData::Ohlcv(o) = p { Some(o.span) } else { None }).unwrap_or(0.0),
             open,
             high,
             low,

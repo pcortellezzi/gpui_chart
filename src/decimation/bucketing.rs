@@ -136,7 +136,7 @@ pub fn calculate_logical_time_buckets_generic<F>(
     get_x_at: F,
     gaps: Option<&GapIndex>,
     logical_bin_size: f64,
-    logical_range: f64,
+    _logical_range: f64,
 ) -> Vec<Range<usize>>
 where
     F: Fn(usize) -> f64,
@@ -145,79 +145,47 @@ where
         return Vec::new();
     }
 
-    let mut current_idx = 0;
-    
-    if gaps.is_none() {
-        // FAST PATH: No gaps, use direct index stepping
-        let avg_pts_per_bin = (n as f64 * (logical_bin_size / logical_range)).round() as usize;
-        let bin_size = avg_pts_per_bin.max(1);
-        let mut buckets = Vec::with_capacity(n / bin_size + 1);
-        for i in (0..n).step_by(bin_size) {
-            buckets.push(i..(i + bin_size).min(n));
-        }
-        return buckets;
-    }
-
     let mut buckets = Vec::with_capacity(n.min(2048));
-    
-    let mut buckets_to_find = (logical_range / logical_bin_size).ceil() as usize;
-    buckets_to_find = buckets_to_find.max(1);
+    let mut current_idx = 0;
 
-    let first_x = get_x_at(0);
-    let first_logical = if let Some(g) = gaps {
-        g.to_logical(first_x as i64) as f64
-    } else {
-        first_x
-    };
-
-    // Align to global grid
-    let mut next_boundary = (first_logical / logical_bin_size).floor() * logical_bin_size + logical_bin_size;
-    
     while current_idx < n {
-        let target_real = if let Some(g) = gaps {
-            g.to_real_first(next_boundary as i64) as f64
+        let x_start = get_x_at(current_idx);
+        let logical_start = if let Some(g) = gaps {
+            g.to_logical(x_start as i64) as f64
         } else {
-            next_boundary
+            x_start
         };
 
-        // Heuristic: the next boundary is likely around remaining_n / remaining_buckets from here.
-        let remaining_n = n - current_idx;
-        let step_guess = (remaining_n / buckets_to_find.max(1)) * 2;
-        let mut right = (current_idx + step_guess).min(n);
-        
-        // If our guess was too short, fallback to full range
-        if right < n && get_x_at(right - 1) < target_real {
-            right = n;
-        }
+        // Absolute Bin ID calculation
+        let bin_id = (logical_start / logical_bin_size).floor();
+        let next_boundary_logical = (bin_id + 1.0) * logical_bin_size;
 
-        let mut left = current_idx;
+        // Find the end of this bin: the first point that belongs to a different bin_id
+        // or exceeds the next logical boundary.
+        let target_real = if let Some(g) = gaps {
+            g.to_real_first(next_boundary_logical as i64) as f64
+        } else {
+            next_boundary_logical
+        };
+
+        // Binary search for the end of the current bucket
+        let mut left = current_idx + 1;
+        let mut right = n;
+        // Use a tiny epsilon to avoid floating point boundary issues
+        let epsilon = logical_bin_size * 1e-9;
+
         while left < right {
             let mid = left + (right - left) / 2;
-            if get_x_at(mid) < target_real {
+            if get_x_at(mid) < target_real - epsilon {
                 left = mid + 1;
             } else {
                 right = mid;
             }
         }
-        
+
         let end_idx = left;
-        if end_idx > current_idx {
-            buckets.push(current_idx..end_idx);
-        }
-        
+        buckets.push(current_idx..end_idx);
         current_idx = end_idx;
-        if current_idx < n {
-            let x = get_x_at(current_idx);
-            let logical = if let Some(g) = gaps {
-                g.to_logical(x as i64) as f64
-            } else {
-                x
-            };
-            while logical >= next_boundary {
-                next_boundary += logical_bin_size;
-                if buckets_to_find > 1 { buckets_to_find -= 1; }
-            }
-        }
     }
 
     buckets

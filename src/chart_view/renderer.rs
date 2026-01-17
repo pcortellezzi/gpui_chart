@@ -653,22 +653,25 @@ impl ChartRenderer {
                     let key = AxisKey::X(i).key();
                     if let Some(b) = last_render_axis_bounds.borrow().get(&key) {
                         let r = x_a.entity.read(cx);
-                        let scale = crate::scales::ChartScale::new_linear(
+                        let mut scale = crate::scales::ChartScale::new_linear(
                             r.clamped_bounds(),
                             (0.0, b.size.width.as_f32()),
                         );
+                        if let Some(gaps) = &shared_state.gap_index {
+                            scale = scale.with_gaps(Some(gaps.clone()));
+                        }
+                        
                         let sx = b.origin.x - container_origin.x + px(scale.map(hx));
                         tags.push(
                             div()
                                 .absolute()
                                 .top(b.origin.y - container_origin.y - px(1.0))
                                 .left(sx)
-                                .ml(px(-40.0))
-                                .w(px(80.0))
+                                .w(px(0.0)) // Just an anchor point for the tag
                                 .h(x_a.size)
                                 .child(crate::rendering::create_axis_tag(
                                     scale.format_tick(hx, &x_a.format),
-                                    px(40.0),
+                                    px(0.0), // create_axis_tag already applies margin-left -40px
                                     true,
                                     &theme,
                                 ))

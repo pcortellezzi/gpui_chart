@@ -13,7 +13,7 @@ pub enum TimeUnit {
 #[derive(Clone, Copy, Debug, Serialize, Deserialize, PartialEq)]
 pub enum AxisFormat {
     Numeric,
-    Time(TimeUnit),
+    Time(TimeUnit, Option<chrono_tz::Tz>), // unit, timezone
 }
 
 impl Default for AxisFormat {

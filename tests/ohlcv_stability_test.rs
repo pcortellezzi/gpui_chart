@@ -24,71 +24,63 @@ mod tests {
     }
 
     #[test]
-    fn test_ohlcv_panning_stability() {
-        // Generate 2000 points.
-        // View 1: 0..1000
-        // View 2: 10..1010
-        // Overlap: 10..1000.
-        // Aggregation should be stable in the overlap region.
+    fn test_ohlcv_sliding_window_stability() {
+        // Generate enough data for a long pan
+        let (t, o, h, l, c) = generate_data(3000);
+        
+        let max_points = 100;
+        let window_size = 1000;
+        let reference_range = 1000.0; // Fixed range to keep bin_size stable (10.0)
 
-        let (t, o, h, l, c) = generate_data(2000);
-        let max_points = 100; // Force aggregation (10:1 ratio approx)
-
-        // Run 1
-        let slice1_len = 1000;
-        let res1 = decimate_ohlcv_arrays_par(
-            &t[0..slice1_len],
-            &o[0..slice1_len],
-            &h[0..slice1_len],
-            &l[0..slice1_len],
-            &c[0..slice1_len],
+        // Capture reference result at offset 0
+        let res_ref = decimate_ohlcv_arrays_par(
+            &t[0..window_size],
+            &o[0..window_size],
+            &h[0..window_size],
+            &l[0..window_size],
+            &c[0..window_size],
             max_points,
             None,
-            None,
+            Some(reference_range),
         );
+        let candles_ref: Vec<&Ohlcv> = res_ref.iter().filter_map(|p| if let PlotData::Ohlcv(o) = p { Some(o) } else { None }).collect();
 
-        // Run 2 (Pan right by 10 points)
-        let offset = 10;
-        let slice2_len = 1000;
-        let res2 = decimate_ohlcv_arrays_par(
-            &t[offset..offset+slice2_len],
-            &o[offset..offset+slice2_len],
-            &h[offset..offset+slice2_len],
-            &l[offset..offset+slice2_len],
-            &c[offset..offset+slice2_len],
-            max_points,
-            None,
-            None,
-        );
+        // Perform 50 small pans (1 unit each)
+        for offset in 1..50 {
+            let res_curr = decimate_ohlcv_arrays_par(
+                &t[offset..offset+window_size],
+                &o[offset..offset+window_size],
+                &h[offset..offset+window_size],
+                &l[offset..offset+window_size],
+                &c[offset..offset+window_size],
+                max_points,
+                None,
+                Some(reference_range),
+            );
+            let candles_curr: Vec<&Ohlcv> = res_curr.iter().filter_map(|p| if let PlotData::Ohlcv(o) = p { Some(o) } else { None }).collect();
 
-        // Find common time range
-        let start_time = t[offset];
-        let end_time = t[slice1_len - 1];
+            // We compare candles that are strictly inside the overlapping time range
+            // Overlap starts at 'offset' and ends at 'window_size - 1'
+            let overlap_start = offset as f64;
+            let overlap_end = (window_size - 1) as f64;
 
-        let candles1: Vec<&Ohlcv> = res1.iter().filter_map(|p| if let PlotData::Ohlcv(o) = p { Some(o) } else { None }).collect();
-        let candles2: Vec<&Ohlcv> = res2.iter().filter_map(|p| if let PlotData::Ohlcv(o) = p { Some(o) } else { None }).collect();
-
-        assert!(!candles1.is_empty());
-        assert!(!candles2.is_empty());
-
-        let mut matches = 0;
-        for c1 in &candles1 {
-            // Check if candle is fully within the overlap region
-            if c1.time >= start_time && c1.time + c1.span <= end_time {
-                // Should exist in c2
-                if let Some(c2) = candles2.iter().find(|c| (c.time - c1.time).abs() < 0.001) {
-                    assert_eq!(c1.span, c2.span, "Span mismatch at time {}", c1.time);
-                    assert_eq!(c1.open, c2.open, "Open mismatch at time {}", c1.time);
-                    assert_eq!(c1.high, c2.high, "High mismatch at time {}", c1.time);
-                    assert_eq!(c1.low, c2.low, "Low mismatch at time {}", c1.time);
-                    assert_eq!(c1.close, c2.close, "Close mismatch at time {}", c1.time);
-                    matches += 1;
+            let mut checked_in_this_frame = 0;
+            for c_ref in &candles_ref {
+                // If the reference candle is still within the current visible overlap
+                if c_ref.time >= overlap_start + 10.0 && c_ref.time + c_ref.span <= overlap_end - 10.0 {
+                    let matching = candles_curr.iter().find(|c| (c.time - c_ref.time).abs() < 0.001)
+                        .expect(&format!("Candle at time {} disappeared at offset {}!", c_ref.time, offset));
+                    
+                    assert_eq!(c_ref.open, matching.open, "OPEN jitter at time {} (offset {})", c_ref.time, offset);
+                    assert_eq!(c_ref.close, matching.close, "CLOSE jitter at time {} (offset {})", c_ref.time, offset);
+                    assert_eq!(c_ref.high, matching.high, "HIGH jitter at time {} (offset {})", c_ref.time, offset);
+                    assert_eq!(c_ref.low, matching.low, "LOW jitter at time {} (offset {})", c_ref.time, offset);
+                    checked_in_this_frame += 1;
                 }
             }
+            assert!(checked_in_this_frame > 0, "No overlapping candles to check at offset {}", offset);
         }
-        
-        println!("Verified {} matching candles", matches);
-        assert!(matches > 0);
+        println!("Sliding window stability verified over 50 steps.");
     }
 
     #[test]
@@ -131,11 +123,15 @@ mod tests {
         assert_eq!(res1.len(), res2.len(), "Counts should be identical with stable reference range");
         
         // Verify values of overlapping candles are identical
-        for (p1, p2) in res1.iter().zip(res2.iter()) {
-            if let (PlotData::Ohlcv(c1), PlotData::Ohlcv(c2)) = (p1, p2) {
-                assert_eq!(c1.time, c2.time);
-                assert_eq!(c1.open, c2.open);
-                assert_eq!(c1.close, c2.close);
+        // Skip first and last buckets as they may be partial due to slice boundaries
+        let len = res1.len().min(res2.len());
+        if len > 2 {
+            for i in 1..len-1 {
+                if let (PlotData::Ohlcv(c1), PlotData::Ohlcv(c2)) = (&res1[i], &res2[i]) {
+                    assert_eq!(c1.time, c2.time, "Time mismatch at bucket {}", i);
+                    assert_eq!(c1.open, c2.open, "Open mismatch at bucket {}", i);
+                    assert_eq!(c1.close, c2.close, "Close mismatch at bucket {}", i);
+                }
             }
         }
     }

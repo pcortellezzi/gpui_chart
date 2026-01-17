@@ -115,7 +115,7 @@ impl ChartScale {
 
     pub fn format_tick(&self, value: f64, format: &crate::data_types::AxisFormat) -> String {
         match format {
-            crate::data_types::AxisFormat::Time(unit) => {
+            crate::data_types::AxisFormat::Time(unit, tz) => {
                 let (d_min, d_max) = self.domain();
                 let span = (d_max - d_min).abs();
 
@@ -127,7 +127,7 @@ impl ChartScale {
                 };
 
                 let fmt = crate::utils::date_formatter::determine_date_format(span_sec);
-                return crate::utils::date_formatter::format_timestamp(value, fmt, *unit);
+                return crate::utils::date_formatter::format_timestamp(value, fmt, *unit, *tz);
             }
             crate::data_types::AxisFormat::Numeric => {
                 // Keep heuristic ONLY for numeric fallback if it looks really like a timestamp
@@ -145,7 +145,7 @@ impl ChartScale {
                     } else {
                         crate::data_types::TimeUnit::Seconds
                     };
-                    return crate::utils::date_formatter::format_timestamp(value, fmt, unit);
+                    return crate::utils::date_formatter::format_timestamp(value, fmt, unit, None);
                 }
             }
         }

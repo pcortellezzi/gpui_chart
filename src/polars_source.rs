@@ -453,33 +453,65 @@ impl PlotDataSource for PolarsDataSource {
     ) {
         output.clear();
 
-        let (start_idx, end_idx) = self.get_range_indices(x_min, x_max);
+        // Use REAL range for bin size calculation to ensure absolute stability during pan.
+        let view_range = x_max - x_min;
 
-        // Add padding: take extra points before and after to ensure stable bins
-        // at the edges have enough data context.
-        let start = start_idx.saturating_sub(1);
-        let end = (end_idx + 1).min(self.df.height());
+        let target_buckets = if self.open_col.is_some() {
+            max_points.max(1)
+        } else {
+            match self.mode {
+                crate::data_types::AggregationMode::M4 => (max_points / 4).max(1),
+                crate::data_types::AggregationMode::MinMax => (max_points / 2).max(1),
+                crate::data_types::AggregationMode::LTTB => max_points.max(1),
+            }
+        };
+
+        let stable_bin_size = crate::decimation::common::calculate_stable_bin_size(view_range, target_buckets);
+
+        // 1. Find logical start of the first bucket on screen
+        let x_min_logical = if let Some(g) = gaps {
+            g.to_logical(x_min as i64) as f64
+        } else {
+            x_min
+        };
+        let aligned_start_logical = (x_min_logical / stable_bin_size).floor() * stable_bin_size;
+        
+        // 2. Map back to real time to find start index in dataframe
+        let aligned_start_real = if let Some(g) = gaps {
+            g.to_real_first(aligned_start_logical as i64) as f64
+        } else {
+            aligned_start_logical
+        };
+
+        // 3. Find indices with some extra safety padding
+        let (start_idx_raw, end_idx_raw) = self.get_range_indices(aligned_start_real, x_max);
+        
+        // Important: we ensure we start BEFORE aligned_start_real to give some room to the grid alignment
+        let mut start = start_idx_raw;
+        let x_series = self.df.column(&self.x_col).ok().and_then(|c| c.as_series()).and_then(|s| s.f64().ok());
+        if let Some(x) = x_series {
+            // Take 5 extra points before the boundary for safety
+            start = start.saturating_sub(5);
+            while start > 0 && x.get(start).unwrap_or(f64::MAX) > aligned_start_real - (stable_bin_size * 0.1) {
+                start -= 1;
+            }
+        }
+
+        let end = (end_idx_raw + 10).min(self.df.height());
         let count = end - start;
+
+        if count == 0 { return; }
 
         if count <= max_points {
             output.extend(self.iter_range(x_min, x_max));
             return;
         }
 
-        let view_logical_range = if let Some(g) = gaps {
-            (g.to_logical(x_max as i64) - g.to_logical(x_min as i64)) as f64
-        } else {
-            x_max - x_min
-        };
-
         // Optimized Zero-Copy Path for Points (M4, MinMax, LTTB)
-        // This path bypasses Polars Lazy API and allocations by accessing contiguous memory slices directly.
-        // It writes directly into the recycling `output` buffer.
         if (matches!(self.mode, crate::data_types::AggregationMode::M4)
             || matches!(self.mode, crate::data_types::AggregationMode::MinMax)
             || matches!(self.mode, crate::data_types::AggregationMode::LTTB))
             && self.open_col.is_none()
-        // Only for standard XY plots
         {
             let sliced = self.df.slice(start as i64, count);
 
@@ -516,17 +548,17 @@ impl PlotDataSource for PolarsDataSource {
                     match self.mode {
                         crate::data_types::AggregationMode::M4 => {
                             crate::decimation::decimate_m4_arrays_par_into(
-                                x_slice, y_slice, max_points, output, gaps, Some(view_logical_range),
+                                x_slice, y_slice, max_points, output, gaps, Some(view_range),
                             )
                         }
                         crate::data_types::AggregationMode::MinMax => {
                             crate::decimation::decimate_min_max_arrays_par_into(
-                                x_slice, y_slice, max_points, output, gaps, Some(view_logical_range),
+                                x_slice, y_slice, max_points, output, gaps, Some(view_range),
                             )
                         }
                         crate::data_types::AggregationMode::LTTB => {
                             crate::decimation::decimate_ilttb_arrays_par_into(
-                                x_slice, y_slice, max_points, output, gaps, Some(view_logical_range),
+                                x_slice, y_slice, max_points, output, gaps, Some(view_range),
                             )
                         }
                     };
@@ -615,7 +647,7 @@ impl PlotDataSource for PolarsDataSource {
                     };
 
                     crate::decimation::decimate_ohlcv_arrays_par_into(
-                        x_slice, o_slice, h_slice, l_slice, c_slice, max_points, output, gaps, Some(view_logical_range),
+                        x_slice, o_slice, h_slice, l_slice, c_slice, max_points, output, gaps, Some(view_range),
                     );
                     return;
                 }

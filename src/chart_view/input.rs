@@ -106,41 +106,91 @@ impl ChartInputHandler {
         });
     }
 
-            pub fn handle_global_mouse_move(
-                &self,
-                event: &MouseMoveEvent,
-                _win: &mut Window,
-                cx: &mut App,
-                view_entity_id: EntityId,
-            ) {
-                let axis_bounds_rc = self.last_render_axis_bounds.clone();
-                let pane_bounds_ref = self.pane_bounds.borrow(); // No clone!
-                let bh = self.bounds.borrow().size.height.as_f32();
-                let estimated_height = if bh > 0.0 { bh } else { 600.0 };
-                
-                struct PendingSharedState {
-                    mouse_pos: Option<Option<Point<Pixels>>>,
-                    hover_x: Option<Option<f64>>,
-                    active_chart_id: Option<Option<EntityId>>,
-                    box_zoom_current: Option<Point<Pixels>>,
+    pub fn handle_global_mouse_move(
+        &self,
+        event: &MouseMoveEvent,
+        _win: &mut Window,
+        cx: &mut App,
+        view_entity_id: EntityId,
+    ) {
+        let axis_bounds_rc = self.last_render_axis_bounds.clone();
+        let pane_bounds_ref = self.pane_bounds.borrow(); 
+        let container_bounds = self.bounds.borrow().clone();
+        let bh = container_bounds.size.height.as_f32();
+        let estimated_height = if bh > 0.0 { bh } else { 600.0 };
+
+        struct PendingSharedState {
+            mouse_pos: Option<Option<Point<Pixels>>>,
+            hover_x: Option<Option<f64>>,
+            active_chart_id: Option<Option<EntityId>>,
+            box_zoom_current: Option<Point<Pixels>>,
+            is_dragging: Option<bool>,
+        }
+
+        impl Default for PendingSharedState {
+            fn default() -> Self {
+                Self {
+                    mouse_pos: None,
+                    hover_x: None,
+                    active_chart_id: None,
+                    box_zoom_current: None,
+                    is_dragging: None,
                 }
-                
-                impl Default for PendingSharedState {
-                    fn default() -> Self {
-                        Self {
-                            mouse_pos: None,
-                            hover_x: None,
-                            active_chart_id: None,
-                            box_zoom_current: None,
-                        }
+            }
+        }
+
+        let mut pending = PendingSharedState::default();
+        let mut chart_needs_notify = false;
+
+        self.chart.update(cx, |c, cx| {
+            // 1. Safety: check if mouse is completely outside the chart view
+            let inside_chart = container_bounds.contains(&event.position);
+            
+            // 2. Safety: if we are dragging but the button is no longer pressed (released outside), reset drag state.
+            let mut any_drag_active = false;
+            for ps in c.panes.iter_mut() {
+                if let Some(button) = ps.drag_button {
+                    if event.pressed_button != Some(button) {
+                        ps.drag_start = None;
+                        ps.initial_drag_start = None;
+                        ps.drag_button = None;
+                        ps.velocity = Point::default();
+                        chart_needs_notify = true;
+                    } else {
+                        any_drag_active = true;
                     }
                 }
-        
-                let mut pending = PendingSharedState::default();
-                let mut chart_needs_notify = false;
-        
-                self.chart.update(cx, |c, cx| {
-                    if let Some(index) = c.dragging_splitter {
+            }
+            if let Some(drag_info) = &c.dragging_axis {
+                if event.pressed_button != Some(drag_info.button) {
+                    c.dragging_axis = None;
+                    c.last_mouse_pos = None;
+                    chart_needs_notify = true;
+                } else {
+                    any_drag_active = true;
+                }
+            }
+            if c.dragging_splitter.is_some() && event.pressed_button != Some(MouseButton::Left) {
+                c.dragging_splitter = None;
+                c.last_mouse_y = None;
+                chart_needs_notify = true;
+            }
+
+            if !any_drag_active && c.shared_state.read(cx).is_dragging {
+                pending.is_dragging = Some(false);
+                chart_needs_notify = true;
+            }
+
+            if !inside_chart && !any_drag_active {
+                if c.shared_state.read(cx).mouse_pos.is_some() {
+                    pending.mouse_pos = Some(None);
+                    pending.hover_x = Some(None);
+                    chart_needs_notify = true;
+                }
+                return;
+            }
+
+            if let Some(index) = c.dragging_splitter {
                         if let Some(last_y) = c.last_mouse_y {
                             let delta = event.position.y - last_y;
                             if delta.abs() > px(0.5) {
@@ -350,10 +400,11 @@ impl ChartInputHandler {
         
                     if !inside_any_pane {
                         let state = c.shared_state.read(cx);
-                        if !state.is_dragging && state.mouse_pos.is_some() {
+                        // Hide crosshair when outside panes, unless dragging
+                        if !state.is_dragging {
                              pending.mouse_pos = Some(None);
                              pending.hover_x = Some(None);
-                             if state.crosshair_enabled {
+                             if state.mouse_pos.is_some() {
                                  chart_needs_notify = true;
                              }
                         }
@@ -364,13 +415,14 @@ impl ChartInputHandler {
                     }
                 });
 
-                if pending.mouse_pos.is_some() || pending.hover_x.is_some() || pending.active_chart_id.is_some() || pending.box_zoom_current.is_some() {
+                if pending.mouse_pos.is_some() || pending.hover_x.is_some() || pending.active_chart_id.is_some() || pending.box_zoom_current.is_some() || pending.is_dragging.is_some() {
                     let shared_state = self.chart.read(cx).shared_state.clone();
                     shared_state.update(cx, |s, _| {
                         if let Some(mp) = pending.mouse_pos { s.mouse_pos = mp; }
                         if let Some(hx) = pending.hover_x { s.hover_x = hx; }
                         if let Some(id) = pending.active_chart_id { s.active_chart_id = id; }
                         if let Some(bz) = pending.box_zoom_current { s.box_zoom_current = Some(bz); }
+                        if let Some(d) = pending.is_dragging { s.is_dragging = d; }
                     });
                 }
             }

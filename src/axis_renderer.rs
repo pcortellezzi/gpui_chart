@@ -47,7 +47,7 @@ impl AxisRenderer {
         // Dynamic density calculation
         let margin = min_label_spacing.as_f32();
         let label_size_est = match format {
-            AxisFormat::Time(_) => 80.0 + margin,
+            AxisFormat::Time(..) => 80.0 + margin,
             AxisFormat::Numeric => 50.0 + margin,
         };
         let count = (max_px / label_size_est).floor() as usize;
